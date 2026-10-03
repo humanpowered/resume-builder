@@ -1,0 +1,123 @@
+{
+  "person": {
+    "name": "Harold Pemberly-Nash",
+    "preferred_name": "Hal",
+    "email": "hal.pemberlynash@example.com",
+    "phone": "(916) 555-0187",
+    "location": "Sacramento, CA",
+    "years_experience": 15,
+    "target_direction": "Instructional designer / learning experience designer (corporate L&D or K-12 ed-tech curriculum)"
+  },
+  "roles": [
+    {
+      "id": "r1",
+      "employer": "Millbrook High School (Millbrook Unified School District)",
+      "title": "Science Teacher (Chemistry, AP Chemistry, Physical Science); Science Department Chair 2020-2023",
+      "location": "Millbrook, CA",
+      "start": "2014-08",
+      "end": "present",
+      "context": "Comprehensive public high school, ~1,900 students. Teaches 5 sections (~165 students) per year. Department of 11 teachers when he was chair. Also paid summer curriculum writer for the district in 2019 and 2021.",
+      "accomplishments": [
+        {
+          "title": "Built Canvas chemistry course for remote learning",
+          "problem": "In March 2020 the district moved fully online with two weeks' notice; chemistry had no digital course and labs could not run in person.",
+          "actions": "Designed and built a full Chemistry course in Canvas: 42 modules with learning objectives, short screencast mini-lectures (Screencastify), PhET simulation-based virtual labs, auto-graded quizzes, and a consistent weekly module template. Shared the template with the department.",
+          "results": "All 4 chemistry teachers in the department (including him) adopted the module template for 2020-21; course was reused as the blended backbone after return to in-person.",
+          "evidence": "scope"
+        },
+        {
+          "title": "Raised AP Chemistry pass rate",
+          "problem": "AP Chemistry pass rate (score 3+) had been 58% in 2017 and enrollment was dropping.",
+          "actions": "Rebuilt the course around backward design: mapped every unit to College Board's Course and Exam Description learning objectives, added weekly spaced-retrieval quizzes and two full timed practice exams, and used item analysis on quizzes to reteach weak topics.",
+          "results": "Pass rate rose from 58% (2017) to 74% (2023), with enrollment growing from 19 to 31 students over the same period.",
+          "evidence": "metric"
+        },
+        {
+          "title": "Self-paced lab safety module",
+          "problem": "Lab safety orientation was a lecture that took 2 full class periods at the start of each year in every chemistry section, and students forgot rules by October.",
+          "actions": "Converted it into a self-paced Canvas module with scenario-based branching questions (built with Canvas quiz logic and Google Forms), a short video walk-through, and a mastery quiz requiring 90% to unlock lab access.",
+          "results": "He estimates orientation now takes about 1 class period instead of 2, across all 5 sections each year; safety contract completion became trackable in the gradebook. No incident data was tracked before or after.",
+          "evidence": "derived"
+        },
+        {
+          "title": "District PD workshop on formative assessment with Google Forms",
+          "problem": "District wanted teachers to use quick formative checks after the 1:1 Chromebook rollout but most staff had not used the tools.",
+          "actions": "Designed and delivered a 90-minute hands-on professional development session (needs survey beforehand, practice activity, exit ticket), plus a follow-up job aid.",
+          "results": "Delivered at two district PD days in 2019 to about 60 teachers total; exit-ticket rating averaged 4.6/5.",
+          "evidence": "metric"
+        },
+        {
+          "title": "NGSS-aligned physical science unit rewrite (summer curriculum writer)",
+          "problem": "District's 9th-grade physical science units were not aligned to NGSS performance expectations ahead of state assessment changes.",
+          "actions": "As a paid summer curriculum writer (2019, 2021), co-wrote 3 of the 8 units with storyline phenomena, assessment rubrics, and teacher guides.",
+          "results": "Units are used by all 9th-grade physical science teachers in the district's 3 high schools.",
+          "evidence": "scope"
+        },
+        {
+          "title": "Department chair: new teacher onboarding",
+          "problem": "Department had 4 new teachers in two years with no onboarding beyond HR paperwork.",
+          "actions": "Created a shared onboarding binder (curriculum maps, lab prep procedures, chemical inventory process) and paired each new teacher with a buddy.",
+          "results": "Qualitative: new teachers described it as the most useful thing they got their first year; adopted by the math department in 2023.",
+          "evidence": "qualitative"
+        }
+      ]
+    },
+    {
+      "id": "r2",
+      "employer": "Riverside Middle School (Delta Oaks School District)",
+      "title": "7th Grade Science Teacher",
+      "location": "Stockton, CA",
+      "start": "2011-08",
+      "end": "2014-06",
+      "context": "Title I middle school; ~150 students per year, high proportion of English learners.",
+      "accomplishments": [
+        {
+          "title": "Sentence frames and visual vocabulary for English learners",
+          "problem": "English learners struggled with science vocabulary in written lab conclusions.",
+          "actions": "Developed sentence frames, illustrated word walls, and a CER (claim-evidence-reasoning) graphic organizer used in every lab.",
+          "results": "Qualitative: shared with the 7th grade team and used by the ELD coordinator as a model; no formal data.",
+          "evidence": "qualitative"
+        },
+        {
+          "title": "Middle school science fair coordination",
+          "problem": "School had no science fair for several years.",
+          "actions": "Organized a school science fair with judging rubric and parent volunteers.",
+          "results": "About 90 students participated in the first year (2013).",
+          "evidence": "scope"
+        }
+      ]
+    }
+  ],
+  "skills": [
+    {"skill": "Backward design / Understanding by Design", "proven_by": ["Raised AP Chemistry pass rate", "NGSS-aligned physical science unit rewrite (summer curriculum writer)"]},
+    {"skill": "Learning objectives and assessment alignment", "proven_by": ["Raised AP Chemistry pass rate", "Built Canvas chemistry course for remote learning"]},
+    {"skill": "Canvas LMS course building", "proven_by": ["Built Canvas chemistry course for remote learning", "Self-paced lab safety module"]},
+    {"skill": "Scenario-based / branching assessment design", "proven_by": ["Self-paced lab safety module"]},
+    {"skill": "Video / screencast production (Screencastify)", "proven_by": ["Built Canvas chemistry course for remote learning", "Self-paced lab safety module"]},
+    {"skill": "Adult learning / facilitating professional development", "proven_by": ["District PD workshop on formative assessment with Google Forms"]},
+    {"skill": "Needs analysis (surveys) and evaluation (exit tickets, item analysis)", "proven_by": ["District PD workshop on formative assessment with Google Forms", "Raised AP Chemistry pass rate"]},
+    {"skill": "Job aids and documentation", "proven_by": ["District PD workshop on formative assessment with Google Forms", "Department chair: new teacher onboarding"]},
+    {"skill": "NGSS curriculum writing", "proven_by": ["NGSS-aligned physical science unit rewrite (summer curriculum writer)"]},
+    {"skill": "Universal Design for Learning / supports for English learners", "proven_by": ["Sentence frames and visual vocabulary for English learners"]},
+    {"skill": "Articulate Rise 360 (beginner)", "proven_by": [], "note": "Built one practice course during a 30-day free trial in 2026; no professional work product."}
+  ],
+  "education": [
+    {"degree": "M.A. Education, Curriculum & Instruction", "institution": "Pacific Crest University", "year": 2016},
+    {"degree": "B.S. Biology", "institution": "Pacific Crest University", "year": 2010}
+  ],
+  "certifications": [
+    {"name": "California Single Subject Teaching Credential: Science (Chemistry; Biological Sciences)", "issuer": "California Commission on Teacher Credentialing", "status": "clear, active"},
+    {"name": "Instructional Design Foundations (online course, certificate of completion)", "issuer": "Online course provider (non-accredited)", "status": "completed 2026"}
+  ],
+  "do_not_claim": [
+    "Articulate Storyline 360 or Adobe Captivate experience",
+    "SCORM / xAPI packaging or LMS administration",
+    "Corporate L&D or instructional designer job title",
+    "ATD CPTD or any accredited instructional design certification",
+    "Formal ADDIE project ownership in a business setting (he knows the model, has applied backward design)",
+    "Measured business impact (ROI, Kirkpatrick Level 3/4 evaluation)",
+    "Graphic design tools (Adobe Illustrator, Photoshop)",
+    "That the lab safety module reduced accidents or injuries (no data)",
+    "That he built the whole district curriculum (he co-wrote 3 of 8 units)"
+  ]
+}

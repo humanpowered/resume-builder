@@ -1,0 +1,7 @@
+# A person's record is theirs, not the tool's
+record.md
+.record.*
+*.tmp
+evals/results/
+__pycache__/
+*.pyc

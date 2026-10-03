@@ -1,0 +1,34 @@
+Theo Marchbanks
+Software Engineer
+Denver, CO • theo.marchbanks@example.com • 303-555-0164 • github.com/example-tmarchbanks
+
+TECHNICAL SKILLS
+Languages: Python, Go, JavaScript, TypeScript, SQL, Java, C++, Bash
+Frameworks: Django, Flask, FastAPI, React, Node.js
+Cloud/Tools: AWS, Docker, Kubernetes, Terraform, Kafka, PostgreSQL, Redis, Git, Jira, Datadog
+
+EXPERIENCE
+
+Parcelwise — Software Engineer II
+Sep 2021 – Present
+• Backend development for shipping platform using Python and Go
+• Worked on label generation service
+• Helped migrate services to event driven architecture
+• Participated in on-call rotation
+• Code reviews and mentoring
+• Worked on cost optimization for AWS
+
+Tillery Health — Software Engineer
+July 2018 - Aug 2021
+• Developed features for patient scheduling web app (Django/React)
+• Wrote unit tests and integration tests
+• Worked on SMS reminders feature
+• Fixed bugs
+• Agile/Scrum
+
+Tillery Health — Software Engineering Intern
+Summer 2017
+• Built internal tool
+
+EDUCATION
+B.S. Computer Science, Front Range State University — 2018

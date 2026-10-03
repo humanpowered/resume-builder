@@ -1,0 +1,139 @@
+{
+  "person": {
+    "name": "Theo Marchbanks",
+    "email": "theo.marchbanks@example.com",
+    "phone": "(303) 555-0164",
+    "location": "Denver, CO",
+    "years_experience": 8,
+    "target_direction": "Senior / mid-level backend or full-stack software engineer"
+  },
+  "roles": [
+    {
+      "id": "r1",
+      "employer": "Parcelwise",
+      "title": "Software Engineer II",
+      "location": "Denver, CO (hybrid)",
+      "start": "2021-09",
+      "end": "present",
+      "context": "B2B shipping and logistics SaaS; ~1,800 business customers, ~140,000 shipments per day at peak season. Member of the 6-engineer Labels & Carriers team. Stack: Python (FastAPI), Go, PostgreSQL, Redis, Kafka (Amazon MSK), AWS (ECS Fargate, SQS, Lambda, S3), Terraform, Datadog.",
+      "accomplishments": [
+        {
+          "title": "Event-driven label generation pipeline",
+          "problem": "Shipping labels were generated synchronously inside the API request; at peak, p95 latency hit 9 seconds and carrier API timeouts caused failed requests for customers.",
+          "actions": "Designed (with his tech lead's review) and implemented an asynchronous pipeline: API publishes a Kafka event, a Go worker service calls carrier APIs with retries and idempotency keys, and results are pushed back via webhook and polling endpoint. Wrote the design doc, the Go worker, and the migration plan with a feature flag for gradual rollout.",
+          "results": "p95 label request latency dropped from 9.0s to 1.2s; label failure rate during 2023 peak season fell from 2.3% to 0.4% of requests.",
+          "evidence": "metric"
+        },
+        {
+          "title": "AWS cost reduction for team services",
+          "problem": "Team's AWS spend had crept up with oversized ECS tasks and S3 label PDFs kept forever.",
+          "actions": "Right-sized ECS Fargate task definitions using Datadog utilization data, added S3 lifecycle rules to move label PDFs to Glacier after 90 days, and removed an idle staging RDS instance.",
+          "results": "He knows the team's monthly AWS bill was about $11,000 before and about $6,800 after (roughly $50K per year). Before/after only; no detailed attribution per change.",
+          "evidence": "derived"
+        },
+        {
+          "title": "CI pipeline speedup",
+          "problem": "The monorepo CI run took 38 minutes and flaky integration tests forced frequent reruns, slowing merges for 3 teams.",
+          "actions": "Parallelized pytest with test sharding, replaced shared test database with per-shard Postgres containers, quarantined and fixed 23 flaky tests, and added dependency caching in GitHub Actions.",
+          "results": "Median CI time fell from 38 to 14 minutes; reruns due to flakes dropped from roughly 1 in 5 builds to about 1 in 30.",
+          "evidence": "metric"
+        },
+        {
+          "title": "Carrier integration framework",
+          "problem": "Each new carrier integration was a copy-paste of the previous one and took about 6 weeks.",
+          "actions": "Extracted a common Go interface and contract-test suite for carrier adapters; wrote the internal guide.",
+          "results": "Team shipped 4 new regional carrier integrations in 2024 using the framework; he built 2 of them himself.",
+          "evidence": "scope"
+        },
+        {
+          "title": "On-call runbooks and intern mentoring",
+          "problem": "On-call engineers lacked runbooks for label pipeline alerts; team had two summer interns with no defined onboarding.",
+          "actions": "Wrote runbooks for the 12 most frequent alerts, and mentored 2 interns (2023, 2024) through their summer projects.",
+          "results": "Qualitative: both interns received return offers; teammates cite the runbooks in incident reviews. No MTTR data collected.",
+          "evidence": "qualitative"
+        }
+      ]
+    },
+    {
+      "id": "r2",
+      "employer": "Tillery Health",
+      "title": "Software Engineer",
+      "location": "Denver, CO",
+      "start": "2018-07",
+      "end": "2021-08",
+      "context": "Patient scheduling and reminder SaaS for outpatient clinics (~350 clinics). Django + React + PostgreSQL on AWS (EC2, RDS). Team of 5 engineers.",
+      "accomplishments": [
+        {
+          "title": "SMS appointment reminder service",
+          "problem": "Clinics reported high no-show rates and reminders were only sent by email.",
+          "actions": "Built the SMS reminder service (Django, Celery, Twilio API) including patient opt-in/opt-out handling and scheduling windows per clinic time zone.",
+          "results": "In the 3-month pilot across 40 clinics, no-show rate went from 18% to 13% (company-measured; feature built by him and one other engineer).",
+          "evidence": "metric"
+        },
+        {
+          "title": "HIPAA audit logging",
+          "problem": "Company needed an access audit trail for PHI ahead of a large health-system customer security review.",
+          "actions": "Implemented audit logging middleware for all PHI read/write endpoints, with a tamper-evident log table and an admin export.",
+          "results": "Passed the customer's security review; contract signed. He does not know the contract value.",
+          "evidence": "qualitative"
+        },
+        {
+          "title": "Python 2 to 3 migration",
+          "problem": "Codebase was still on Python 2.7 approaching end of life.",
+          "actions": "Migrated about 60% of the ~80K-line Django codebase to Python 3 and fixed the test suite.",
+          "results": "Completed migration with the team in Q1 2020, ahead of the customer-facing deadline.",
+          "evidence": "scope"
+        }
+      ]
+    },
+    {
+      "id": "r3",
+      "employer": "Tillery Health",
+      "title": "Software Engineering Intern",
+      "location": "Denver, CO",
+      "start": "2017-05",
+      "end": "2017-08",
+      "context": "Summer internship.",
+      "accomplishments": [
+        {
+          "title": "Internal support ticket dashboard",
+          "problem": "Support team tracked clinic issues in spreadsheets.",
+          "actions": "Built a small Flask dashboard pulling Zendesk tickets by clinic.",
+          "results": "Used by the 4-person support team; led to full-time offer.",
+          "evidence": "scope"
+        }
+      ]
+    }
+  ],
+  "skills": [
+    {"skill": "Python (FastAPI, Django, Celery, pytest)", "proven_by": ["CI pipeline speedup", "SMS appointment reminder service", "Python 2 to 3 migration"]},
+    {"skill": "Go", "proven_by": ["Event-driven label generation pipeline", "Carrier integration framework"]},
+    {"skill": "Event-driven architecture / Kafka", "proven_by": ["Event-driven label generation pipeline"]},
+    {"skill": "Distributed systems reliability (retries, idempotency, feature flags)", "proven_by": ["Event-driven label generation pipeline"]},
+    {"skill": "AWS (ECS Fargate, S3, RDS, SQS, Lambda)", "proven_by": ["AWS cost reduction for team services", "Event-driven label generation pipeline"]},
+    {"skill": "Terraform", "proven_by": ["AWS cost reduction for team services"]},
+    {"skill": "PostgreSQL", "proven_by": ["CI pipeline speedup", "HIPAA audit logging"]},
+    {"skill": "CI/CD (GitHub Actions)", "proven_by": ["CI pipeline speedup"]},
+    {"skill": "Observability (Datadog), on-call, runbooks", "proven_by": ["On-call runbooks and intern mentoring", "AWS cost reduction for team services"]},
+    {"skill": "Third-party API integration (carrier APIs, Twilio)", "proven_by": ["Carrier integration framework", "SMS appointment reminder service"]},
+    {"skill": "HIPAA / security-conscious development", "proven_by": ["HIPAA audit logging"]},
+    {"skill": "React (working knowledge)", "proven_by": [], "note": "Fixed bugs and built small forms at Tillery; not his main focus."},
+    {"skill": "Technical writing (design docs, guides)", "proven_by": ["Event-driven label generation pipeline", "Carrier integration framework"]}
+  ],
+  "education": [
+    {"degree": "B.S. Computer Science", "institution": "Front Range State University", "year": 2018}
+  ],
+  "certifications": [],
+  "do_not_claim": [
+    "Production Kubernetes experience (only local minikube experiments; Parcelwise runs on ECS)",
+    "Java or C++ professional experience (only coursework)",
+    "Node.js backend in production",
+    "TypeScript as a primary language (small amounts only)",
+    "Team lead, tech lead, or people management title",
+    "Sole architect of the label pipeline (tech lead reviewed and co-owned design)",
+    "Machine learning or data science",
+    "Scale claims like 'millions of users' (customers ~1,800 businesses, ~140K shipments/day)",
+    "PCI DSS compliance experience",
+    "AWS certifications"
+  ]
+}

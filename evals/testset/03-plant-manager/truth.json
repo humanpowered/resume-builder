@@ -1,0 +1,173 @@
+{
+  "person": {
+    "name": "Gerald Fenwick-Starr",
+    "email": "gerald.fenwickstarr@example.com",
+    "phone": "(616) 555-0119",
+    "location": "Holland, MI",
+    "years_experience": 21,
+    "target_direction": "Plant manager in another industry, or director of operations"
+  },
+  "roles": [
+    {
+      "id": "r1",
+      "employer": "Halvorsen Molded Products",
+      "title": "Plant Manager",
+      "location": "Zeeland, MI",
+      "start": "2018-03",
+      "end": "present",
+      "context": "Single-site Tier 2 automotive supplier of injection-molded interior trim and under-hood components. 210 employees (186 hourly, United Steelworkers local), 3 shifts, 42 presses (85 to 1,100 ton). Plant P&L owner reporting to the COO: about $96M annual sales, $38M controllable operating budget. 7 direct reports (production, maintenance, quality, EHS, materials, engineering, HR generalist).",
+      "accomplishments": [
+        {
+          "title": "OEE improvement program",
+          "problem": "Plant-wide OEE was 61% in 2018 with frequent unplanned press downtime and no consistent downtime tracking.",
+          "actions": "Installed press-level downtime tracking linked to Plex MES, started tiered daily accountability meetings (cell, department, plant), launched TPM with operator autonomous maintenance checklists on the 12 highest-volume presses, and prioritized mold PM.",
+          "results": "OEE rose from 61% (2018) to 78% (2024); unplanned downtime cut roughly in half. Avoided a planned $2.4M capital purchase of two additional presses because recovered capacity covered a new program launch.",
+          "evidence": "metric"
+        },
+        {
+          "title": "Scrap reduction",
+          "problem": "Scrap ran 4.8% of material cost, mostly short shots, splay, and flash on three high-volume part families.",
+          "actions": "Ran Green Belt DMAIC projects with the quality and process engineers: scientific molding process windows, resin drying verification, and standard work for startups after mold changes.",
+          "results": "Scrap fell from 4.8% to 2.1% of material cost, about $610K annual savings in resin and rework.",
+          "evidence": "metric"
+        },
+        {
+          "title": "Safety turnaround",
+          "problem": "TRIR was 4.2 in 2018 with repeated hand and ergonomic injuries; corporate flagged the site.",
+          "actions": "Started daily safety Gemba walks, a near-miss reporting program with no-blame follow-up, light-curtain and guarding audits on all presses, and an ergonomics review of the 10 worst-rated jobs with the joint union-management safety committee.",
+          "results": "TRIR dropped from 4.2 to 1.3 by 2023; plant reached 500 days without a lost-time injury in 2024.",
+          "evidence": "metric"
+        },
+        {
+          "title": "IATF 16949 certification",
+          "problem": "Major OEM customer required the plant to move from ISO 9001 to IATF 16949 by end of 2019 to stay on bid lists.",
+          "actions": "Sponsored the transition: funded a quality systems coordinator, led management reviews, drove PFMEA and control plan updates for all active part numbers, and personally ran the layered process audit program.",
+          "results": "Certified on first attempt in Nov 2019 with zero major nonconformances; plant remained eligible for two new programs worth about $14M in annual sales.",
+          "evidence": "metric"
+        },
+        {
+          "title": "Union relations during contract renewal",
+          "problem": "2021 contract renewal came after a difficult prior negotiation and grievance backlog of 30+ open items.",
+          "actions": "Held monthly labor-management meetings, worked the grievance backlog down before talks, and was a member of the company bargaining team.",
+          "results": "Contract ratified without work stoppage; grievance backlog cleared. He describes the relationship as 'night and day' compared with 2018. No quantifiable outcome beyond that.",
+          "evidence": "qualitative"
+        }
+      ]
+    },
+    {
+      "id": "r2",
+      "employer": "Brightline Packaging Co.",
+      "title": "Production Manager",
+      "location": "Grand Rapids, MI",
+      "start": "2012-06",
+      "end": "2018-02",
+      "context": "Thermoformed and printed food-service packaging (cups, lids, clamshells). Managed thermoforming and printing departments: 4 supervisors, about 95 hourly employees (Teamsters), 14 thermoforming lines and 3 printing presses.",
+      "accomplishments": [
+        {
+          "title": "SMED changeover reduction on thermoforming lines",
+          "problem": "Tool changeovers on thermoformers were long and unpredictable, so scheduling ran long runs and built excess inventory.",
+          "actions": "Led a SMED kaizen: moved tasks external, staged tooling carts, standardized clamps, and created changeover checklists; trained all 4 supervisors to run follow-on events.",
+          "results": "He remembers changeovers going from about 90 minutes to about 25, with roughly 30 changeovers a week across the 14 lines. Finished-goods inventory dropped, but he does not know by how much.",
+          "evidence": "derived"
+        },
+        {
+          "title": "Customer complaint reduction on printed cups",
+          "problem": "A national quick-service restaurant customer issued a corrective action for print registration defects.",
+          "actions": "Ran root cause analysis (5-why, fishbone) with the press crew, added first-piece inspection and hourly print checks with go/no-go standards.",
+          "results": "Corrective action closed in 60 days and the customer did not re-source the business (about $8M per year account). No complaint-rate data retained.",
+          "evidence": "qualitative"
+        },
+        {
+          "title": "Cross-training matrix for printing department",
+          "problem": "Only 2 people per shift could run the 8-color press, causing overtime and missed shipments when they were absent.",
+          "actions": "Built a skills matrix and cross-training plan; paired senior operators with trainees.",
+          "results": "Qualified operators went from 6 to 15 across 3 shifts; department overtime fell from about 14% to 8% of hours.",
+          "evidence": "metric"
+        }
+      ]
+    },
+    {
+      "id": "r3",
+      "employer": "Brightline Packaging Co.",
+      "title": "Production Supervisor, 2nd Shift",
+      "location": "Grand Rapids, MI",
+      "start": "2008-04",
+      "end": "2012-05",
+      "context": "Supervised about 30 hourly employees on 2nd shift across thermoforming.",
+      "accomplishments": [
+        {
+          "title": "2nd shift attendance improvement",
+          "problem": "2nd shift had the worst attendance and the most missed production targets.",
+          "actions": "Introduced shift-start huddles, posted hourly production boards, and applied the attendance policy consistently with the union steward.",
+          "results": "Qualitative: shift went from last to first in plant attainment rankings within about a year; no records kept.",
+          "evidence": "qualitative"
+        },
+        {
+          "title": "New hire training standard work",
+          "problem": "New operators were trained inconsistently by whoever was available.",
+          "actions": "Wrote job instruction sheets for 6 core thermoforming jobs using TWI Job Instruction method.",
+          "results": "Sheets adopted by all 3 shifts.",
+          "evidence": "scope"
+        }
+      ]
+    },
+    {
+      "id": "r4",
+      "employer": "Carrow Industrial",
+      "title": "Process Engineer",
+      "location": "Muskegon, MI",
+      "start": "2005-06",
+      "end": "2008-03",
+      "context": "Metal stamping and welded assemblies for appliance OEMs.",
+      "accomplishments": [
+        {
+          "title": "Weld cell fixture redesign",
+          "problem": "A robotic weld cell had high rework from part misalignment.",
+          "actions": "Redesigned fixture locating pins and clamps (AutoCAD), validated with a capability study in Minitab.",
+          "results": "Weld rework on that cell dropped from about 6% to under 1%; Cpk on the critical dimension went from 0.9 to 1.5.",
+          "evidence": "metric"
+        },
+        {
+          "title": "PFMEA facilitation",
+          "problem": "PFMEAs were out of date for older part numbers.",
+          "actions": "Facilitated PFMEA updates with cross-functional teams for 12 part families.",
+          "results": "Scope only.",
+          "evidence": "scope"
+        }
+      ]
+    }
+  ],
+  "skills": [
+    {"skill": "Plant P&L and operating budget management", "proven_by": ["OEE improvement program", "Scrap reduction"]},
+    {"skill": "Lean manufacturing (TPM, SMED, tiered accountability, standard work)", "proven_by": ["OEE improvement program", "SMED changeover reduction on thermoforming lines", "New hire training standard work"]},
+    {"skill": "Six Sigma Green Belt / DMAIC", "proven_by": ["Scrap reduction", "Weld cell fixture redesign"]},
+    {"skill": "OEE and downtime analysis", "proven_by": ["OEE improvement program"]},
+    {"skill": "EHS / OSHA safety leadership", "proven_by": ["Safety turnaround"]},
+    {"skill": "IATF 16949 / ISO 9001 quality systems, PFMEA, control plans, LPA", "proven_by": ["IATF 16949 certification", "PFMEA facilitation"]},
+    {"skill": "Injection molding (scientific molding)", "proven_by": ["Scrap reduction", "OEE improvement program"]},
+    {"skill": "Thermoforming and flexographic printing", "proven_by": ["SMED changeover reduction on thermoforming lines", "Customer complaint reduction on printed cups"]},
+    {"skill": "Labor relations in union environments (USW, Teamsters)", "proven_by": ["Union relations during contract renewal", "2nd shift attendance improvement"]},
+    {"skill": "Root cause analysis / customer corrective action (8D, 5-why)", "proven_by": ["Customer complaint reduction on printed cups"]},
+    {"skill": "Workforce development (skills matrix, TWI)", "proven_by": ["Cross-training matrix for printing department", "New hire training standard work"]},
+    {"skill": "Plex ERP/MES, Minitab, AutoCAD (basic)", "proven_by": ["OEE improvement program", "Weld cell fixture redesign"]}
+  ],
+  "education": [
+    {"degree": "B.S. Mechanical Engineering", "institution": "Western Lakes University", "year": 2005}
+  ],
+  "certifications": [
+    {"name": "Lean Six Sigma Green Belt", "issuer": "Grand Valley Manufacturing Institute (training provider)", "status": "certified", "year": 2011},
+    {"name": "OSHA 30-Hour General Industry", "issuer": "OSHA Outreach Training Program", "status": "card held", "year": 2018}
+  ],
+  "do_not_claim": [
+    "Six Sigma Black Belt",
+    "Professional Engineer (PE) license",
+    "MBA",
+    "Multi-site or multi-plant responsibility",
+    "Food manufacturing safety programs (SQF, BRC, HACCP, FSMA); Brightline made food-service packaging, which is food-contact but he was not the food-safety program owner",
+    "FDA-regulated manufacturing experience",
+    "P&L larger than about $96M sales / $38M controllable budget",
+    "Greenfield plant start-up or plant closure",
+    "SAP experience (he has used Plex only)",
+    "Precise finished-goods inventory reduction from SMED (not known)"
+  ]
+}

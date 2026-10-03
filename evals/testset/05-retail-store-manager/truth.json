@@ -1,0 +1,154 @@
+{
+  "person": {
+    "name": "Lucinda Harrowgate",
+    "email": "lucinda.harrowgate@example.com",
+    "phone": "(918) 555-0133",
+    "location": "Tulsa, OK",
+    "years_experience": 16,
+    "target_direction": "District / multi-unit manager, or store manager at a larger-volume store"
+  },
+  "roles": [
+    {
+      "id": "r1",
+      "employer": "Kestrel Home Goods",
+      "title": "Store Manager (Store #212)",
+      "location": "Tulsa, OK",
+      "start": "2019-04",
+      "end": "present",
+      "context": "Big-box home goods store, 38,000 sq ft. Annual sales about $14.5M (FY2024). 62 associates (about 20 full-time), 3 assistant store managers and 5 department leads. Owns store-level four-wall P&L lines she can control: payroll (about 9.5% of sales), shrink, supplies, and sales. Systems: Oracle Retail POS, Kronos/UKG Workforce scheduling, Reflexis task management.",
+      "accomplishments": [
+        {
+          "title": "Shrink reduction",
+          "problem": "Store shrink was 2.9% of sales at the 2019 physical inventory, among the worst in the 14-store district; mostly paperwork/receiving errors plus organized retail theft in small electrics and bedding.",
+          "actions": "Retrained receiving on vendor direct-store-delivery check-in, started weekly audit of damaged/RTV logs, moved high-theft SKUs to locked fixtures and front endcaps with the district LP manager, and added shrink results to associate huddles.",
+          "results": "Shrink fell from 2.9% (2019) to 1.4% at the FY2024 physical inventory, roughly $215K per year at current sales volume.",
+          "evidence": "metric"
+        },
+        {
+          "title": "Associate turnover reduction",
+          "problem": "Annualized hourly turnover was 78% and the store was constantly short-staffed and spending managers' time on hiring.",
+          "actions": "Rebuilt the first-two-weeks onboarding (buddy, checklists, 30-day check-in), posted schedules 3 weeks out instead of 1 week in UKG, and created a cross-training path so part-timers could pick up more hours.",
+          "results": "Hourly turnover went from 78% (FY2019) to 52% (FY2024).",
+          "evidence": "metric"
+        },
+        {
+          "title": "Comparable sales growth above district",
+          "problem": "Store had been flat-to-negative comp for three years before she arrived.",
+          "actions": "Focused department leads on in-stock and recovery standards by 10am, rolled out associate add-on selling for bedding and window treatments, and reset seasonal layout to company planogram on time.",
+          "results": "FY2024 comp sales +6.8% versus district average +2.1%; store ranked #2 of 14 in the district for FY2024.",
+          "evidence": "metric"
+        },
+        {
+          "title": "Freight processing workflow",
+          "problem": "Truck freight often sat in the stockroom and was still being worked on the floor in the afternoon, blocking aisles during peak shopping and causing out-of-stocks.",
+          "actions": "Moved the freight team start time to 5am, set up sort-by-department pallet staging and a zone-based putaway routine.",
+          "results": "She says freight used to be finished around 2pm and is now done by about 10am, with 3 trucks per week. No formal tracking.",
+          "evidence": "derived"
+        },
+        {
+          "title": "Developing associates into management",
+          "problem": "Store relied on external hires for department leads and ASMs.",
+          "actions": "Created an informal leadership development program (shadow shifts, key holder training, quarterly development conversations).",
+          "results": "Promoted 4 associates to department lead and 2 department leads to assistant store manager since 2019; one ASM later became a store manager in another district.",
+          "evidence": "scope"
+        },
+        {
+          "title": "Curbside pickup launch during 2020 closures",
+          "problem": "In spring 2020 the store was closed to in-person shopping and company launched curbside pickup with one week's notice.",
+          "actions": "Reorganized the front of store into a BOPIS staging area, redeployed associates to picking, and set up a phone queue for customers.",
+          "results": "Qualitative: kept all full-time associates working through the closure; district manager used her staging layout as an example for other stores. No numbers kept.",
+          "evidence": "qualitative"
+        }
+      ]
+    },
+    {
+      "id": "r2",
+      "employer": "Kestrel Home Goods",
+      "title": "Assistant Store Manager (Store #187)",
+      "location": "Broken Arrow, OK",
+      "start": "2016-02",
+      "end": "2019-03",
+      "context": "About $11M annual sales store; responsible for operations/receiving and the back of house team of 12.",
+      "accomplishments": [
+        {
+          "title": "Inventory accuracy through cycle counts",
+          "problem": "Perpetual inventory was unreliable, causing phantom on-hands and missed replenishment.",
+          "actions": "Set up a daily cycle count routine by department and trained receiving associates on correcting on-hands.",
+          "results": "Cycle count accuracy improved from 92% to 98% over 2017.",
+          "evidence": "metric"
+        },
+        {
+          "title": "Holiday seasonal hiring",
+          "problem": "Store needed to staff up quickly every Q4.",
+          "actions": "Ran hiring events and seasonal onboarding.",
+          "results": "Hired and onboarded about 25 seasonal associates each holiday season (2016-2018).",
+          "evidence": "scope"
+        }
+      ]
+    },
+    {
+      "id": "r3",
+      "employer": "Pinewood Outfitters",
+      "title": "Department Supervisor, Footwear & Apparel",
+      "location": "Tulsa, OK",
+      "start": "2012-05",
+      "end": "2016-01",
+      "context": "Sporting goods store; supervised a team of 8 associates.",
+      "accomplishments": [
+        {
+          "title": "Footwear fitting service",
+          "problem": "Running shoe sales were losing to specialty stores.",
+          "actions": "Trained her team on gait-based fitting and product knowledge from vendor reps.",
+          "results": "Qualitative: department earned a regional customer service award in 2014; no sales data retained.",
+          "evidence": "qualitative"
+        }
+      ]
+    },
+    {
+      "id": "r4",
+      "employer": "Pinewood Outfitters",
+      "title": "Sales Associate",
+      "location": "Tulsa, OK",
+      "start": "2010-08",
+      "end": "2012-04",
+      "context": "Part-time then full-time.",
+      "accomplishments": [
+        {
+          "title": "Promotion to department supervisor",
+          "problem": "N/A",
+          "actions": "Became key holder in year one, consistently top seller of protection plans on her shift.",
+          "results": "Promoted to department supervisor after 21 months.",
+          "evidence": "qualitative"
+        }
+      ]
+    }
+  ],
+  "skills": [
+    {"skill": "Store P&L levers: payroll, shrink, sales", "proven_by": ["Shrink reduction", "Comparable sales growth above district"]},
+    {"skill": "Loss prevention / shrink control", "proven_by": ["Shrink reduction"]},
+    {"skill": "Talent development and succession", "proven_by": ["Developing associates into management", "Associate turnover reduction"]},
+    {"skill": "Retention and onboarding", "proven_by": ["Associate turnover reduction", "Holiday seasonal hiring"]},
+    {"skill": "Labor scheduling (UKG/Kronos)", "proven_by": ["Associate turnover reduction"]},
+    {"skill": "Inventory management (receiving, cycle counts, DSD)", "proven_by": ["Inventory accuracy through cycle counts", "Shrink reduction", "Freight processing workflow"]},
+    {"skill": "Omnichannel / BOPIS operations", "proven_by": ["Curbside pickup launch during 2020 closures"]},
+    {"skill": "Visual merchandising and planogram compliance", "proven_by": ["Comparable sales growth above district"]},
+    {"skill": "Sales coaching / add-on selling", "proven_by": ["Comparable sales growth above district", "Footwear fitting service"]}
+  ],
+  "education": [
+    {"degree": "Coursework toward A.A.S. Business Management (45 of 60 credits; did not complete)", "institution": "Green Country Community College", "year": "2008-2010"}
+  ],
+  "certifications": [
+    {"name": "Kestrel Home Goods Store Leadership Certification (internal program)", "issuer": "Kestrel Home Goods", "status": "completed", "year": 2018}
+  ],
+  "do_not_claim": [
+    "An associate's or bachelor's degree (education entry is incomplete coursework)",
+    "Multi-unit or district manager experience (she has covered for her DM informally but held no such title)",
+    "Full P&L ownership including rent/occupancy and capital",
+    "Fluent Spanish",
+    "ServSafe Manager or any food-safety certification",
+    "Grocery, pharmacy, or perishables experience",
+    "Store opening (new store launch) experience",
+    "Dollar figure for comp sales growth (only percentages known; do not invent)",
+    "Measured freight-time study (2pm to 10am is her estimate)"
+  ]
+}

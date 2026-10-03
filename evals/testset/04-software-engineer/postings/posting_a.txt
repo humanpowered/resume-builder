@@ -1,0 +1,29 @@
+Senior Backend Engineer, Platform
+Quillmesh - Remote (US, Mountain/Pacific time zones preferred)
+
+About Quillmesh
+Quillmesh is a fleet telematics platform that ingests real-time GPS and engine data from more than 400,000 commercial vehicles. Our customers use Quillmesh to route trucks, monitor driver safety, and stay compliant with ELD regulations.
+
+About the Team
+The Platform team owns our ingestion pipeline, core APIs, and the shared infrastructure every product team builds on. We run Go services on Kubernetes (EKS), use Kafka for streaming, and manage everything with Terraform.
+
+What You'll Do
+- Design, build, and operate high-throughput Go services processing more than 50,000 events per second
+- Improve the reliability and latency of our streaming pipeline (Kafka, Flink)
+- Own services end to end: design docs, implementation, testing, deployment, and on-call
+- Evolve our Kubernetes platform and developer tooling (Helm, Argo CD)
+- Mentor engineers and lead technical design reviews
+
+Requirements
+- 5+ years of professional software engineering experience
+- Strong proficiency in Go
+- Experience building and operating distributed systems and event streaming (Kafka or similar)
+- Production experience with Kubernetes
+- Experience with AWS and infrastructure-as-code (Terraform)
+- Experience participating in on-call and incident response
+
+Nice to Have
+- Experience with Apache Flink or other stream processing frameworks
+- Background in logistics, transportation, or IoT
+- Experience with time-series databases (TimescaleDB, InfluxDB)
+- Experience leading cross-team technical projects

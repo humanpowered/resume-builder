@@ -1,0 +1,149 @@
+{
+  "person": {
+    "name": "Jolene Marrowfield",
+    "credentials_suffix": "BSN, RN, CCRN",
+    "email": "jolene.marrowfield@example.com",
+    "phone": "(614) 555-0142",
+    "location": "Columbus, OH",
+    "years_experience": 13,
+    "target_direction": "ICU charge / relief charge leadership, or a move into clinical informatics"
+  },
+  "roles": [
+    {
+      "id": "r1",
+      "employer": "Cedar Valley Regional Medical Center",
+      "title": "Registered Nurse, Medical ICU (Relief Charge Nurse since 2021)",
+      "location": "Columbus, OH",
+      "start": "2017-06",
+      "end": "present",
+      "context": "24-bed Medical ICU in a 410-bed Level II trauma center; typical assignment 1:2, 1:1 for CRRT or unstable patients; 12-hour nights until 2020, days since. Relief charge about 6 shifts per month since March 2021.",
+      "accomplishments": [
+        {
+          "title": "CLABSI prevention bundle champion",
+          "problem": "The MICU had 4 central line-associated bloodstream infections in calendar 2019, above the hospital's NHSN-benchmarked target, and bundle compliance audits were inconsistent.",
+          "actions": "Volunteered as unit CLABSI champion in Jan 2020; built a daily line-maintenance audit checklist with the infection preventionist, did peer audits of dressing changes and CHG bathing on her shifts, and ran 10-minute huddle refreshers on scrub-the-hub and dressing integrity.",
+          "results": "Bundle audit compliance rose from 71% to 96% over 6 months; the unit went 14 consecutive months with zero CLABSIs (Mar 2020 - Apr 2021).",
+          "evidence": "metric"
+        },
+        {
+          "title": "Bedside shift report redesign",
+          "problem": "Night-to-day handoff dragged on and nurses were clocking out late; key items (drips, lines, code status) were sometimes missed.",
+          "actions": "Co-led a unit practice council workgroup that adopted an ICU-specific SBAR handoff sheet built into an Epic smartphrase, and piloted it on nights.",
+          "results": "She recalls handoff used to take about 45 minutes per shift change and now takes about 25, twice a day. She has no formal measurement; it is her estimate and that of the council.",
+          "evidence": "derived"
+        },
+        {
+          "title": "Relief charge nurse for 24-bed MICU",
+          "problem": "Unit needed additional experienced nurses able to run the floor on shifts without a permanent charge nurse.",
+          "actions": "Takes relief charge about 6 shifts a month: makes patient assignments for 10-12 RNs and 2 PCTs, manages bed flow with the house supervisor, responds to rapid responses and codes as a team member, handles staffing calls.",
+          "results": "Has run the unit as charge on roughly 300 shifts since 2021 (6/month x ~4.5 yrs ~ 320; she says 'about 300').",
+          "evidence": "scope"
+        },
+        {
+          "title": "Preceptor for new-graduate and transfer nurses",
+          "problem": "High turnover after 2020 meant many new graduates entering the ICU via the nurse residency program.",
+          "actions": "Precepted new RNs through the 12-week ICU orientation, using the unit competency checklist; co-taught the CRRT skills station at the annual competency fair.",
+          "results": "Precepted 9 nurses since 2019 (6 new grads, 3 experienced transfers); 8 of the 9 completed orientation and were still on the unit at 1 year.",
+          "evidence": "metric"
+        },
+        {
+          "title": "Epic ClinDoc super user during flowsheet upgrade",
+          "problem": "2022 Epic upgrade changed ICU flowsheets (drips, I&O, ventilator rows) and staff were frustrated with documentation time.",
+          "actions": "Served as unit super user: attended 16 hours of super-user training, provided at-the-elbow support during go-live week, collected issues and sent 20+ build tickets to the informatics team, and created a one-page tip sheet for titratable drip documentation.",
+          "results": "Informatics adopted her drip tip sheet house-wide for all 3 ICUs. No metric on documentation time.",
+          "evidence": "qualitative"
+        },
+        {
+          "title": "CRRT super user",
+          "problem": "Few nurses were comfortable running continuous renal replacement therapy, causing assignment bottlenecks.",
+          "actions": "Became one of the unit's CRRT super users (Prismaflex), troubleshoots filter clotting and alarms, and co-teaches the annual competency station.",
+          "results": "Qualitative: the go-to resource for CRRT on her shifts; no numbers on filter life were tracked.",
+          "evidence": "qualitative"
+        }
+      ]
+    },
+    {
+      "id": "r2",
+      "employer": "Lakeshore General Hospital",
+      "title": "Registered Nurse, Medical-Surgical / Telemetry",
+      "location": "Sandusky, OH",
+      "start": "2013-08",
+      "end": "2017-05",
+      "context": "32-bed med-surg/telemetry unit in a 180-bed community hospital; 5-6 patient assignments.",
+      "accomplishments": [
+        {
+          "title": "Falls prevention pilot",
+          "problem": "Unit had frequent patient falls, especially at night with confused elderly patients.",
+          "actions": "Joined the falls committee, piloted hourly purposeful rounding and bed-alarm checks on night shift.",
+          "results": "Unit falls dropped from 11 in 2015 to 5 in 2016 (unit-wide effort, she was one of 4 pilot nurses).",
+          "evidence": "metric"
+        },
+        {
+          "title": "Rapid response recognition",
+          "problem": "Deteriorating telemetry patients were sometimes identified late.",
+          "actions": "Completed the hospital's early warning score training and became a go-to nurse for escalating to the rapid response team.",
+          "results": "Recognized by unit manager with a DAISY Award nomination in 2016 for early recognition of a patient's sepsis. Qualitative only.",
+          "evidence": "qualitative"
+        },
+        {
+          "title": "Telemetry rhythm interpretation",
+          "problem": "Unit monitored up to 32 telemetry patients with a centralized monitor tech.",
+          "actions": "Completed basic and 12-lead dysrhythmia course; interpreted rhythms and escalated to providers.",
+          "results": "Scope: cared for 5-6 patients per shift, all on continuous telemetry.",
+          "evidence": "scope"
+        }
+      ]
+    },
+    {
+      "id": "r3",
+      "employer": "Lakeshore General Hospital",
+      "title": "Patient Care Technician",
+      "location": "Sandusky, OH",
+      "start": "2011-05",
+      "end": "2013-07",
+      "context": "Part-time while completing BSN.",
+      "accomplishments": [
+        {
+          "title": "PCT support on med-surg while in nursing school",
+          "problem": "Unit needed reliable part-time support staff.",
+          "actions": "Performed vital signs, ADLs, point-of-care glucose, ambulation, and EKG lead placement for up to 12 patients per shift.",
+          "results": "Hired as RN on the same hospital system after graduation.",
+          "evidence": "scope"
+        }
+      ]
+    }
+  ],
+  "skills": [
+    {"skill": "Critical care nursing (mechanically ventilated patients, vasoactive drip titration, sedation protocols)", "proven_by": ["Relief charge nurse for 24-bed MICU", "CRRT super user"]},
+    {"skill": "CRRT (Prismaflex)", "proven_by": ["CRRT super user"]},
+    {"skill": "Charge nurse / staffing and patient assignments", "proven_by": ["Relief charge nurse for 24-bed MICU"]},
+    {"skill": "Infection prevention (CLABSI bundle, NHSN-reported measures)", "proven_by": ["CLABSI prevention bundle champion"]},
+    {"skill": "Quality improvement / audits", "proven_by": ["CLABSI prevention bundle champion", "Falls prevention pilot", "Bedside shift report redesign"]},
+    {"skill": "Precepting and staff education", "proven_by": ["Preceptor for new-graduate and transfer nurses", "CRRT super user"]},
+    {"skill": "Epic ClinDoc (super user, flowsheets, smartphrases)", "proven_by": ["Epic ClinDoc super user during flowsheet upgrade", "Bedside shift report redesign"]},
+    {"skill": "Telemetry / dysrhythmia interpretation", "proven_by": ["Telemetry rhythm interpretation"]},
+    {"skill": "Sepsis recognition and escalation", "proven_by": ["Rapid response recognition"]}
+  ],
+  "education": [
+    {"degree": "Bachelor of Science in Nursing (BSN)", "institution": "Northcrest State University", "year": 2013}
+  ],
+  "certifications": [
+    {"name": "Registered Nurse license", "issuer": "Ohio Board of Nursing", "status": "active, unencumbered", "since": "2013"},
+    {"name": "CCRN (Adult)", "issuer": "AACN Certification Corporation", "status": "active", "since": "2019"},
+    {"name": "ACLS", "issuer": "American Heart Association", "status": "active"},
+    {"name": "BLS", "issuer": "American Heart Association", "status": "active"},
+    {"name": "NIH Stroke Scale", "issuer": "NIH / American Stroke Association", "status": "active"}
+  ],
+  "do_not_claim": [
+    "ECMO experience or ECMO specialist training (unit sends ECMO patients to the CVICU)",
+    "PALS or TNCC certification",
+    "Epic certification of any kind (she is a super user, not a certified Epic analyst; ClinDoc certification requires employer sponsorship)",
+    "Nursing informatics board certification (ANCC RN-BC / NI-BC)",
+    "MSN or any graduate degree",
+    "Nurse manager / formal supervisory title or hiring authority",
+    "Reducing CLABSI 'by 100%' hospital-wide (zero CLABSI streak was MICU only)",
+    "Measured handoff-time study (the 45 to 25 minute figure is an estimate)",
+    "SQL, Tableau, or data analytics tools",
+    "Magnet program lead role"
+  ]
+}

@@ -1,0 +1,32 @@
+Clinical Informatics Nurse Specialist - Inpatient Documentation
+Harborline Health System - Columbus, OH (Hybrid)
+
+About Harborline
+Harborline Health System operates 7 hospitals and more than 90 outpatient sites across central Ohio. Our Clinical Informatics team partners with nursing and IT to make the electronic health record safer, simpler, and faster to use at the bedside.
+
+Position Summary
+The Clinical Informatics Nurse Specialist translates clinical workflow needs into EHR design, supports optimization of nursing documentation in Epic, and leads education for system upgrades. This role acts as the liaison between bedside nursing, Epic analysts, and nursing leadership.
+
+Responsibilities
+- Gather requirements from frontline nurses and translate them into build requests for Epic ClinDoc analysts
+- Lead nursing documentation optimization projects (flowsheets, care plans, smartphrases, BPAs)
+- Develop tip sheets, e-learning, and classroom training for new functionality and upgrades
+- Coordinate super-user networks and provide at-the-elbow support during go-lives
+- Analyze documentation burden and compliance data; report findings to nursing leadership
+- Participate in testing (unit, integrated, and user acceptance testing) of EHR changes
+- Support regulatory and quality reporting requirements tied to documentation (CMS, Joint Commission)
+
+Required Qualifications
+- Bachelor of Science in Nursing
+- Active RN license in Ohio
+- Minimum 3 years of acute care clinical nursing experience
+- Experience as an EHR super user or in an informatics-related project
+- Epic ClinDoc certification, or ability to obtain within 6 months of hire
+- Strong written communication and training skills
+
+Preferred Qualifications
+- ANCC Informatics Nursing certification (NI-BC)
+- Master's degree in Nursing Informatics or Health Informatics
+- Experience with reporting tools (Epic Clarity/Reporting Workbench, SQL, Tableau)
+- Critical care background
+- Experience with change management or Lean methodologies

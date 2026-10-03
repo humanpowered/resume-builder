@@ -1,0 +1,16 @@
+{
+  "posting_a": {
+    "role": "Senior Backend Engineer, Platform, Quillmesh",
+    "must_have_keywords": ["Go", "Kafka", "distributed systems", "event streaming", "AWS", "Terraform", "on-call", "incident response", "design docs", "latency", "reliability"],
+    "nice_to_have_keywords": ["logistics", "mentor", "high-throughput", "idempotency", "CI/CD", "Datadog"],
+    "truthful_gaps": ["Production Kubernetes experience (EKS, Helm, Argo CD)", "Apache Flink / stream processing frameworks", "Time-series databases", "Throughput at 50,000 events/sec scale (his is ~140K shipments/day)", "Leading cross-team technical projects as formal lead"],
+    "best_accomplishments": ["Event-driven label generation pipeline", "Carrier integration framework", "CI pipeline speedup", "On-call runbooks and intern mentoring"]
+  },
+  "posting_b": {
+    "role": "Software Engineer, Full Stack (Payments), Fernbrook Financial",
+    "must_have_keywords": ["React", "TypeScript", "Python", "Django", "REST APIs", "PostgreSQL", "third-party APIs", "code reviews", "on-call", "testing"],
+    "nice_to_have_keywords": ["Celery", "idempotency", "regulated industries", "HIPAA", "FastAPI", "security"],
+    "truthful_gaps": ["Strong production React/TypeScript experience (only working knowledge)", "Fintech / payments experience (ACH, virtual cards, wires)", "PCI DSS compliance", "SOC 2 experience"],
+    "best_accomplishments": ["SMS appointment reminder service", "HIPAA audit logging", "Event-driven label generation pipeline", "Carrier integration framework"]
+  }
+}

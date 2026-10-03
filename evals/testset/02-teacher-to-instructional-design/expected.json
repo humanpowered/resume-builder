@@ -1,0 +1,16 @@
+{
+  "posting_a": {
+    "role": "Instructional Designer II, Tamarind Health Partners",
+    "must_have_keywords": ["instructional design", "ADDIE", "eLearning", "learning objectives", "storyboards", "assessments", "adult learning", "subject matter experts", "job aids", "needs analysis", "evaluation"],
+    "nice_to_have_keywords": ["Rise 360", "microlearning", "Kirkpatrick", "scenario-based", "video", "LMS", "project management"],
+    "truthful_gaps": ["3+ years of corporate/healthcare instructional design experience", "Articulate Storyline 360 proficiency", "SCORM packaging and LMS administration", "Professional eLearning portfolio (only school work and one trial Rise course)", "Healthcare revenue cycle / call center training", "ATD CPTD certification", "Camtasia/Vyond"],
+    "best_accomplishments": ["Self-paced lab safety module", "District PD workshop on formative assessment with Google Forms", "Built Canvas chemistry course for remote learning", "Raised AP Chemistry pass rate"]
+  },
+  "posting_b": {
+    "role": "Curriculum Designer, High School Science, Lumenfold Learning",
+    "must_have_keywords": ["curriculum", "NGSS", "three-dimensional learning", "chemistry", "physical science", "performance expectations", "formative assessment", "summative assessment", "teacher guides", "phenomena", "Canvas"],
+    "nice_to_have_keywords": ["UDL", "multilingual learners", "English learners", "professional development", "Master's", "simulations", "storyline"],
+    "truthful_gaps": ["Ed-tech or publishing industry experience", "OpenSciEd-specific experience", "WCAG accessibility standards knowledge"],
+    "best_accomplishments": ["NGSS-aligned physical science unit rewrite (summer curriculum writer)", "Raised AP Chemistry pass rate", "Built Canvas chemistry course for remote learning", "Sentence frames and visual vocabulary for English learners", "District PD workshop on formative assessment with Google Forms"]
+  }
+}

@@ -1,0 +1,29 @@
+Software Engineer, Full Stack (Payments)
+Fernbrook Financial - Denver, CO (Hybrid, 3 days in office)
+
+Who We Are
+Fernbrook Financial builds accounts payable automation for mid-market companies. More than 6,000 businesses use Fernbrook to approve invoices, pay vendors, and reconcile payments with their accounting systems.
+
+The Role
+Join our Payments team to build the product experiences and APIs that move more than $2B in vendor payments each month. You'll ship features across a React/TypeScript front end and Python services, working closely with product and design.
+
+Responsibilities
+- Build user-facing features in React and TypeScript, from design handoff to production
+- Develop and maintain Python (Django) services and REST APIs for payment workflows
+- Integrate with banking partners and payment rails (ACH, virtual cards, wire)
+- Write well-tested code and participate in code reviews
+- Help keep our systems secure and compliant (PCI DSS, SOC 2)
+- Contribute to on-call rotation for payments services
+
+Qualifications
+- 3+ years of professional experience as a software engineer
+- Strong experience with React and TypeScript in production applications
+- Experience with Python and a web framework (Django, Flask, or FastAPI)
+- Solid understanding of relational databases (PostgreSQL preferred)
+- Experience integrating third-party APIs
+
+Preferred
+- Experience in fintech, payments, or other regulated industries
+- Familiarity with PCI DSS compliance
+- Experience with Celery or other task queues
+- Experience with idempotency and reliability patterns for financial transactions

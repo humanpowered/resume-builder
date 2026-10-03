@@ -1,0 +1,117 @@
+# Resume Builder
+
+Builds a **master record** of someone's career. It covers every job, what they
+achieved in each one with the numbers behind it, and every skill tied to the
+work that proves it. Then it hands that record to a job-application pipeline,
+which picks the parts that fit each posting and writes the two-page resume.
+
+The record has no page limit, on purpose. A resume is a selection: two
+pages, holding the few accomplishments that suited one application. When the
+next application starts from that resume, it inherits the ceiling. The master
+record holds everything, and the selection happens per posting, downstream.
+
+## Quick start
+
+```bash
+pip install -r requirements.txt
+export ANTHROPIC_API_KEY=sk-ant-...        # Windows: setx ANTHROPIC_API_KEY "sk-ant-..."
+
+python -m resume_builder start             # guided first run
+```
+
+`start` asks whether you have a resume or a LinkedIn PDF. If you do, it
+imports that. If you don't, it begins by listing your jobs. Then the
+interview starts.
+
+## Commands
+
+| Command | What it does |
+|---|---|
+| `import resume.pdf` | Files an existing resume (.docx, .pdf, .txt) into the record. Copies; never rewrites. |
+| `interview` | Asks about the thinnest role first: role context, then your old bullets opened back up, then accomplishments no resume ever held. |
+| `interview --role Acme` | One employer. |
+| `skills --suggest` | Skills your record shows but never names, in your industry's standard terms, each tied to an accomplishment. Marked "To verify". |
+| `skills --verify` | Confirm or reject suggested skills, with a level. |
+| `health` | What the record holds, what's unsettled, and the best use of your next hour. No API calls. |
+| `export --to DIR` | Shows what writing the pipeline's files would change. |
+| `export --to DIR --write` | Writes `master_profile.json` and `skills_inventory.csv` into DIR. |
+
+The record is `record.md` in the current folder. Use `--record path` or
+`RESUME_BUILDER_RECORD` to point it somewhere else. Every command prints the
+file it's using.
+
+## How the interview finds the numbers
+
+The hard part is recall, not typing. Nobody lists fifteen accomplishments on
+demand. Ask what was broken when they arrived, or who they trained, and work
+appears that "list your achievements" never reaches.
+
+For each accomplishment it looks for evidence in descending order of strength
+and stops at the first rung that holds:
+
+| | |
+|---|---|
+| `metric` | a number they already knew |
+| `derived` | a number worked out together from before and after |
+| `scope` | the size of the work: people, budget, patients, sites |
+| `qualitative` | a contribution with no number attached; a real answer |
+
+The second rung is where most of the value is. "I automated the reporting"
+is not a metric. Asked how long it took before, how long now and how often,
+the same person says "three days a month became half a day". That is.
+
+Everything is saved as it's confirmed. Stop with Ctrl-C at any time, and the
+next run offers to pick up the half-finished one.
+
+## What it will not do
+
+- **Put a figure on a bullet that isn't in your own words.** Every number in
+  a drafted bullet is checked against the problem, actions and results you
+  gave. After two bad drafts it uses your wording instead.
+- **Accept an imported line that isn't in your document.** Every line the
+  importer files is matched against the source. Anything it can't find is set
+  aside for you to check. Anything it didn't file is kept under "Unplaced".
+- **Lose a highlight on export.** If the pipeline's profile holds a highlight
+  the record lacks, export refuses. `--adopt` copies it into the record
+  first.
+- **Overwrite a value someone curated.** Export fills blanks only, reports
+  every difference, and backs up all three files before writing.
+- **Put an unconfirmed skill on a resume.** Suggested skills export as
+  `have_it = verify` until you say yes.
+
+## The record format
+
+Plain Markdown, so you can edit it in any editor and it diffs cleanly. See
+`examples/record.example.md`.
+
+## Testing
+
+```bash
+python -m unittest discover -s tests        # 67 tests; no API calls, no network
+python evals/simulate.py --people 01        # one simulated person (needs a key)
+```
+
+`evals/testset/` holds eight fictional people: an ICU nurse, a teacher, a
+plant manager, a software engineer, a retail manager, an accounting graduate,
+a military-to-civilian career changer and a VP of sales. Each has the resume
+they would arrive with and a `truth.json` of what a good interviewer should
+draw out. `simulate.py` has a model play each person, answering only from
+their truth file, and scores the record that results:
+
+- **recall:** the share of their true accomplishments recorded
+- **quantified:** the share of those that carry a figure
+- **fabricated:** figures not in the truth file, and claims the person can't
+  make (target: zero)
+- **questions per accomplishment**
+
+## Where it came from
+
+The record format, the interview, the evidence ladder and the export
+safeguards come from `Master Record Builder`. Each rule there was learned on
+a real record. This project makes them work for anyone, and adds:
+
+- resume and LinkedIn import
+- the role-context questions
+- the skills inventory
+- the health report
+- a resumable interview

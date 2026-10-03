@@ -1,0 +1,16 @@
+{
+  "posting_a": {
+    "role": "Plant Manager, Northmeadow Foods",
+    "must_have_keywords": ["plant manager", "P&L", "operating budget", "safety", "OSHA", "OEE", "Lean", "changeover", "yield", "continuous improvement", "capital", "leadership development"],
+    "nice_to_have_keywords": ["Six Sigma Green Belt", "union", "TPM", "root cause", "customer service", "packaging"],
+    "truthful_gaps": ["Food or beverage manufacturing in an FDA/USDA-regulated environment", "SQF or BRC certification ownership", "HACCP / FSMA / GMP program experience", "PCQI certification", "SAP experience", "Sanitation department leadership"],
+    "best_accomplishments": ["Safety turnaround", "OEE improvement program", "SMED changeover reduction on thermoforming lines", "Scrap reduction"]
+  },
+  "posting_b": {
+    "role": "Director of Operations - Molding & Assembly, Corvane Polymer Group",
+    "must_have_keywords": ["injection molding", "IATF 16949", "plant manager", "P&L", "TPM", "tiered meetings", "standard work", "KPIs", "automotive", "capital planning", "productivity savings"],
+    "nice_to_have_keywords": ["Plex", "union", "Six Sigma", "PFMEA", "control plans", "leadership development", "APQP", "PPAP"],
+    "truthful_gaps": ["Multi-site leadership experience", "Budget scale of ~$150M (his is $38M controllable)", "MBA", "Six Sigma Black Belt", "ISO 13485 medical device experience", "APQP/PPAP new-program launch leadership (not evidenced in truth)"],
+    "best_accomplishments": ["OEE improvement program", "IATF 16949 certification", "Scrap reduction", "Safety turnaround", "Union relations during contract renewal"]
+  }
+}

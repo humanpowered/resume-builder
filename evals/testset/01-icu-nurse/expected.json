@@ -1,0 +1,16 @@
+{
+  "posting_a": {
+    "role": "Charge Nurse - Medical/Surgical ICU, Brightwater University Health",
+    "must_have_keywords": ["charge nurse", "ICU", "CCRN", "ACLS", "BLS", "patient assignments", "acuity", "throughput", "rapid response", "ventilator", "vasoactive", "CRRT", "CLABSI", "Ohio RN license"],
+    "nice_to_have_keywords": ["BSN", "precept", "Nurse Residency Program", "Epic", "shared governance", "quality bundles", "bed management"],
+    "truthful_gaps": ["ECMO experience", "TNCC certification", "Level I trauma / surgical ICU experience (her ICU is medical only)"],
+    "best_accomplishments": ["Relief charge nurse for 24-bed MICU", "CLABSI prevention bundle champion", "Preceptor for new-graduate and transfer nurses", "CRRT super user"]
+  },
+  "posting_b": {
+    "role": "Clinical Informatics Nurse Specialist, Harborline Health System",
+    "must_have_keywords": ["clinical informatics", "Epic", "ClinDoc", "super user", "flowsheets", "nursing documentation", "go-live", "tip sheets", "training", "BSN", "workflow", "build requests"],
+    "nice_to_have_keywords": ["smartphrases", "user acceptance testing", "critical care", "documentation burden", "change management", "Joint Commission"],
+    "truthful_gaps": ["Epic ClinDoc certification (not held; can say willing to obtain within 6 months)", "ANCC Informatics Nursing certification (NI-BC)", "Master's in informatics", "SQL / Clarity / Tableau reporting experience", "Formal UAT/integrated testing experience"],
+    "best_accomplishments": ["Epic ClinDoc super user during flowsheet upgrade", "Bedside shift report redesign", "CLABSI prevention bundle champion", "Preceptor for new-graduate and transfer nurses"]
+  }
+}
