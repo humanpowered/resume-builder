@@ -101,10 +101,31 @@ nothing else. Without it the service refuses every request, because real
 sign-in isn't wired up yet. That is the first thing to add before anyone
 else uses it.
 
+## The job-application pipeline
+
+`pipeline/` is the pipeline that finds postings, scores them against a
+person's record and drafts the two-page resume and cover letter. From the
+command line it reads `config/` as before (copy the `*.example.*` files).
+In the hosted product it reads each person's record from their store and
+their own settings, set through `/api/settings`:
+
+| Setting | What it decides |
+|---|---|
+| `tuning` | score threshold, salary floor, bullets per role, word limits |
+| `letter` | the letter's fixed paragraphs, and phrases they never want written |
+| `titles` | job titles to search for and to exclude |
+| `boards` | target companies by applicant-tracking system, locations, blocked companies |
+| `methods` | named methods that make a bullet concrete in their field |
+
+`POST /api/match` scores one posting for the signed-in person and, at or
+above their threshold, drafts both documents. The model and the paid
+search sources belong to the service and cannot be set per person.
+
 ## Testing
 
 ```bash
-python -m unittest discover -s tests        # 75 tests; no API calls, no network
+python -m unittest discover -s tests        # 81 tests; no API calls, no network
+(cd pipeline/tests && python -m unittest discover -s .)   # the pipeline's 154
 python evals/simulate.py --people 01        # one simulated person (needs a key)
 ```
 

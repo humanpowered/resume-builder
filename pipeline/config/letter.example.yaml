@@ -1,0 +1,16 @@
+# The cover letter's fixed paragraphs, which appear in every letter word for
+# word. Copy to letter.yaml and write them in your own voice.
+
+frame:
+  greeting: "Dear Hiring Committee:"
+  positioning: >-
+    One sentence saying who you are and what you are known for.
+  lead_in: "Select highlights of my career contributions and achievements thus far include:"
+  closing_para: >-
+    For a more detailed illustration of my skills and experience, please see
+    my resume. I would welcome the chance to discuss how my background fits
+    what you are building.
+  sign_off: "Sincerely,"
+
+# Phrases the lint rejects, on top of the built-in list in src/settings.py.
+avoid: []

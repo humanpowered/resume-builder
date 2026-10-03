@@ -41,22 +41,11 @@ def load_keep() -> dict:
     print(f"  no {KEEP_PATH.name}; falling back to the first bullets of each role")
     return {}
 
-# Skill categories worth surfacing on a general resume, in order. Hardware,
-# certifications and industry rows are handled separately or omitted.
-SKILL_ORDER = [
-    "Marketing Measurement",
-    "Experimentation & Causal",
-    "Statistical & Research Methods",
-    "Psychometrics & Survey Methodology",
-    "Machine Learning & AI",
-    "Languages & Query",
-    "Cloud & Warehouse",
-    "BI & Visualization",
-    "Martech & Adtech",
-    "Data Engineering",
-    "Business & Strategy",
-    "Leadership & Management",
-]
+# Skill categories are shown in the order the inventory lists them, which is
+# the order the person chose. Certifications and industries are handled
+# separately. (This used to be a fixed list of one analyst's categories, so
+# anyone else's skills never reached the page.)
+SEPARATE = ("industry experience",)
 
 
 def load_skills() -> dict:
@@ -91,7 +80,7 @@ def main():
             bullets = job["highlights"][:4]
         experience.append({
             "title": job["title"],
-            "company": f"{job['company']}  |  {job['location']}",
+            "company": "  |  ".join(x for x in (job["company"], job.get("location")) if x),
             "dates": job["dates"],
             "bullets": bullets,
         })
@@ -100,7 +89,7 @@ def main():
     # reads as keyword stuffing and buries the ones that matter.
     PER_CATEGORY = 8
     skill_lines = []
-    for cat in SKILL_ORDER:
+    for cat in [c for c in skills if c.lower() not in SEPARATE]:
         items = skills.get(cat)
         if not items:
             continue
@@ -118,16 +107,13 @@ def main():
 
     resume = {
         "name": f"{profile['name']}, {profile.get('credential_suffix','')}".strip().rstrip(","),
-        "contact": f"{profile['location']} | {profile['email']} | {profile['phone']} | "
-                   f"{profile['linkedin'].replace('https://www.','').rstrip('/')}",
-        "summary": profile["summary"] + " Expertise spans marketing mix modeling, "
-                   "multi-touch attribution, incrementality experiment design, and "
-                   "predictive lifetime value, with a background in measurement theory "
-                   "and research design. Builds analytics functions from the ground up "
-                   "and hires and develops the teams that run them.",
+        "contact": " | ".join(x for x in (
+            profile.get("location"), profile.get("email"), profile.get("phone"),
+            (profile.get("linkedin") or "").replace("https://www.", "").rstrip("/")) if x),
+        "summary": profile.get("summary", ""),
         "experience": experience,
         "skills": skill_lines,
-        "education": profile["education"] + profile.get("certifications", [])[:3],
+        "education": profile.get("education", []) + profile.get("certifications", [])[:3],
     }
 
     OUTPUT_DIR.mkdir(exist_ok=True)

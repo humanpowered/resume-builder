@@ -1,0 +1,34 @@
+# Where to look for postings. Copy to boards.yaml and edit.
+#
+# In the hosted product each person sets their own companies, titles and
+# locations in their settings, and only the ATS lists below are searched for
+# them. This file is for running the pipeline from the command line.
+#
+# Companies by applicant-tracking system, using each board's token:
+#   https://boards.greenhouse.io/{token}     -> greenhouse
+#   https://jobs.lever.co/{token}            -> lever
+#   https://jobs.ashbyhq.com/{token}         -> ashby
+
+greenhouse: []
+lever: []
+ashby: []
+smartrecruiters: []
+workable: []
+workday: []          # entries of {tenant: ..., host: <x>.myworkdayjobs.com, site: ...}
+
+# Search terms live in titles.csv (term, mode, active, notes). Without that
+# file these lists are used instead.
+title_keywords: []
+exclude_title_keywords: []
+
+# Postings from these companies are dropped wherever they come from.
+exclude_companies: []
+
+# Leave empty to include every location.
+locations:
+  - "Remote"
+
+# Aggregators. Each is off unless enabled, except remotive and jobicy, which
+# default to on; switch them off here if they don't serve your field.
+remotive: {enabled: false}
+jobicy: {enabled: false}

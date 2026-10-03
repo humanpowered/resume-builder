@@ -27,7 +27,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from resume_builder import export as X  # noqa: E402
-from resume_builder import health, importer, interview, skills  # noqa: E402
+from resume_builder import health, importer, interview, matching, skills  # noqa: E402
 from resume_builder import record as mr  # noqa: E402
 from resume_builder.store import SqlStore  # noqa: E402
 
@@ -239,6 +239,51 @@ def export_skills(store: SqlStore = Depends(store_for)):
     w.writerows(rows)
     return PlainTextResponse(buf.getvalue(), media_type="text/csv", headers={
         "Content-Disposition": 'attachment; filename="skills_inventory.csv"'})
+
+
+# --------------------------------------------------------------------------
+# Job search settings and matching, through the pipeline
+
+
+@app.get("/api/settings")
+def get_settings(store: SqlStore = Depends(store_for)):
+    """What the person set, and every value in effect once defaults apply."""
+    cfg = matching.settings_for(store)
+    return {"set": cfg.to_dict(),
+            "effective": {"tuning": {k: v for k, v in cfg.tuning.items()
+                                     if k not in ("model", "brief_path")},
+                          "letter": cfg.letter,
+                          "titles": {"include": cfg.include_titles,
+                                     "exclude": cfg.exclude_titles},
+                          "boards": cfg.boards, "methods": cfg.methods}}
+
+
+@app.put("/api/settings")
+def put_settings(body: dict, store: SqlStore = Depends(store_for)):
+    try:
+        cfg = matching.save_settings(store, body)
+    except ValueError as exc:          # the pipeline's ConfigError, naming the section
+        raise HTTPException(422, str(exc))
+    return {"set": cfg.to_dict()}
+
+
+class Posting(BaseModel):
+    title: str
+    company: str = ""
+    location: str = ""
+    description: str
+    documents: bool = True
+
+
+@app.post("/api/match")
+def match_posting(body: Posting, store: SqlStore = Depends(store_for)):
+    """Score one posting against the person's record and, if it clears their
+    threshold, draft the resume and cover letter."""
+    if not store.exists():
+        raise HTTPException(409, "Build your record first")
+    if len(body.description) > 60_000:
+        raise HTTPException(413, "That posting is too long")
+    return matching.match(store, body.model_dump(), documents=body.documents)
 
 
 # --------------------------------------------------------------------------

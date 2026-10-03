@@ -1,6 +1,14 @@
-# This repository is local only. It holds a real profile, a real application
-# tracker and real generated documents, so it has no remote and should not get
-# one. The sanitised public mirror lives in a separate directory.
+# The product's copy of the job-application pipeline. A person's own profile,
+# settings and generated documents never belong in it: in the hosted product
+# they live in that person's database rows, and on the command line they stay
+# in the ignored files below. The examples in config/ are what ships.
+
+profile/
+config/boards.yaml
+config/tuning.yaml
+config/letter.yaml
+config/titles.csv
+config/general_resume_keep.json
 
 # Reinstallable: npm install
 src/node_modules/

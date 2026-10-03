@@ -1028,16 +1028,44 @@ def keyword_filter(jobs: list[dict], keywords: list[str], locations: list[str],
     return [j for j in jobs if matches(j)]
 
 
+def person_config(person) -> dict:
+    """
+    The boards to search for one person of the hosted product: only the
+    companies they listed, with their locations and blocked companies.
+
+    The aggregator searches in boards.yaml (LinkedIn through Apify, Jooble,
+    Adzuna, Careerjet, the company watchlist, the email inbox) carry one
+    person's queries and the operator's paid keys, so they are switched off
+    here rather than run with someone else's search terms. Remotive and
+    Jobicy default to on, and Jobicy's default category is data science, so
+    both are switched off explicitly too.
+    """
+    cfg = dict(person.boards)
+    for source in ("jooble", "adzuna", "careerjet", "apify_linkedin", "apify_indeed",
+                   "company_watchlist", "email", "remotive", "jobicy"):
+        cfg[source] = {"enabled": False}
+    return cfg
+
+
 def collect_all_postings() -> list[dict]:
-    cfg = load_config()
-    # config/titles.csv wins when present; boards.yaml is the fallback, so an
-    # existing setup keeps working until its owner moves the lists over.
-    csv_titles = load_titles()
-    if csv_titles:
-        title_keywords, exclude_titles = csv_titles
+    import user_config
+    from settings import ConfigError
+    person = user_config.current()
+    if person is not None:
+        cfg = person_config(person)
+        if not person.include_titles:
+            raise ConfigError("titles: add at least one job title to search for")
+        title_keywords, exclude_titles = person.include_titles, person.exclude_titles
     else:
-        title_keywords = cfg.get("title_keywords") or []
-        exclude_titles = cfg.get("exclude_title_keywords") or []
+        cfg = load_config()
+        # config/titles.csv wins when present; boards.yaml is the fallback, so
+        # an existing setup keeps working until its owner moves the lists over.
+        csv_titles = load_titles()
+        if csv_titles:
+            title_keywords, exclude_titles = csv_titles
+        else:
+            title_keywords = cfg.get("title_keywords") or []
+            exclude_titles = cfg.get("exclude_title_keywords") or []
     all_jobs = []
     for token in cfg.get("greenhouse") or []:
         try:

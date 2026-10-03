@@ -22,10 +22,23 @@ OUTPUT_DIR = Path(__file__).parent.parent / "output"
 # Tuning lives in config/tuning.yaml; these are the defaults when that file is
 # absent. settings.py stops the run if the file exists but is malformed.
 from settings import load_letter, load_tuning          # noqa: E402
+import user_config                                      # noqa: E402
 
 _TUNING = load_tuning()
 MODEL = _TUNING["model"]
 SCORE_THRESHOLD = _TUNING["score_threshold"]
+
+
+# Inside user_config.using(...), one person's settings apply; outside it, the
+# values from config/ above. Functions read through these rather than the
+# module constants, which stay for the command-line scripts that import them.
+def _tune(key: str):
+    person = user_config.current()
+    return person.tuning[key] if person else _TUNING[key]
+
+
+def score_threshold() -> int:
+    return _tune("score_threshold")
 
 client = anthropic.Anthropic()  # picks up ANTHROPIC_API_KEY from env
 
@@ -43,34 +56,39 @@ def load_skills_csv(path: Path | None = None) -> tuple[dict, list] | None:
     path = path or SKILLS_CSV_PATH
     if not path.exists():
         return None
+    with open(path, newline="", encoding="utf-8-sig") as f:
+        return skills_from_rows(csv.DictReader(f))
 
+
+def skills_from_rows(rows) -> tuple[dict, list]:
+    """The same reading as load_skills_csv, from rows already in memory: the
+    hosted product builds them from a person's record, not from a file."""
     by_category: dict[str, list[str]] = {}
     certifications: list[str] = []
     skipped = 0
 
-    with open(path, newline="", encoding="utf-8-sig") as f:
-        for row in csv.DictReader(f):
-            skill = (row.get("skill") or "").strip()
-            if not skill:
-                continue
-            if (row.get("have_it") or "").strip().lower() not in ("yes", "y", "true", "1"):
-                skipped += 1
-                continue
+    for row in rows:
+        skill = (row.get("skill") or "").strip()
+        if not skill:
+            continue
+        if (row.get("have_it") or "").strip().lower() not in ("yes", "y", "true", "1"):
+            skipped += 1
+            continue
 
-            category = (row.get("category") or "Other").strip() or "Other"
-            proficiency = (row.get("proficiency") or "").strip()
-            notes = (row.get("notes") or "").strip()
+        category = (row.get("category") or "Other").strip() or "Other"
+        proficiency = (row.get("proficiency") or "").strip()
+        notes = (row.get("notes") or "").strip()
 
-            if category.lower().startswith("certification"):
-                certifications.append(skill)
-                continue
+        if category.lower().startswith("certification"):
+            certifications.append(skill)
+            continue
 
-            entry = skill
-            if proficiency:
-                entry += f" ({proficiency})"
-            if notes:
-                entry += f" [{notes}]"
-            by_category.setdefault(category, []).append(entry)
+        entry = skill
+        if proficiency:
+            entry += f" ({proficiency})"
+        if notes:
+            entry += f" [{notes}]"
+        by_category.setdefault(category, []).append(entry)
 
     total = sum(len(v) for v in by_category.values()) + len(certifications)
     print(f"  loaded {total} skills from skills_inventory.csv "
@@ -81,8 +99,12 @@ def load_skills_csv(path: Path | None = None) -> tuple[dict, list] | None:
 def load_profile() -> dict:
     with open(PROFILE_PATH, encoding="utf-8") as f:
         profile = json.load(f)
+    return with_skills(profile, load_skills_csv())
 
-    loaded = load_skills_csv()
+
+def with_skills(profile: dict, loaded: tuple[dict, list] | None) -> dict:
+    """Put the skills inventory into the profile in place of the profile's own
+    skill lists. `loaded` is what load_skills_csv or skills_from_rows returned."""
     if loaded is None:
         return profile
 
@@ -417,15 +439,40 @@ def is_auth_error(exc: BaseException) -> bool:
             or "401" in msg)
 
 
+def _experience(profile: dict) -> str:
+    """'18 years of experience, most recently as Head of Analytics', or as
+    much of that as the profile actually says."""
+    years = profile.get("years_experience")
+    if isinstance(years, (int, float)) and not isinstance(years, bool):
+        text = f"{years:g} years of experience"
+    elif isinstance(years, str) and years.strip():
+        y = years.strip()
+        text = f"{y} experience" if "year" in y.lower() else f"{y} years of experience"
+    else:
+        text = "the experience shown in the profile"
+    jobs = profile.get("work_history") or []
+    title = (jobs[0].get("title") or "").strip() if jobs else ""
+    return f"{text}, most recently as {title}" if title else text
+
+
 def score_posting(posting: dict, profile: dict) -> dict:
     description = strip_html(posting["description_html"])
     salary = extract_salary_range(description)
-    years = profile.get("years_experience") or "many years of"
+    floor = _tune("salary_floor")
+    background = _experience(profile)
+    # Both directions: a new graduate is underqualified for a director role as
+    # surely as a director is overqualified for an analyst one. The rule used
+    # to assume a senior candidate, which only ever fitted one person.
+    judge_both_ways = (
+        f"The candidate has {background}. Weigh seniority honestly in both "
+        "directions: set overqualification_risk to true if the role is clearly "
+        "junior to that level, and lower the score if the role needs materially "
+        "more seniority or scope than the profile shows.")
 
-    if salary and salary[1] >= SALARY_FLOOR:
+    if salary and floor and salary[1] >= floor:
         seniority_rule = (
             f"- Seniority match. This posting states a pay range of ${salary[0]:,} to "
-            f"${salary[1]:,}. The top of that range is at or above ${SALARY_FLOOR:,}, "
+            f"${salary[1]:,}. The top of that range is at or above ${floor:,}, "
             "which means the role is compensated at a level appropriate to the "
             "candidate's experience. DO NOT reduce the score for overqualification, "
             "and set overqualification_risk to false, even if the title reads as IC or "
@@ -433,19 +480,13 @@ def score_posting(posting: dict, profile: dict) -> dict:
             "seniority on the scope of the work described, not the title."
         )
     elif salary:
+        below = f", topping out below ${floor:,}" if floor else ""
         seniority_rule = (
             f"- Seniority match. This posting states a pay range of ${salary[0]:,} to "
-            f"${salary[1]:,}, topping out below ${SALARY_FLOOR:,}. The candidate has "
-            f"{years} experience and a history of building and leading analytics "
-            "functions, so weigh overqualification honestly here and flag it if the "
-            "role is an individual-contributor or manager-level position."
+            f"${salary[1]:,}{below}. {judge_both_ways}"
         )
     else:
-        seniority_rule = (
-            "- Seniority match. No pay range is stated. Note that the candidate is often "
-            f"OVERqualified for individual-contributor or manager-level roles given "
-            f"{years} experience; flag this risk if relevant."
-        )
+        seniority_rule = f"- Seniority match. No pay range is stated. {judge_both_ways}"
 
     stable = profile_preamble(
         "You are helping a job seeker evaluate whether a posting is a good fit.",
@@ -481,7 +522,7 @@ Respond ONLY with JSON, no other text, in this exact shape:
     result, _ = request_json(cached_messages(stable, prompt), 4096, "scoring")
     if salary:
         result["salary_low"], result["salary_high"] = salary
-        if salary[1] >= SALARY_FLOOR:
+        if floor and salary[1] >= floor:
             # belt and braces: the rule above is explicit, but this is a hard
             # constraint the user asked for, so enforce it rather than trust it
             result["overqualification_risk"] = False
@@ -536,27 +577,30 @@ def fit_to_two_pages(resume: dict) -> dict:
 
     before = total_words(resume)
 
+    max_summary = _tune("max_summary_words")
+    by_position, tail = _tune("bullets_by_position"), _tune("bullets_tail")
+
     summary = resume.get("summary", "").split()
-    if len(summary) > MAX_SUMMARY_WORDS:
+    if len(summary) > max_summary:
         # cut at a sentence boundary rather than mid-clause
         text = " ".join(summary)
         sentences = re.split(r"(?<=[.!?])\s+", text)
         kept, n = [], 0
         for s in sentences:
-            if n + len(s.split()) > MAX_SUMMARY_WORDS and kept:
+            if n + len(s.split()) > max_summary and kept:
                 break
             kept.append(s)
             n += len(s.split())
         resume["summary"] = " ".join(kept)
 
     for i, job in enumerate(resume.get("experience", [])):
-        cap = BULLETS_BY_POSITION[i] if i < len(BULLETS_BY_POSITION) else BULLETS_TAIL
+        cap = by_position[i] if i < len(by_position) else tail
         job["bullets"] = (job.get("bullets") or [])[:cap]
 
     # still over? drop the weakest remaining bullet from the oldest role that
     # has more than one, and repeat
     guard = 0
-    while total_words(resume) > MAX_RESUME_WORDS and guard < 40:
+    while total_words(resume) > _tune("max_resume_words") and guard < 40:
         guard += 1
         for job in reversed(resume.get("experience", [])):
             if len(job.get("bullets") or []) > 1:
@@ -616,7 +660,8 @@ def normalize_skills(resume: dict) -> dict:
         categories.append((label, [t for t in terms if t]))
 
     cleaned, seen = [], set()
-    for label, terms in categories[:MAX_SKILL_CATEGORIES]:
+    max_terms = _tune("max_terms_per_category")
+    for label, terms in categories[:_tune("max_skill_categories")]:
         keep = []
         for t in terms:
             k = t.lower()
@@ -624,7 +669,7 @@ def normalize_skills(resume: dict) -> dict:
                 continue
             seen.add(k)
             keep.append(t)
-            if len(keep) >= MAX_TERMS_PER_CATEGORY:
+            if len(keep) >= max_terms:
                 break
         if keep:
             cleaned.append(f"{label}: " + ", ".join(keep))
@@ -702,22 +747,21 @@ Guidelines:
 
 SKILLS SECTION. This is read by both an ATS keyword parser and a human
 skimming for anchors. Format for both:
-- Group into {MAX_SKILL_CATEGORIES} categories at most, each a single line
+- Group into {_tune("max_skill_categories")} categories at most, each a single line
   "Category: term, term, term". Fewer, fuller categories beat many thin ones.
-- Name categories after what THIS posting asks for. A media role gets
-  "Marketing Measurement"; a product analytics role gets "Product & Growth
-  Analytics". Do not reuse a fixed set across different postings.
-- Every item must be an atomic term a parser can match: "Marketing Mix
-  Modeling", "Incrementality Testing", "Synthetic Control", "SQL",
-  "Snowflake". NOT descriptive phrases like "Incrementality experiment
-  design: geo-holdout, synthetic control, causal inference" -- that is one
-  entry pretending to be three, and it splits badly on commas.
-- No parentheses anywhere in this section. Write "Marketing Mix Modeling,
-  MMM" as two terms rather than "Marketing Mix Modeling (MMM)"; some
-  parsers drop the parenthetical and lose the acronym.
+- Name categories after what THIS posting asks for. An ICU posting gets
+  "Critical Care"; a sales leadership posting gets "Pipeline & Forecasting".
+  Do not reuse a fixed set across different postings.
+- Every item must be an atomic term a parser can match: "Telemetry",
+  "Salesforce", "Lean Manufacturing", "SQL", "Payroll". NOT descriptive
+  phrases like "Patient care: telemetry, wound care, discharge planning" --
+  that is one entry pretending to be three, and it splits badly on commas.
+- No parentheses anywhere in this section. Write "Electronic Health
+  Records, EHR" as two terms rather than "Electronic Health Records (EHR)";
+  some parsers drop the parenthetical and lose the acronym.
 - No connective words. "and", "including", "with", "across" have no place
   in a term list.
-- At most {MAX_TERMS_PER_CATEGORY} terms per category, strongest first.
+- At most {_tune("max_terms_per_category")} terms per category, strongest first.
 - Draw terms from the profile's skills_by_category, preferring the ones
   this posting names. Do not list a skill the candidate does not have.
 
@@ -754,6 +798,23 @@ CL_POSITIONING = _LETTER["positioning"]
 CL_LEAD_IN = _LETTER["lead_in"]
 CL_CLOSING_PARA = _LETTER["closing_para"]
 
+
+def _frame() -> dict:
+    person = user_config.current()
+    return person.letter if person else _LETTER
+
+
+def _tells() -> list[tuple[str, str]]:
+    person = user_config.current()
+    return person.tells if person else AI_TELL_PATTERNS
+
+
+def _letter_schema(frame: dict) -> dict:
+    example = dict(COVER_LETTER_SCHEMA_EXAMPLE)
+    example["greeting"], example["sign_off"] = frame["greeting"], frame["sign_off"]
+    return example
+
+
 COVER_LETTER_SCHEMA_EXAMPLE = {
     "greeting": _LETTER["greeting"],
     "opening": "Please consider my qualifications for the <exact role title> role at "
@@ -764,7 +825,7 @@ COVER_LETTER_SCHEMA_EXAMPLE = {
     "groups": [
         {
             "header": "Theme drawn from what this posting asks for, with scope if it helps "
-                      "(e.g. 'Marketing Mix Modeling & Incrementality Measurement')",
+                      "(e.g. 'Patient Safety & Quality Improvement')",
             "bullets": [
                 "A concrete achievement from the profile with its metric, tied to that theme",
                 "A second piece of evidence for the same theme",
@@ -812,7 +873,7 @@ def find_ai_tells(letter: dict) -> list[str]:
     """Scan the drafted letter body for the patterns the prompt bans."""
     body = letter_body(letter)
     found = []
-    for pattern, label in AI_TELL_PATTERNS:
+    for pattern, label in _tells():
         if re.search(pattern, body, flags=re.IGNORECASE):
             found.append(label)
     return found
@@ -877,18 +938,32 @@ def find_ungrounded_claims(letter: dict, profile: dict) -> list[str]:
     return issues
 
 
+def _skill_terms(profile: dict) -> list[str]:
+    """Skill names from the profile, without the '(Advanced)' and '[notes]'
+    that load_skills_csv appends."""
+    terms = []
+    for items in (profile.get("skills_by_category") or {}).values():
+        for item in items or []:
+            name = re.sub(r"\s*[\(\[].*$", "", str(item)).strip()
+            if len(name) >= 3:
+                terms.append(name)
+    return terms
+
+
 def specific_pattern(profile: dict | None = None) -> re.Pattern:
     """
     What counts as a concrete bullet: a number, an employer the candidate
     actually worked for, or a named method.
 
-    The employer half comes from the profile rather than a hardcoded list, so
-    this travels with whoever is using the pipeline. Named methods stay a
-    fixed list; they are domain vocabulary, not biography.
+    Both halves come from the person rather than a hardcoded list, so this
+    travels with whoever is using the pipeline. Named methods are their own
+    skills plus any they list in their settings; the fixed list this used to
+    carry was one marketing analyst's vocabulary, and a nurse's bullet naming
+    telemetry is every bit as concrete as one naming geo-holdout tests.
     """
-    METHODS = [r"Bayesian", r"geo-holdout", r"synthetic control", r"conjoint",
-               r"MMM", r"LTV", r"ROAS", r"attribution", r"incrementality",
-               r"A/B test", r"causal inference", r"segmentation", r"forecast"]
+    person = user_config.current()
+    words = (person.methods if person else []) + _skill_terms(profile or {})
+    METHODS = [rf"(?<!\w){re.escape(w)}(?!\w)" for w in dict.fromkeys(words)]
     names = []
     for job in (profile or {}).get("work_history", []):
         company = (job.get("company") or "").strip()
@@ -912,14 +987,16 @@ def find_style_issues(letter: dict, profile: dict | None = None) -> list[str]:
     # legacy prose letters still get the old length check
     if letter.get("paragraphs") and not letter.get("groups"):
         body = " ".join(letter["paragraphs"])
-        if len(body.split()) > MAX_LETTER_WORDS:
+        if len(body.split()) > _tune("max_letter_words"):
             issues.append(f"too long ({len(body.split())} words)")
         return issues
 
     groups = letter.get("groups") or []
-    if len(groups) < MIN_GROUPS:
-        issues.append(f"only {len(groups)} achievement group(s); want {MIN_GROUPS}")
+    min_groups = _tune("min_groups")
+    if len(groups) < min_groups:
+        issues.append(f"only {len(groups)} achievement group(s); want {min_groups}")
 
+    max_bullet = _tune("max_bullet_words")
     seen_headers = set()
     for g in groups:
         header = (g.get("header") or "").strip()
@@ -935,8 +1012,8 @@ def find_style_issues(letter: dict, profile: dict | None = None) -> list[str]:
             issues.append(f'group "{header[:34]}" has no bullets')
         for b in bullets:
             n = len(b.split())
-            if n > MAX_BULLET_WORDS:
-                issues.append(f'bullet of {n} words (max {MAX_BULLET_WORDS}): "{b[:64]}..."')
+            if n > max_bullet:
+                issues.append(f'bullet of {n} words (max {max_bullet}): "{b[:64]}..."')
 
     # Flag only when the block as a whole is vague. An individual bullet
     # without a number is fine ("Built the analytics practice from the ground
@@ -953,6 +1030,7 @@ def find_style_issues(letter: dict, profile: dict | None = None) -> list[str]:
 
 
 def draft_cover_letter(posting: dict, profile: dict) -> dict:
+    frame = _frame()
     stable = profile_preamble(
         "Draft a cover letter for this candidate applying to this specific posting.",
         profile)
@@ -967,9 +1045,9 @@ of it is boilerplate that must be reproduced verbatim. Your job is almost
 entirely the grouped achievement block in the middle.
 
 Reproduce these EXACTLY, word for word, in the fields named:
-  positioning  = "{CL_POSITIONING}"
-  lead_in      = "{CL_LEAD_IN}"
-  closing_para = "{CL_CLOSING_PARA}"
+  positioning  = "{frame["positioning"]}"
+  lead_in      = "{frame["lead_in"]}"
+  closing_para = "{frame["closing_para"]}"
 
 Write only two things:
 
@@ -983,7 +1061,7 @@ Write only two things:
 2. THREE GROUPS. Each has a short header naming a capability this posting
    actually asks for, and 2 or 3 bullets of evidence beneath it.
    - Derive the headers from the posting's own requirements. If it asks for
-     MMM and incrementality, one header is about that. Do not reuse generic
+     budget ownership and forecasting, one header is about that. Do not reuse generic
      headers across different postings.
    - Add scope to a header when it strengthens it, e.g.
      "Survey Design & Research Methodology (12+ years)".
@@ -1021,8 +1099,8 @@ these patterns and they are an instant credibility hit. Hard rules:
   "orchestrated"). No "I'm drawn to", "resonates", "excited by the
   opportunity to", "passionate about", "at the intersection of".
 - Bullets lead with the achievement, not with throat-clearing. Write
-  "Cut A/B test false positives 70%..." rather than "I have experience
-  with A/B testing, where I cut...".
+  "Cut patient falls 30%..." rather than "I have experience with fall
+  prevention, where I cut...".
 
 Guidelines:
 - The company name above may come from an applicant-tracking-system token
@@ -1069,7 +1147,7 @@ Hard rules that follow from this:
   marker rather than inventing content.
 
 Respond ONLY with JSON, no other text, matching exactly this shape:
-{json.dumps(COVER_LETTER_SCHEMA_EXAMPLE, indent=2)}
+{json.dumps(_letter_schema(frame), indent=2)}
 """
     # The style loop below appends turns to this; the cached first block stays
     # byte-identical, so the corrective pass reads the cache rather than
@@ -1089,11 +1167,11 @@ Respond ONLY with JSON, no other text, matching exactly this shape:
         letter, text = request_json(messages, 16384, "cover letter")
         # The boilerplate is fixed. Overwrite rather than trusting the model
         # to reproduce it verbatim; it paraphrases otherwise.
-        letter["positioning"] = CL_POSITIONING
-        letter["lead_in"] = CL_LEAD_IN
-        letter["closing_para"] = CL_CLOSING_PARA
-        letter.setdefault("greeting", _LETTER["greeting"])
-        letter.setdefault("sign_off", _LETTER["sign_off"])
+        letter["positioning"] = frame["positioning"]
+        letter["lead_in"] = frame["lead_in"]
+        letter["closing_para"] = frame["closing_para"]
+        letter.setdefault("greeting", frame["greeting"])
+        letter.setdefault("sign_off", frame["sign_off"])
         letter["name"] = profile.get("name", "")
         letter["contact"] = f"{profile.get('email','')}\n{profile.get('phone','')}"
 

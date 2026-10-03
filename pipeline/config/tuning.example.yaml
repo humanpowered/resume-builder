@@ -1,0 +1,18 @@
+# Thresholds and limits. Copy to tuning.yaml; every line is optional and
+# falls back to the default in src/settings.py. A misspelled key stops the run.
+
+score_threshold: 6         # 0-10. Documents are drafted at or above this.
+# salary_floor: 150000     # At or above, overqualification is not held against a role.
+                           # Leave unset to judge seniority on the work alone.
+
+# Resume shape. The two-page fit trims toward these; it does not pad up to them.
+max_resume_words: 900
+max_summary_words: 80
+bullets_by_position: [5, 5, 4, 3, 3]   # per role, newest first
+bullets_tail: 2                         # roles beyond that list
+max_skill_categories: 5
+max_terms_per_category: 10
+
+# Cover letter lint
+max_bullet_words: 42
+min_groups: 3

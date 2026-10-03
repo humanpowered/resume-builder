@@ -25,6 +25,11 @@ LETTER_YAML = CONFIG_DIR / "letter.yaml"
 TUNING_YAML = CONFIG_DIR / "tuning.yaml"
 
 
+class ConfigError(ValueError):
+    """A setting that cannot be used. The file loaders turn it into a stop
+    naming the file; the hosted product turns it into a message to the user."""
+
+
 def _fail(path: Path, problem: str) -> None:
     raise SystemExit(
         f"[FATAL] {path.name} could not be used: {problem}\n"
@@ -38,10 +43,12 @@ def _fail(path: Path, problem: str) -> None:
 TUNING_DEFAULTS = {
     "model": "claude-sonnet-5",
     "score_threshold": 6,          # only tailor documents at or above this
-    "salary_floor": 160_000,       # at or above, seniority concerns don't apply
+    # At or above, overqualification is not held against a role. None means no
+    # floor: whether someone is overqualified is judged on the work alone.
+    "salary_floor": None,
     "max_resume_words": 900,
     "max_summary_words": 80,
-    "bullets_by_position": [6, 6, 3, 3, 5, 3],
+    "bullets_by_position": [5, 5, 4, 3, 3],    # per role, newest first
     "bullets_tail": 2,             # roles beyond the list above
     "max_skill_categories": 5,
     "max_terms_per_category": 10,
@@ -58,41 +65,55 @@ TUNING_DEFAULTS = {
     "brief_path": "MORNING_BRIEF.md",
 }
 _INT_KEYS = {k for k, v in TUNING_DEFAULTS.items() if isinstance(v, int)}
+_OPTIONAL_INT_KEYS = {"salary_floor"}
 
 
-def load_tuning() -> dict:
+def tuning_from(raw) -> dict:
+    """Defaults overlaid with `raw`, or ConfigError saying what is wrong."""
     values = dict(TUNING_DEFAULTS)
-    if not TUNING_YAML.exists():
-        return values
-
-    try:
-        raw = yaml.safe_load(TUNING_YAML.read_text(encoding="utf-8")) or {}
-    except yaml.YAMLError as exc:
-        _fail(TUNING_YAML, f"not valid YAML ({str(exc)[:120]})")
     if not isinstance(raw, dict):
-        _fail(TUNING_YAML, "expected a mapping of setting: value")
+        raise ConfigError("expected a mapping of setting: value")
 
     unknown = sorted(set(raw) - set(TUNING_DEFAULTS))
     if unknown:
         # a typo'd key that is silently ignored is worse than a hard stop
-        _fail(TUNING_YAML, f"unknown setting(s): {', '.join(unknown)}. "
-                           f"Valid keys: {', '.join(sorted(TUNING_DEFAULTS))}")
+        raise ConfigError(f"unknown setting(s): {', '.join(unknown)}. "
+                          f"Valid keys: {', '.join(sorted(TUNING_DEFAULTS))}")
 
     for key, value in raw.items():
         if key == "bullets_by_position":
             if not (isinstance(value, list) and value
                     and all(isinstance(n, int) and n > 0 for n in value)):
-                _fail(TUNING_YAML, "bullets_by_position must be a list of positive whole numbers")
+                raise ConfigError("bullets_by_position must be a list of positive whole numbers")
+        elif key in _OPTIONAL_INT_KEYS:
+            if value in (None, 0):
+                value = None
+            elif not isinstance(value, int) or isinstance(value, bool) or value < 0:
+                raise ConfigError(f"{key} must be a whole number, or empty for none, "
+                                  f"got {value!r}")
         elif key in _INT_KEYS:
             if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
-                _fail(TUNING_YAML, f"{key} must be a positive whole number, got {value!r}")
+                raise ConfigError(f"{key} must be a positive whole number, got {value!r}")
         elif not isinstance(value, str) or not value.strip():
-            _fail(TUNING_YAML, f"{key} must be a non-empty string, got {value!r}")
+            raise ConfigError(f"{key} must be a non-empty string, got {value!r}")
         values[key] = value
 
     if not 0 <= values["score_threshold"] <= 10:
-        _fail(TUNING_YAML, "score_threshold must be between 0 and 10")
+        raise ConfigError("score_threshold must be between 0 and 10")
     return values
+
+
+def load_tuning() -> dict:
+    if not TUNING_YAML.exists():
+        return dict(TUNING_DEFAULTS)
+    try:
+        raw = yaml.safe_load(TUNING_YAML.read_text(encoding="utf-8")) or {}
+    except yaml.YAMLError as exc:
+        _fail(TUNING_YAML, f"not valid YAML ({str(exc)[:120]})")
+    try:
+        return tuning_from(raw)
+    except ConfigError as exc:
+        _fail(TUNING_YAML, str(exc))
 
 
 # --- cover letter frame and style rules -------------------------------------
@@ -141,41 +162,35 @@ AI_TELL_DEFAULTS = [
 ]
 
 
-def load_letter() -> tuple[dict, list[tuple[str, str]]]:
-    """Returns (frame, ai_tell_patterns)."""
+def letter_from(raw) -> tuple[dict, list[tuple[str, str]]]:
+    """(frame, ai_tell_patterns) from a mapping shaped like letter.yaml, or
+    ConfigError saying what is wrong."""
+    import re as _re
     frame = dict(LETTER_DEFAULTS)
     tells = list(AI_TELL_DEFAULTS)
-    if not LETTER_YAML.exists():
-        return frame, tells
-
-    try:
-        raw = yaml.safe_load(LETTER_YAML.read_text(encoding="utf-8")) or {}
-    except yaml.YAMLError as exc:
-        _fail(LETTER_YAML, f"not valid YAML ({str(exc)[:120]})")
     if not isinstance(raw, dict):
-        _fail(LETTER_YAML, "expected a mapping with 'frame' and/or 'avoid' keys")
+        raise ConfigError("expected a mapping with 'frame' and/or 'avoid' keys")
 
     unknown = sorted(set(raw) - {"frame", "avoid", "keep_defaults"})
     if unknown:
-        _fail(LETTER_YAML, f"unknown section(s): {', '.join(unknown)}. "
-                           f"Valid sections: frame, avoid, keep_defaults")
+        raise ConfigError(f"unknown section(s): {', '.join(unknown)}. "
+                          f"Valid sections: frame, avoid, keep_defaults")
 
     for key, value in (raw.get("frame") or {}).items():
         if key not in LETTER_DEFAULTS:
-            _fail(LETTER_YAML, f"unknown frame field {key!r}. "
-                               f"Valid: {', '.join(sorted(LETTER_DEFAULTS))}")
+            raise ConfigError(f"unknown frame field {key!r}. "
+                              f"Valid: {', '.join(sorted(LETTER_DEFAULTS))}")
         if not isinstance(value, str) or not value.strip():
-            _fail(LETTER_YAML, f"frame.{key} must be a non-empty string")
+            raise ConfigError(f"frame.{key} must be a non-empty string")
         frame[key] = value.strip()
 
     avoid = raw.get("avoid")
     if avoid is not None:
         if not isinstance(avoid, list):
-            _fail(LETTER_YAML, "avoid must be a list of phrases or {pattern, label} entries")
+            raise ConfigError("avoid must be a list of phrases or {pattern, label} entries")
         # keep_defaults: false replaces the built-in list instead of adding to it
         if raw.get("keep_defaults", True) is False:
             tells = []
-        import re as _re
         for item in avoid:
             if isinstance(item, str):
                 pattern, label = _re.escape(item), f'"{item}"'
@@ -183,15 +198,29 @@ def load_letter() -> tuple[dict, list[tuple[str, str]]]:
                 pattern = str(item["pattern"])
                 label = str(item.get("label") or item["pattern"])
             else:
-                _fail(LETTER_YAML, f"avoid entry {item!r} must be a phrase or "
-                                   f"{{pattern: ..., label: ...}}")
+                raise ConfigError(f"avoid entry {item!r} must be a phrase or "
+                                  f"{{pattern: ..., label: ...}}")
             try:
                 _re.compile(pattern)
             except _re.error as exc:
-                _fail(LETTER_YAML, f"avoid pattern {pattern!r} is not a valid regex ({exc})")
+                raise ConfigError(f"avoid pattern {pattern!r} is not a valid regex ({exc})")
             tells.append((pattern, label))
 
     return frame, tells
+
+
+def load_letter() -> tuple[dict, list[tuple[str, str]]]:
+    """Returns (frame, ai_tell_patterns)."""
+    if not LETTER_YAML.exists():
+        return dict(LETTER_DEFAULTS), list(AI_TELL_DEFAULTS)
+    try:
+        raw = yaml.safe_load(LETTER_YAML.read_text(encoding="utf-8")) or {}
+    except yaml.YAMLError as exc:
+        _fail(LETTER_YAML, f"not valid YAML ({str(exc)[:120]})")
+    try:
+        return letter_from(raw)
+    except ConfigError as exc:
+        _fail(LETTER_YAML, str(exc))
 
 
 # --- what to search for -----------------------------------------------------
