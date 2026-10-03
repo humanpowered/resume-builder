@@ -1,0 +1,234 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Resume Builder</title>
+<style>
+  :root {
+    --bg: #f7f6f3; --panel: #ffffff; --ink: #1d1d1b; --muted: #6b6a66;
+    --line: #e3e1db; --accent: #2d5b8a; --accent-ink: #ffffff; --ok: #2f7d4f; --warn: #a3561b;
+    --radius: 10px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #161615; --panel: #1f1f1d; --ink: #ecebe7; --muted: #a09e98;
+            --line: #33322f; --accent: #7fb0e0; --accent-ink: #10202f; --ok: #7cc49a; --warn: #e0a06a; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  header { padding: 16px; border-bottom: 1px solid var(--line); display: flex;
+           justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+  header h1 { font-size: 18px; margin: 0; }
+  main { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 16px;
+         padding: 16px; max-width: 1200px; margin: 0 auto; }
+  @media (max-width: 860px) { main { grid-template-columns: 1fr; } }
+  section { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
+            padding: 16px; }
+  h2 { font-size: 15px; margin: 0 0 12px; }
+  .muted { color: var(--muted); font-size: 14px; }
+  button, .btn { background: var(--accent); color: var(--accent-ink); border: 0; border-radius: 8px;
+                 padding: 8px 14px; font: inherit; cursor: pointer; text-decoration: none;
+                 display: inline-block; }
+  button.ghost, .btn.ghost { background: transparent; color: var(--accent); border: 1px solid var(--line); }
+  button:disabled { opacity: .5; cursor: default; }
+  input[type=text], input[type=email], textarea { width: 100%; font: inherit; color: var(--ink);
+       background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 10px; }
+  #chat { display: flex; flex-direction: column; gap: 10px; max-height: 60vh; overflow-y: auto;
+          padding-bottom: 8px; }
+  .msg { padding: 10px 12px; border-radius: 10px; max-width: 90%; white-space: pre-wrap; }
+  .q { background: var(--bg); border: 1px solid var(--line); align-self: flex-start; }
+  .a { background: var(--accent); color: var(--accent-ink); align-self: flex-end; }
+  .note { color: var(--ok); font-size: 14px; align-self: flex-start; }
+  .row { display: flex; gap: 8px; margin-top: 10px; }
+  .row > input { flex: 1; }
+  ul.clean { list-style: none; padding: 0; margin: 0; }
+  ul.clean li { padding: 8px 0; border-top: 1px solid var(--line); }
+  .tag { font-size: 12px; padding: 2px 6px; border-radius: 6px; border: 1px solid var(--line);
+         color: var(--muted); margin-left: 6px; }
+  .tag.metric, .tag.derived { color: var(--ok); }
+  .stack > * + * { margin-top: 16px; }
+  .hidden { display: none; }
+  .danger { color: var(--warn); background: transparent; border: 1px solid var(--line); }
+</style>
+</head>
+<body>
+<header>
+  <h1>Resume Builder</h1>
+  <span id="who" class="muted"></span>
+</header>
+
+<div id="signin" class="hidden" style="max-width:420px;margin:48px auto;padding:0 16px">
+  <section>
+    <h2>Sign in</h2>
+    <p class="muted">Development sign-in. The hosted product will use a real sign-in provider.</p>
+    <input id="email" type="email" placeholder="you@example.com" autocomplete="email">
+    <div class="row"><button id="login">Continue</button></div>
+  </section>
+</div>
+
+<main id="app" class="hidden">
+  <div class="stack">
+    <section id="start">
+      <h2>Start from what you have</h2>
+      <p class="muted">Upload a resume or a LinkedIn profile saved as PDF. Nothing is rewritten:
+        every line is copied into your record and checked against your file.</p>
+      <div class="row">
+        <input id="file" type="file" accept=".pdf,.docx,.txt">
+        <button id="upload">Import</button>
+      </div>
+      <p id="importResult" class="muted"></p>
+    </section>
+
+    <section>
+      <h2>Interview</h2>
+      <p class="muted">One question at a time. Answer briefly; say “skip” or “done” any time.
+        Everything is saved as you go, so you can close this page and come back.</p>
+      <div id="chat" aria-live="polite"></div>
+      <form id="answerForm" class="row">
+        <input id="answer" type="text" autocomplete="off" placeholder="Your answer">
+        <button id="send">Send</button>
+      </form>
+      <div class="row">
+        <button id="begin" class="ghost">Start or resume interview</button>
+        <button id="restart" class="ghost">Start over</button>
+      </div>
+    </section>
+  </div>
+
+  <div class="stack">
+    <section>
+      <h2>Your record</h2>
+      <div id="healthText" class="muted"></div>
+      <ul id="roles" class="clean"></ul>
+    </section>
+    <section>
+      <h2>Skills to confirm</h2>
+      <ul id="pending" class="clean"></ul>
+      <div class="row"><button id="suggest" class="ghost">Suggest skills from my record</button></div>
+    </section>
+    <section>
+      <h2>Export</h2>
+      <p class="muted">The files the job-application pipeline reads.</p>
+      <div class="row">
+        <a class="btn ghost" href="/api/export/master_profile.json">Profile (JSON)</a>
+        <a class="btn ghost" href="/api/export/skills_inventory.csv">Skills (CSV)</a>
+        <a class="btn ghost" href="/api/me/download">Everything (Markdown)</a>
+      </div>
+      <div class="row"><button id="deleteMe" class="danger">Delete all my data</button></div>
+    </section>
+  </div>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+async function api(path, opts = {}) {
+  const r = await fetch(path, { credentials: "same-origin",
+    headers: opts.body && !(opts.body instanceof FormData) ? { "Content-Type": "application/json" } : {},
+    ...opts });
+  if (r.status === 401) { show("signin"); throw new Error("signed out"); }
+  const data = r.headers.get("content-type")?.includes("json") ? await r.json() : await r.text();
+  if (!r.ok) throw new Error(data.detail || r.statusText);
+  return data;
+}
+function show(which) {
+  $("signin").classList.toggle("hidden", which !== "signin");
+  $("app").classList.toggle("hidden", which !== "app");
+}
+function say(text, cls) {
+  const d = document.createElement("div");
+  d.className = "msg " + cls; d.textContent = text;
+  $("chat").appendChild(d); $("chat").scrollTop = $("chat").scrollHeight;
+}
+function busy(on) { $("send").disabled = on; $("answer").disabled = on; }
+
+async function step(answer) {
+  busy(true);
+  try {
+    const p = await api("/api/interview/step", { method: "POST",
+      body: JSON.stringify({ answer }) });
+    (p.notes || []).forEach((n) => say(n, "note"));
+    say(p.text + (p.hint ? `\n(${p.hint})` : ""), "q");
+    if (p.kind === "done") refresh();
+    else if ((p.notes || []).some((n) => n.startsWith("recorded"))) refresh();
+  } catch (e) { say("Something went wrong: " + e.message, "note"); }
+  busy(false); $("answer").focus();
+}
+
+async function refresh() {
+  const [{ summary }, h] = await Promise.all([api("/api/record"), api("/api/health")]);
+  $("healthText").textContent = `${h.total} accomplishments, ${h.quantified} with a figure.`;
+  const roles = $("roles"); roles.innerHTML = "";
+  for (const r of summary.roles) {
+    const li = document.createElement("li");
+    li.innerHTML = `<strong></strong> <span class="muted"></span><ul class="clean"></ul>`;
+    li.querySelector("strong").textContent = `${r.employer} · ${r.title}`;
+    li.querySelector(".muted").textContent = r.dates;
+    const ul = li.querySelector("ul");
+    for (const a of r.accomplishments) {
+      const i = document.createElement("li");
+      i.textContent = a.title;
+      const t = document.createElement("span"); t.className = "tag " + a.evidence; t.textContent = a.evidence || "recorded";
+      i.appendChild(t); ul.appendChild(i);
+    }
+    if (r.resume_bullets.length) {
+      const i = document.createElement("li"); i.className = "muted";
+      i.textContent = `${r.resume_bullets.length} resume bullet(s) not yet opened up`;
+      ul.appendChild(i);
+    }
+    roles.appendChild(li);
+  }
+  const pend = $("pending"); pend.innerHTML = "";
+  const waiting = summary.skills.filter((s) => s.pending);
+  if (!waiting.length) pend.innerHTML = `<li class="muted">Nothing waiting.</li>`;
+  for (const s of waiting) {
+    const li = document.createElement("li");
+    li.textContent = s.name + " ";
+    for (const lvl of ["Expert", "Advanced", "Working", "Familiar", null]) {
+      const b = document.createElement("button"); b.className = "ghost";
+      b.textContent = lvl || "Not me"; b.style.marginLeft = "4px";
+      b.onclick = async () => { await api(`/api/skills/${encodeURIComponent(s.name)}/confirm`,
+        { method: "POST", body: JSON.stringify({ level: lvl }) }); refresh(); };
+      li.appendChild(b);
+    }
+    pend.appendChild(li);
+  }
+}
+
+$("login").onclick = async () => {
+  await api("/dev/login", { method: "POST", body: JSON.stringify({ email: $("email").value }) });
+  boot();
+};
+$("upload").onclick = async () => {
+  const f = $("file").files[0]; if (!f) return;
+  const fd = new FormData(); fd.append("file", f);
+  $("importResult").textContent = "Reading your file…";
+  try {
+    const r = await api("/api/import", { method: "POST", body: fd });
+    $("importResult").textContent = `Imported. ${r.set_aside.length} line(s) set aside to check, `
+      + `${r.unplaced.length} not filed. Next: start the interview.`;
+    refresh();
+  } catch (e) { $("importResult").textContent = e.message; }
+};
+$("answerForm").onsubmit = (e) => {
+  e.preventDefault(); const a = $("answer").value; $("answer").value = "";
+  say(a || "(skip)", "a"); step(a);
+};
+$("begin").onclick = () => step(null);
+$("restart").onclick = async () => { await api("/api/interview/restart", { method: "POST" });
+  $("chat").innerHTML = ""; step(null); };
+$("suggest").onclick = async () => { $("suggest").disabled = true;
+  try { await api("/api/skills/suggest", { method: "POST" }); refresh(); }
+  finally { $("suggest").disabled = false; } };
+$("deleteMe").onclick = async () => {
+  if (!confirm("Delete your whole record and every saved version? This cannot be undone.")) return;
+  await api("/api/me", { method: "DELETE" }); location.reload();
+};
+
+async function boot() {
+  try { await refresh(); show("app"); } catch (e) { if (e.message !== "signed out") show("signin"); }
+}
+boot();
+</script>
+</body>
+</html>

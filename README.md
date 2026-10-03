@@ -84,10 +84,27 @@ next run offers to pick up the half-finished one.
 Plain Markdown, so you can edit it in any editor and it diffs cleanly. See
 `examples/record.example.md`.
 
+## The web app
+
+The hosted product runs the same engine behind a per-user web API and one
+page (`web/`). Each user's record lives in a database row scoped to them,
+with the last 50 versions kept. They can download everything or delete
+everything from the page.
+
+```bash
+pip install -r requirements-web.txt
+RB_DEV=1 uvicorn web.app:app --reload       # then open http://localhost:8000
+```
+
+`RB_DEV=1` turns on a development sign-in, which takes an email address and
+nothing else. Without it the service refuses every request, because real
+sign-in isn't wired up yet. That is the first thing to add before anyone
+else uses it.
+
 ## Testing
 
 ```bash
-python -m unittest discover -s tests        # 67 tests; no API calls, no network
+python -m unittest discover -s tests        # 75 tests; no API calls, no network
 python evals/simulate.py --people 01        # one simulated person (needs a key)
 ```
 

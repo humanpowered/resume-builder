@@ -5,3 +5,4 @@ record.md
 evals/results/
 __pycache__/
 *.pyc
+web/*.sqlite3
