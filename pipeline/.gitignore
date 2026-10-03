@@ -1,0 +1,34 @@
+# This repository is local only. It holds a real profile, a real application
+# tracker and real generated documents, so it has no remote and should not get
+# one. The sanitised public mirror lives in a separate directory.
+
+# Reinstallable: npm install
+src/node_modules/
+
+# Generated every run. The tracker is the exception -- it is the one file here
+# you edit by hand, and its history is worth having.
+output/*
+!output/application_tracker.csv
+
+# Written nightly, pruned after 30 days
+logs/
+
+# Timestamped backups written by the tools before they overwrite anything.
+# Useful on disk, noise in history.
+profile/master_profile.????????-??????.json
+profile/master.????????-??????.md
+config/general_resume_keep.????????-??????.json
+output/application_tracker.NEW.csv
+
+# Derived caches. Deleting them costs a rebuild, nothing more.
+profile/.bullets.json
+profile/.interview_state.json
+**/__pycache__/
+*.pyc
+
+# Half-written files from an interrupted save
+*.tmp
+*.md.tmp
+
+# Stray manual copies
+*- Copy.*
