@@ -26,6 +26,7 @@ from pathlib import Path
 from . import export as X
 from . import health, importer, interview, llm, skills
 from . import record as mr
+from .store import FileStore
 
 
 def ask(question: str) -> str:
@@ -90,13 +91,14 @@ def cmd_import(args, path: Path) -> int:
 def cmd_interview(args, path: Path) -> int:
     llm.require_credentials()
     print(f"  record: {path}")
-    s = interview.Session(path, ask=ask)
+    iv = interview.Interview(FileStore(path), only=args.role or "", target=args.target)
+    if iv.state:
+        print("  Picking up where you left off.")
     try:
-        s.run(only=args.role or "", target=args.target)
+        interview.run(iv, ask)
     except interview.Stop:
-        print("\n  Stopped. Everything confirmed is saved; run again to carry on.")
-    print(f"\n  {s.recorded} accomplishment(s) recorded this session.")
-    print(health.render(health.check(s.rec, args.target)))
+        print("\n  Stopped. Everything is saved; run again to carry on from here.")
+    print(health.render(health.check(iv.rec, args.target)))
     if llm.spend_summary():
         print(f"\n  {llm.spend_summary()}")
     return 0

@@ -21,12 +21,13 @@ descending order of strength and stop at the first rung that holds (metric,
 derived, scope, qualitative). `qualitative` is a real answer; inventing a
 number to avoid it is forbidden.
 
-All input goes through one `ask` callable, so a person at a terminal and the
-simulated interviewee in the evaluation drive exactly the same code.
+The engine is a state machine driven one turn at a time (`Interview.step`),
+so a terminal, a web page and the simulated interviewee in the evaluation all
+drive exactly the same code.
 """
 import json
 import re
-from pathlib import Path
+from dataclasses import dataclass, field
 
 from . import llm
 from . import record as mr
@@ -65,19 +66,6 @@ CONTEXT_QUESTIONS = [
 ]
 
 
-def ask_context(role: Role, ask) -> int:
-    """Ask only for the fields still blank. Returns how many were filled."""
-    filled = 0
-    for label, question in CONTEXT_QUESTIONS:
-        if role.fields.get(label):
-            continue
-        answer = ask(question.format(employer=role.employer, title=role.title)
-                     + "\n  (Enter to skip)")
-        if gave_up(answer):
-            continue
-        role.fields[label] = answer.strip()
-        filled += 1
-    return filled
 
 
 # --------------------------------------------------------------------------
@@ -230,207 +218,349 @@ def by_need(rec: mr.Record) -> list:
 # Sessions
 
 
-class Session:
-    """
-    One interview over one record file.
+# --------------------------------------------------------------------------
+# The engine: one turn at a time
+#
+# A web page cannot sit in a loop waiting on input(), so the interview is a
+# state machine. Each call to `step(answer)` takes the person's answer to the
+# last prompt, does whatever follows from it (saving a field, asking the model,
+# recording an accomplishment) and returns the next prompt. All progress lives
+# in a JSON-serialisable state held by the store, so a person can close the
+# page, or the server can restart, between any two turns and lose nothing.
 
-    Saves after every confirmed accomplishment, and saves the half-finished
-    one to a sidecar after every turn, so stopping mid-conversation loses
-    nothing and the next run offers to pick it up.
+
+@dataclass
+class Prompt:
+    text: str
+    kind: str = "question"      # question | choice | done
+    hint: str = ""              # e.g. "Enter to skip"
+    notes: list = field(default_factory=list)   # things to show first
+
+
+STATE = "interview"
+
+
+def role_key(role: Role) -> str:
+    return f"{role.employer}||{role.title}"
+
+
+class Interview:
+    """
+    The order a role needs: its context, then each imported resume bullet
+    opened back up, then accomplishments no resume held, then one more angle,
+    once. Thinnest role first.
     """
 
-    def __init__(self, path: Path, ask, say=print):
-        self.path = Path(path)
-        self.state_path = self.path.with_name("." + self.path.stem + ".interview.json")
-        self.ask = ask
-        self.say = say
-        self.rec = (mr.parse(self.path.read_text(encoding="utf-8"))
-                    if self.path.exists() else mr.Record(header=["# Master record"]))
+    def __init__(self, store, only: str = "", target: int = 10):
+        self.store = store
+        self.only = only
+        self.target = target
+        self.rec = store.load_record()
+        self.state = store.load_state(STATE)
+        self.notes = []
         self.recorded = 0
 
-    # -- persistence -------------------------------------------------------
+    # -- plumbing ------------------------------------------------------------
 
-    def save(self) -> None:
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = self.path.with_suffix(".md.tmp")
-        tmp.write_text(mr.render(self.rec), encoding="utf-8")
-        tmp.replace(self.path)
+    def _save_record(self):
+        self.store.save_record(self.rec)
 
-    def save_state(self, role: Role, messages: list, draft: dict, bullet: str) -> None:
-        self.state_path.write_text(json.dumps({
-            "employer": role.employer, "title": role.title, "bullet": bullet,
-            "messages": messages, "draft": draft}, indent=1), encoding="utf-8")
-
-    def load_state(self):
-        if not self.state_path.exists():
-            return None
-        try:
-            return json.loads(self.state_path.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            return None
-
-    def clear_state(self) -> None:
-        if self.state_path.exists():
-            self.state_path.unlink()
-
-    # -- the parts ---------------------------------------------------------
-
-    def add_roles(self) -> None:
-        self.say("\nList your jobs, newest first. Include part-time, contract, "
-                 "volunteer and military roles if they matter. Press Enter on an "
-                 "empty employer when you are done.")
-        while True:
-            employer = self.ask("Employer (or organisation)?")
-            if not employer:
-                break
-            title = self.ask(f"Your job title at {employer}?")
-            dates = self.ask("Dates? (anything readable, e.g. 2019 - 2022)")
-            role = Role(employer=employer.strip(), title=title.strip())
-            if dates:
-                role.fields["Dates"] = dates.strip()
-            self.rec.roles.append(role)
-            self.save()
-
-    def context(self, role: Role) -> None:
-        if ask_context(role, self.ask):
-            self.save()
-
-    def turn(self, messages: list) -> dict:
-        return llm.request_json(messages, 4096, "interview", schema=INTERVIEW_SCHEMA)
-
-    def converse(self, role: Role, bullet: str = "", resume=None, seed=None) -> str:
-        """
-        One accomplishment. Returns "complete", "role_done" or "skipped".
-        """
-        if resume:
-            messages, got = resume["messages"], resume.get("draft") or {}
+    def _save_state(self):
+        if self.state is None or self.state.get("phase") == "done":
+            self.store.clear_state(STATE)
         else:
-            ctx = {"employer": role.employer, "job_title": role.title,
-                   "dates": role.fields.get("Dates", ""),
-                   "role_context": {k: v for k, v in role.fields.items() if v},
-                   "already_recorded": [a.title for a in role.accomplishments]}
-            mode = MODE_EXPAND.format(bullet=bullet) if bullet else MODE_NEW
-            messages = [{"role": "user", "content":
-                         COACH.format(mode=mode) + "\nROLE:\n" + json.dumps(ctx, indent=1)
-                         + "\n\nBegin with your first question."}]
-            if seed:
-                q, a = seed
-                messages += [{"role": "assistant", "content": json.dumps(
-                                 {"say": q, "draft": {}, "status": "asking"})},
-                             {"role": "user", "content": a}]
-            got = {}
-        draft = Accomplishment(**{k: got.get(k, "") for k in
-                                  ("title", "problem", "actions", "results", "evidence")})
-        skills = list(got.get("skills") or [])
+            self.store.save_state(STATE, self.state)
 
-        while True:
-            reply = self.turn(messages)
-            status = reply.get("status", "asking")
-            say = (reply.get("say") or "").strip()
-            d = reply.get("draft") or {}
-            for key in ("title", "problem", "actions", "results", "evidence"):
-                if d.get(key):
-                    setattr(draft, key, str(d[key]).strip())
-            for s in d.get("skills") or []:
-                if s and s not in skills:
-                    skills.append(s)
+    def role(self):
+        key = self.state["queue"][self.state["qi"]]
+        for r in self.rec.roles:
+            if role_key(r) == key:
+                return r
+        return None
 
-            if status == "role_done":
-                self.clear_state()
-                if say:
-                    self.say(say)
-                return "role_done"
-
-            if status == "complete":
-                dupe = near_duplicate(role, draft.title, ignore=bullet)
-                if dupe:
-                    messages = messages + [
-                        {"role": "assistant", "content": json.dumps(reply)},
-                        {"role": "user", "content":
-                         f"That duplicates {dupe!r}, already recorded. Ask for a different one."}]
-                    continue
-                if draft.evidence not in mr.EVIDENCE_TIERS:
-                    draft.evidence = "qualitative"
-                role.accomplishments.append(draft)
-                if bullet and bullet in role.recorded_bullets:
-                    role.recorded_bullets.remove(bullet)
-                self.link_skills(skills, draft.title)
-                self.save()
-                self.clear_state()
-                self.recorded += 1
-                self.say(f"  recorded: {draft.title} ({draft.evidence})")
-                return "complete"
-
-            messages = messages + [{"role": "assistant", "content": json.dumps(reply)}]
-            self.save_state(role, messages, {**vars(draft), "skills": skills}, bullet)
-            answer = self.ask(say or "Go on?")
-            if gave_up(answer):
-                self.clear_state()
-                return "skipped"
-            messages = messages + [{"role": "user", "content": answer}]
-
-    def link_skills(self, names: list, title: str) -> None:
-        """Skills an accomplishment showed become evidence for those skills."""
-        for name in names:
-            name = name.strip()
-            if not name:
-                continue
-            skill = self.rec.skill(name)
-            if skill is None:
-                skill = mr.Skill(name=name, category="From the interview")
-                self.rec.skills.append(skill)
-            if title not in skill.evidence:
-                skill.evidence.append(title)
-
-    def role(self, role: Role, target: int = 10) -> None:
-        """Context, then expand imported bullets, then new accomplishments,
-        then one more angle, once."""
-        self.say(f"\n{'=' * 60}\n{role.label()}\n  {mr.coverage_note(role, target, prompt=True)}")
-        self.context(role)
-
-        for bullet in list(role.recorded_bullets):
-            answer = self.ask(f"From your resume: \"{bullet}\"\n"
-                              f"  Open this one up? (Enter = yes, 'skip' = leave it, "
-                              f"'done' = move on)")
-            low = (answer or "").strip().lower()
-            if low in ("done", "next", "stop", "move on"):
-                break
-            if low in ("skip", "s", "no", "n"):
-                continue
-            self.converse(role, bullet=bullet)
-
-        lens_used = False
-        seed = None
-        while True:
-            outcome = self.converse(role, seed=seed)
-            seed = None
-            if outcome == "complete":
-                continue
-            if lens_used:
-                return
-            lens_used = True
-            name, question = pick_lens(role)
-            answer = self.ask(f"One more angle before we move on ({name}): {question}\n"
-                              f"  (Enter to skip)")
-            if gave_up(answer):
-                return
-            seed = (question, answer)
-
-    def run(self, only: str = "", target: int = 10) -> None:
-        state = self.load_state()
-        if state:
-            role = self.rec.role_by_employer(state["employer"])
-            if role is not None:
-                answer = self.ask(f"You stopped part-way through an accomplishment at "
-                                  f"{role.employer}. Pick it up? (Enter = yes, 'no' = discard)")
-                if gave_up(answer) and answer:
-                    self.clear_state()
-                else:
-                    self.converse(role, bullet=state.get("bullet", ""), resume=state)
-        if not self.rec.roles:
-            self.add_roles()
+    def _queue(self):
         roles = by_need(self.rec)
-        if only:
-            roles = [r for r in roles if only.lower() in r.employer.lower()]
-        for role in roles:
-            self.role(role, target)
+        if self.only:
+            roles = [r for r in roles if self.only.lower() in r.employer.lower()]
+        return [role_key(r) for r in roles]
+
+    # -- public --------------------------------------------------------------
+
+    def step(self, answer: str | None = None) -> Prompt:
+        self.notes = []
+        if self.state is None:
+            self.state = self._fresh()
+            answer = None
+        elif answer is not None:
+            self._take(answer)
+        prompt = self._advance()
+        prompt.notes = self.notes + prompt.notes
+        self._save_state()
+        return prompt
+
+    def _fresh(self) -> dict:
+        s = {"phase": "begin_role", "queue": [], "qi": 0, "ctx_i": 0, "bullet_i": 0,
+             "talk": None, "lens_used": False, "new_role": {}}
+        if not self.rec.roles:
+            s["phase"] = "roles"
+            s["new_role"] = {"stage": "employer"}
+            self.notes.append("List your jobs, newest first. Include part-time, contract, "
+                              "volunteer and military roles if they matter. Leave the "
+                              "employer blank when you are done.")
+        else:
+            s["queue"] = self._queue()
+        return s
+
+    # -- taking an answer ----------------------------------------------------
+
+    def _take(self, answer: str) -> None:
+        s = self.state
+        phase = s["phase"]
+        a = (answer or "").strip()
+
+        if phase == "roles":
+            nr = s["new_role"]
+            if nr["stage"] == "employer":
+                if not a:
+                    s["phase"], s["queue"], s["qi"] = "begin_role", self._queue(), 0
+                    return
+                nr.update(employer=a, stage="title")
+            elif nr["stage"] == "title":
+                nr.update(title=a, stage="dates")
+            else:
+                role = Role(employer=nr["employer"], title=nr.get("title", ""))
+                if a:
+                    role.fields["Dates"] = a
+                self.rec.roles.append(role)
+                self._save_record()
+                s["new_role"] = {"stage": "employer"}
+            return
+
+        if phase == "context":
+            label = CONTEXT_QUESTIONS[s["ctx_i"]][0]
+            if not gave_up(a):
+                self.role().fields[label] = a
+                self._save_record()
+            s["ctx_i"] += 1
+            return
+
+        if phase == "offer_bullet":
+            low = a.lower()
+            if low in ("done", "next", "stop", "move on"):
+                s["phase"] = "new"
+            elif low in ("skip", "s", "no", "n"):
+                s["bullet_i"] += 1
+            else:
+                bullet = self.role().recorded_bullets[s["bullet_i"]]
+                s["talk"] = self._open_talk(bullet=bullet)
+                s["phase"] = "talk"
+            return
+
+        if phase == "talk":
+            if gave_up(a):
+                self._end_talk("skipped")
+                return
+            s["talk"]["messages"].append({"role": "user", "content": a})
+            s["talk"]["pending"] = True
+            return
+
+        if phase == "lens":
+            if gave_up(a):
+                self._next_role()
+            else:
+                s["talk"] = self._open_talk(seed=(s["lens_question"], a))
+                s["phase"] = "talk"
+                s["talk"]["pending"] = True
+            return
+
+    # -- producing the next prompt -------------------------------------------
+
+    def _advance(self) -> Prompt:
+        s = self.state
+        for _ in range(500):            # each pass either returns or moves forward
+            phase = s["phase"]
+
+            if phase == "roles":
+                stage = s["new_role"]["stage"]
+                emp = s["new_role"].get("employer", "")
+                return {"employer": Prompt("Employer (or organisation)?", hint="Enter when done"),
+                        "title": Prompt(f"Your job title at {emp}?"),
+                        "dates": Prompt("Dates? (anything readable, e.g. 2019 - 2022)")}[stage]
+
+            if phase == "done" or s["qi"] >= len(s["queue"]):
+                s["phase"] = "done"
+                return Prompt(f"That's everything for now. {self.recorded} accomplishment(s) "
+                              f"recorded this session.", kind="done")
+
+            role = self.role()
+            if role is None:                # deleted by hand between turns
+                self._next_role()
+                continue
+
+            if phase == "begin_role":
+                self.notes.append(f"{role.label()}: "
+                                  f"{mr.coverage_note(role, self.target, prompt=True)}")
+                s.update(phase="context", ctx_i=0, bullet_i=0, lens_used=False, talk=None)
+                continue
+
+            if phase == "context":
+                while s["ctx_i"] < len(CONTEXT_QUESTIONS) and \
+                        role.fields.get(CONTEXT_QUESTIONS[s["ctx_i"]][0]):
+                    s["ctx_i"] += 1
+                if s["ctx_i"] < len(CONTEXT_QUESTIONS):
+                    q = CONTEXT_QUESTIONS[s["ctx_i"]][1]
+                    return Prompt(q.format(employer=role.employer, title=role.title),
+                                  hint="Enter to skip")
+                s["phase"] = "offer_bullet"
+                continue
+
+            if phase == "offer_bullet":
+                if s["bullet_i"] < len(role.recorded_bullets):
+                    return Prompt(f"From your resume: \"{role.recorded_bullets[s['bullet_i']]}\"\n"
+                                  f"Open this one up to find what is behind it?",
+                                  kind="choice", hint="Enter = yes, 'skip', or 'done' to move on")
+                s["phase"] = "new"
+                continue
+
+            if phase == "new":
+                s["talk"] = self._open_talk()
+                s["talk"]["pending"] = True
+                s["phase"] = "talk"
+                continue
+
+            if phase == "talk":
+                t = s["talk"]
+                if not t.get("pending"):
+                    return Prompt(t["say"] or "Go on?")
+                prompt = self._model_turn()
+                if prompt is not None:
+                    return prompt
+                continue
+
+            if phase == "lens":
+                if s["lens_used"]:
+                    self._next_role()
+                    continue
+                s["lens_used"] = True
+                name, question = pick_lens(role)
+                s["lens_question"] = question
+                return Prompt(f"One more angle before we move on ({name}): {question}",
+                              hint="Enter to skip")
+        raise RuntimeError("interview made no progress")
+
+    # -- conversations with the model ----------------------------------------
+
+    def _open_talk(self, bullet: str = "", seed=None) -> dict:
+        role = self.role()
+        ctx = {"employer": role.employer, "job_title": role.title,
+               "dates": role.fields.get("Dates", ""),
+               "role_context": {k: v for k, v in role.fields.items() if v},
+               "already_recorded": [a.title for a in role.accomplishments]}
+        mode = MODE_EXPAND.format(bullet=bullet) if bullet else MODE_NEW
+        messages = [{"role": "user", "content":
+                     COACH.format(mode=mode) + "\nROLE:\n" + json.dumps(ctx, indent=1)
+                     + "\n\nBegin with your first question."}]
+        if seed:
+            q, a = seed
+            messages += [{"role": "assistant", "content": json.dumps(
+                             {"say": q, "draft": {}, "status": "asking"})},
+                         {"role": "user", "content": a}]
+        return {"messages": messages, "bullet": bullet, "say": "", "pending": True,
+                "draft": {k: "" for k in ("title", "problem", "actions", "results", "evidence")},
+                "skills": []}
+
+    def _model_turn(self):
+        """Ask the model for the next move. Returns a Prompt to show, or None
+        when the conversation ended and the caller should move on."""
+        s, t = self.state, self.state["talk"]
+        role = self.role()
+        reply = llm.request_json(list(t["messages"]), 4096, "interview", schema=INTERVIEW_SCHEMA)
+        status = reply.get("status", "asking")
+        d = reply.get("draft") or {}
+        for key in t["draft"]:
+            if d.get(key):
+                t["draft"][key] = str(d[key]).strip()
+        for sk in d.get("skills") or []:
+            if sk and sk not in t["skills"]:
+                t["skills"].append(sk)
+        t["messages"].append({"role": "assistant", "content": json.dumps(reply)})
+        t["say"] = (reply.get("say") or "").strip()
+        t["pending"] = False
+
+        if status == "role_done":
+            if t["say"]:
+                self.notes.append(t["say"])
+            self._end_talk("role_done")
+            return None
+
+        if status == "complete":
+            draft = Accomplishment(**t["draft"])
+            dupe = near_duplicate(role, draft.title, ignore=t["bullet"])
+            if dupe:
+                t["messages"].append({"role": "user", "content":
+                                      f"That duplicates {dupe!r}, already recorded. "
+                                      f"Ask for a different one."})
+                t["pending"] = True
+                return None
+            if draft.evidence not in mr.EVIDENCE_TIERS:
+                draft.evidence = "qualitative"
+            role.accomplishments.append(draft)
+            if t["bullet"] and t["bullet"] in role.recorded_bullets:
+                role.recorded_bullets.remove(t["bullet"])
+            link_skills(self.rec, t["skills"], draft.title)
+            self._save_record()
+            self.recorded += 1
+            self.notes.append(f"recorded: {draft.title} ({draft.evidence})")
+            self._end_talk("complete")
+            return None
+
+        return Prompt(t["say"] or "Go on?")
+
+    def _end_talk(self, outcome: str) -> None:
+        s = self.state
+        was_bullet = bool(s["talk"] and s["talk"]["bullet"])
+        s["talk"] = None
+        if was_bullet:
+            # a completed expansion removed its bullet, so the index already
+            # points at the next one; a skipped one has to step past it
+            if outcome != "complete":
+                s["bullet_i"] += 1
+            s["phase"] = "offer_bullet"
+        elif outcome == "complete":
+            s["phase"] = "new"
+        else:
+            s["phase"] = "lens"
+
+    def _next_role(self) -> None:
+        s = self.state
+        s["qi"] += 1
+        s["phase"] = "begin_role"
+        s["talk"] = None
+
+
+def link_skills(rec: mr.Record, names: list, title: str) -> None:
+    """Skills an accomplishment showed become evidence for those skills."""
+    for name in names:
+        name = (name or "").strip()
+        if not name:
+            continue
+        skill = rec.skill(name)
+        if skill is None:
+            skill = mr.Skill(name=name, category="From the interview")
+            rec.skills.append(skill)
+        if title not in skill.evidence:
+            skill.evidence.append(title)
+
+
+def run(interview: Interview, ask, say=print) -> Interview:
+    """Drive an interview from a terminal, or anything else that can answer a
+    question with a line of text. Ctrl-C (Stop) leaves the state saved."""
+    prompt = interview.step()
+    while True:
+        for n in prompt.notes:
+            say(f"  {n}")
+        if prompt.kind == "done":
+            say(prompt.text)
+            return interview
+        text = prompt.text + (f"\n  ({prompt.hint})" if prompt.hint else "")
+        prompt = interview.step(ask(text))

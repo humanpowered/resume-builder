@@ -37,6 +37,7 @@ sys.path.insert(0, str(ROOT))
 
 from resume_builder import bullets, importer, interview, llm  # noqa: E402
 from resume_builder import record as mr  # noqa: E402
+from resume_builder.store import FileStore  # noqa: E402
 
 TESTSET = ROOT / "evals" / "testset"
 
@@ -89,7 +90,7 @@ class Player:
         self.asked += 1
         if self.asked > self.limit:
             raise interview.Stop()
-        q = question.split("\n  (Enter to skip)")[0]
+        q = question.split("\n  (")[0]
         reply = llm.request_json([{"role": "user", "content": PLAYER.format(
             truth=self.truth, history="\n".join(self.history[-30:]) or "(none)",
             question=q) + '\n\nReturn JSON: {"answer": "..."}'}],
@@ -187,9 +188,9 @@ def run_person(folder: Path, out: Path, limit: int) -> dict:
         resume = ""
     player = Player(truth, limit)
     log = []
-    s = interview.Session(path, ask=player.ask, say=lambda *a: log.append(" ".join(map(str, a))))
+    iv = interview.Interview(FileStore(path))
     try:
-        s.run()
+        interview.run(iv, player.ask, say=lambda *a: log.append(" ".join(map(str, a))))
     except interview.Stop:
         log.append("[question limit reached]")
     rec = mr.parse(path.read_text(encoding="utf-8"))

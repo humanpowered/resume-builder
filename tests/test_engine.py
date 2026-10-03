@@ -5,8 +5,6 @@ what the interview will not lose when someone stops half-way.
 
 Every model reply here is scripted. Nothing reaches the network.
 """
-import json
-import tempfile
 import unittest
 from pathlib import Path
 
@@ -16,6 +14,7 @@ from fakes import FakeBackend
 from resume_builder import bullets, export, health, importer, interview, llm, skills
 from resume_builder import record as mr
 from resume_builder.record import Accomplishment, Record, Role, Skill
+from resume_builder.store import MemoryStore
 
 
 def use(*replies) -> FakeBackend:
@@ -156,19 +155,14 @@ class Bullets(unittest.TestCase):
         self.assertEqual(bullets.lint("Cut unit falls 30% with hourly rounding"), [])
 
 
-class InterviewSession(unittest.TestCase):
+class InterviewEngine(unittest.TestCase):
+    """The interview one turn at a time, as a web page would drive it."""
 
     def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory()
-        self.path = Path(self.tmp.name) / "record.md"
-        rec = Record(header=["# R"], roles=[Role(
+        self.store = MemoryStore(Record(header=["# R"], roles=[Role(
             employer="Riverside", title="RN",
             fields={k: "x" for k, _ in interview.CONTEXT_QUESTIONS},
-            recorded_bullets=["Precepted new graduate nurses"])])
-        self.path.write_text(mr.render(rec), encoding="utf-8")
-
-    def tearDown(self):
-        self.tmp.cleanup()
+            recorded_bullets=["Precepted new graduate nurses"])]))
 
     @staticmethod
     def turn(status="asking", say="?", **draft):
@@ -177,10 +171,6 @@ class InterviewSession(unittest.TestCase):
         d.update(draft)
         return {"say": say, "draft": d, "status": status}
 
-    def session(self, answers):
-        it = iter(answers)
-        return interview.Session(self.path, ask=lambda q: next(it, ""), say=lambda *a: None)
-
     def test_expanding_a_bullet_replaces_it_and_links_skills(self):
         use(self.turn(say="How many?"),
             self.turn("complete", title="Precepted new graduate nurses",
@@ -188,65 +178,89 @@ class InterviewSession(unittest.TestCase):
                       results="10 of 12 stayed past a year", evidence="metric",
                       skills=["Precepting"]),
             self.turn("role_done"))
-        s = self.session(["", "12 over two years", ""])     # open it; answer; skip lens
-        s.role(s.rec.roles[0])
-        rec = mr.parse(self.path.read_text(encoding="utf-8"))
-        role = rec.roles[0]
-        self.assertEqual(role.recorded_bullets, [], "the expanded bullet is replaced")
-        self.assertEqual(role.accomplishments[0].evidence, "metric")
+        iv = interview.Interview(self.store)
+        p = iv.step()
+        self.assertEqual(p.kind, "choice")                 # open the bullet?
+        self.assertEqual(iv.step("").text, "How many?")
+        p = iv.step("12 over two years")
+        self.assertTrue(any("recorded" in n for n in p.notes))
+        self.assertTrue(p.text.startswith("One more angle"))
+        self.assertEqual(iv.step("").kind, "done")
+        rec = self.store.load_record()
+        self.assertEqual(rec.roles[0].recorded_bullets, [], "the expanded bullet is replaced")
+        self.assertEqual(rec.roles[0].accomplishments[0].evidence, "metric")
         self.assertEqual(rec.skill("Precepting").evidence, ["Precepted new graduate nurses"])
 
     def test_the_expanded_bullet_is_not_its_own_duplicate(self):
         use(self.turn("complete", title="Precepted new graduate nurses",
-                      problem="p", actions="a", results="r", evidence="qualitative"))
-        s = self.session([])
-        out = s.converse(s.rec.roles[0], bullet="Precepted new graduate nurses")
-        self.assertEqual(out, "complete")
+                      problem="p", actions="a", results="r", evidence="qualitative"),
+            self.turn("role_done"))
+        iv = interview.Interview(self.store)
+        iv.step()
+        iv.step("")
+        self.assertEqual(len(self.store.load_record().roles[0].accomplishments), 1)
 
-    def test_stopping_mid_conversation_keeps_the_draft(self):
-        use(self.turn(say="What was it like before?", title="Night staffing"))
-        s = self.session([])
-
-        def stop(q):
-            raise interview.Stop()
-        s.ask = stop
-        with self.assertRaises(interview.Stop):
-            s.converse(s.rec.roles[0])
-        state = json.loads(s.state_path.read_text(encoding="utf-8"))
-        self.assertEqual(state["draft"]["title"], "Night staffing")
-        self.assertEqual(state["employer"], "Riverside")
-
-    def test_a_resumed_draft_carries_its_conversation(self):
-        fake = use(self.turn(say="Q1", title="Night staffing"),
+    def test_a_new_process_picks_up_mid_conversation(self):
+        """The page closes, the server restarts: the next turn carries on with
+        the same conversation, not a fresh one."""
+        fake = use(self.turn(say="What was it like before?", title="Night staffing"),
                    self.turn("complete", title="Night staffing", problem="p",
-                             actions="a", results="r", evidence="scope"))
-        s = self.session([])
-        s.ask = lambda q: (_ for _ in ()).throw(interview.Stop())
-        with self.assertRaises(interview.Stop):
-            s.converse(s.rec.roles[0])
-        s2 = self.session([""])                   # Enter = pick it up
-        s2.load_state and s2.converse(s2.rec.roles[0], resume=s2.load_state())
-        self.assertEqual(len(fake.requests[1]["messages"]), 2,
-                         "the resumed call continues the saved conversation")
-        self.assertFalse(s2.state_path.exists())
-        self.assertEqual(s2.rec.roles[0].accomplishments[0].title, "Night staffing")
+                             actions="a", results="r", evidence="scope"),
+                   self.turn("role_done"))
+        iv = interview.Interview(self.store)
+        iv.step()
+        iv.step("skip")                                    # leave the bullet
+        self.assertEqual(iv.step(None).text, "What was it like before?")
+
+        again = interview.Interview(self.store)            # a new process
+        self.assertEqual(again.step(None).text, "What was it like before?",
+                         "re-shows the open question without a model call")
+        self.assertEqual(len(fake.requests), 1)
+        again.step("It was chaos")
+        self.assertEqual(len(fake.requests[1]["messages"]), 3,
+                         "the second call continues the saved conversation")
+        self.assertEqual(self.store.load_record().roles[0].accomplishments[0].title,
+                         "Night staffing")
 
     def test_one_more_angle_is_offered_once(self):
         use(self.turn("role_done"), self.turn("role_done"))
+        rec = self.store.load_record()
+        rec.roles[0].recorded_bullets = []
+        self.store.save_record(rec)
         asked = []
-        s = interview.Session(self.path, ask=lambda q: asked.append(q) or "skip",
-                              say=lambda *a: None)
-        s.rec.roles[0].recorded_bullets = []
-        s.role(s.rec.roles[0])
-        lens_questions = [q for q in asked if q.startswith("One more angle")]
-        self.assertEqual(len(lens_questions), 1)
+        interview.run(interview.Interview(self.store),
+                      ask=lambda q: asked.append(q) or "skip", say=lambda *a: None)
+        self.assertEqual(len([q for q in asked if q.startswith("One more angle")]), 1)
 
     def test_context_asks_only_for_blank_fields(self):
-        role = Role(employer="Acme", title="Teacher", fields={"Company": "A school"})
+        store = MemoryStore(Record(roles=[Role(employer="Acme", title="Teacher",
+                                               fields={"Company": "A school"})]))
         asked = []
-        interview.ask_context(role, lambda q: asked.append(q) or "")
-        self.assertEqual(len(asked), len(interview.CONTEXT_QUESTIONS) - 1)
-        self.assertNotIn("A school", "".join(asked))
+        use(self.turn("role_done"))
+        interview.run(interview.Interview(store),
+                      ask=lambda q: asked.append(q) or "", say=lambda *a: None)
+        context = [q for q in asked if not q.startswith("One more angle")]
+        self.assertEqual(len(context), len(interview.CONTEXT_QUESTIONS) - 1)
+
+    def test_listing_jobs_from_nothing(self):
+        store = MemoryStore()
+        iv = interview.Interview(store)
+        self.assertTrue(iv.step().text.startswith("Employer"))
+        iv.step("Lakeside High School")
+        iv.step("Science Teacher")
+        self.assertTrue(iv.step("2014 - Present").text.startswith("Employer"))
+        use(self.turn("role_done"))
+        p = iv.step("")                                    # done listing
+        self.assertIn("Lakeside High School", " ".join(p.notes))
+        self.assertEqual(store.load_record().roles[0].fields["Dates"], "2014 - Present")
+
+    def test_state_is_cleared_when_finished(self):
+        use(self.turn("role_done"))
+        rec = self.store.load_record()
+        rec.roles[0].recorded_bullets = []
+        self.store.save_record(rec)
+        interview.run(interview.Interview(self.store), ask=lambda q: "", say=lambda *a: None)
+        self.assertIsNone(self.store.load_state(interview.STATE))
 
 
 class Skills(unittest.TestCase):
