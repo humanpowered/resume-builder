@@ -193,6 +193,11 @@ SKILL_SECTIONS = {"yes": "Skills", "verify": "Skills to check", "no": "Skills I 
 # Optional sections: (key, heading, other headings a resume or person uses).
 # Each holds one line per entry. A section nobody fills is never written.
 EXTRA_SECTIONS = [
+    # A credential, like a licence: in defence, federal and contractor work it
+    # goes on the resume and often decides the screen. Work authorization,
+    # relocation and the like are deliberately absent; application forms ask.
+    ("clearance", "Security clearance", ("security clearances", "clearance", "clearances",
+                                         "clearance level", "security clearance level")),
     ("projects", "Projects", ("portfolio", "selected projects", "personal projects",
                               "portfolio projects", "key projects")),
     ("languages", "Languages", ("language skills", "spoken languages")),

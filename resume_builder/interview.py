@@ -94,6 +94,13 @@ CERTIFICATION_QUESTIONS = [
     ("year", "Year earned?", "Enter to skip"),
     ("expires", "Does it expire or need renewing? When?", "Enter if it doesn't"),
 ]
+CLEARANCE_QUESTIONS = [
+    ("level", "Do you hold, or have you held, a security clearance or public trust? Its "
+              "level, e.g. 'Secret', 'Top Secret/SCI', 'Public Trust'.", "Enter if none"),
+    ("status", "Is it active now? If not, when did it lapse?", "Enter to skip"),
+    ("agency", "Which agency or department granted it?", "Enter to skip"),
+    ("polygraph", "Any polygraph? e.g. 'CI poly' or 'full scope'.", "Enter if none"),
+]
 PROJECT_QUESTIONS = [
     ("name", "A project worth showing: something you built, led or made, at work or on "
              "your own? Give it a short name.", "Enter when there are no more"),
@@ -159,6 +166,7 @@ BREAK_QUESTIONS = [
     ("note", "Anything you kept up or learned in that time?", "Enter to skip"),
 ]
 SECTIONS = [("education", EDUCATION_QUESTIONS), ("certifications", CERTIFICATION_QUESTIONS),
+            ("clearance", CLEARANCE_QUESTIONS),
             ("projects", PROJECT_QUESTIONS), ("languages", LANGUAGE_QUESTIONS),
             ("volunteer", VOLUNTEER_QUESTIONS), ("awards", AWARD_QUESTIONS),
             ("publications", PUBLICATION_QUESTIONS), ("memberships", MEMBERSHIP_QUESTIONS),
@@ -198,6 +206,9 @@ FORMAT = {
     "education": format_education,
     "certifications": format_certification,
     # 'Ward rota app (Riverside Hospital, 2022): Built a shared rota. Cut overtime 12%. example.com'
+    # 'Top Secret/SCI, active, Department of Defense, CI polygraph'
+    "clearance": lambda d: _join(d.get("level"), d.get("status"), d.get("agency"),
+                                 d.get("polygraph")),
     "projects": lambda d: _join(
         d.get("name", "") + (f" ({_join(d.get('context'), d.get('year'))})"
                              if d.get("context") or d.get("year") else "")

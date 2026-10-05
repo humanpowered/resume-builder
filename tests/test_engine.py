@@ -340,6 +340,29 @@ class InterviewEngine(unittest.TestCase):
             self.assertFalse(p.text.startswith("Your next"))
             p = iv.step("")
 
+    def test_a_clearance_is_recorded_as_one_line(self):
+        iv = interview.Interview(self.store, only="background:clearance")
+        p = iv.step()
+        self.assertTrue(p.text.startswith("Do you hold, or have you held, a security clearance"))
+        iv.step("Top Secret/SCI")
+        iv.step("active")
+        iv.step("Department of Defense")
+        p = iv.step("CI polygraph")
+        self.assertIn("recorded: Top Secret/SCI, active, Department of Defense, CI polygraph",
+                      p.notes)
+        self.assertEqual(iv.step("").kind, "done")
+        rec = self.store.load_record()
+        self.assertEqual(rec.extras["clearance"],
+                         ["Top Secret/SCI, active, Department of Defense, CI polygraph"])
+        text = mr.render(rec)
+        self.assertIn("## Security clearance", text)
+        self.assertEqual(mr.parse(text).extras["clearance"], rec.extras["clearance"])
+        self.assertEqual(export.Export(rec, {}, {}).build()["clearance"], rec.extras["clearance"])
+
+    def test_a_resume_clearance_heading_is_filed_as_clearance(self):
+        rec = mr.parse("## Clearance\n\n- Secret, active\n")
+        self.assertEqual(rec.extras["clearance"], ["Secret, active"])
+
     def test_one_optional_section_on_its_own(self):
         iv = interview.Interview(self.store, only="background:languages")
         p = iv.step()
