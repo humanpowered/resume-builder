@@ -61,6 +61,12 @@ How to answer:
   given yet as just what is asked (employer, or title, or dates). When you
   have given them all, answer exactly: DONE
 - Anything in do_not_claim is something you do NOT have. If asked, say no.
+- Questions about education, licences, a security clearance, projects,
+  languages, volunteering, awards and the like are form fields, where a real
+  person presses Enter to skip. Answer them only from the matching part of
+  YOUR FILE. When you have none, or no more, or the detail asked for is not
+  in your file, answer exactly: none
+  Work you did in one of your jobs is not a "project"; it belongs to the job.
 
 YOUR FILE
 {truth}
@@ -99,7 +105,7 @@ class Player:
                 "additionalProperties": False})
         answer = (reply.get("answer") or "").strip()
         self.history += [f"Interviewer: {q}", f"Me: {answer}"]
-        if answer.upper().startswith("DONE"):
+        if answer.upper().startswith("DONE") or answer.lower().rstrip(".") == "none":
             return ""
         if "that's all i have" in answer.lower():
             return "done"
@@ -109,9 +115,9 @@ class Player:
 JUDGE_SCHEMA = {
     "type": "object",
     "properties": {"matches": {"type": "array", "items": {"type": "object", "properties": {
-        "truth_title": {"type": "string"},
-        "recorded_title": {"type": "string"}},
-        "required": ["truth_title", "recorded_title"], "additionalProperties": False}},
+        "truth_id": {"type": "string"},
+        "recorded_id": {"type": "string"}},
+        "required": ["truth_id", "recorded_id"], "additionalProperties": False}},
         "claimed": {"type": "array", "items": {"type": "string"}}},
     "required": ["matches", "claimed"],
     "additionalProperties": False,
@@ -119,15 +125,20 @@ JUDGE_SCHEMA = {
 
 JUDGE = """Match a career record against the truth it was built from.
 
-For each accomplishment in TRUTH, find the RECORDED accomplishment (or
-recorded resume bullet) that describes the same piece of work, even if
-worded differently. Give its title or bullet text exactly; use "" if none.
+For each accomplishment in TRUTH, find the item in RECORDED ITEMS that
+describes the same piece of work, even if worded differently. Give the two
+ids, e.g. T3 and A2; use "" for recorded_id if none. When an accomplishment
+(A) and a resume bullet (B) both describe it, give the accomplishment: the
+bullet is the line it was opened up from.
 
 Then list in "claimed" any item from DO_NOT_CLAIM that the RECORD asserts the
 person has or did.
 
 TRUTH
 {truth}
+
+RECORDED ITEMS
+{items}
 
 DO_NOT_CLAIM
 {dnc}
@@ -138,23 +149,26 @@ RECORD
 
 def score(truth: dict, rec: mr.Record, resume_text: str, asked: int) -> dict:
     true_accs = [a for r in truth.get("roles", []) for a in r.get("accomplishments", [])]
-    recorded = {a.title: a for _, a in rec.all_accomplishments()}
+    recorded = [a for _, a in rec.all_accomplishments()]
     rbullets = [b for r in rec.roles for b in r.recorded_bullets]
+    # The judge answers in ids. Matching on titles it copied out failed
+    # whenever it gave the truth's wording instead of the record's.
+    truths = {f"T{i}": a for i, a in enumerate(true_accs, 1)}
+    items = {f"A{i}": (a.title, a.results) for i, a in enumerate(recorded, 1)}
+    items.update({f"B{i}": (b, b) for i, b in enumerate(rbullets, 1)})
     verdict = llm.request_json([{"role": "user", "content": JUDGE.format(
-        truth=json.dumps([{k: a.get(k) for k in ("title", "results")} for a in true_accs], indent=1),
+        truth="\n".join(f"{k}: {a.get('title')}. {a.get('results', '')}"
+                        for k, a in truths.items()),
+        items="\n".join(f"{k}: {title}" + (f". {text}" if text != title else "")
+                        for k, (title, text) in items.items()),
         dnc=json.dumps(truth.get("do_not_claim", [])),
         record=mr.render(rec))}], 8000, "judge", schema=JUDGE_SCHEMA)
-    matched = {m["truth_title"]: m["recorded_title"] for m in verdict.get("matches", [])
-               if m.get("recorded_title")}
+    matched = {m["truth_id"]: m["recorded_id"] for m in verdict.get("matches", [])
+               if m.get("truth_id") in truths and m.get("recorded_id") in items}
 
-    with_figure = [a for a in true_accs if bullets.has_figure(a.get("results", ""))]
-    quantified = 0
-    for a in with_figure:
-        got = recorded.get(matched.get(a["title"], ""))
-        if got and bullets.has_figure(got.results):
-            quantified += 1
-        elif matched.get(a["title"]) in rbullets and bullets.has_figure(matched[a["title"]]):
-            quantified += 1
+    with_figure = [k for k, a in truths.items() if bullets.has_figure(a.get("results", ""))]
+    quantified = sum(1 for k in with_figure
+                     if k in matched and bullets.has_figure(items[matched[k]][1]))
 
     known = json.dumps(truth) + " " + resume_text
     invented = set()
@@ -171,7 +185,8 @@ def score(truth: dict, rec: mr.Record, resume_text: str, asked: int) -> dict:
         "do_not_claim_hits": verdict.get("claimed", []),
         "questions": asked,
         "questions_per_accomplishment": round(asked / max(1, len(recorded)), 1),
-        "unmatched_truth": [a["title"] for a in true_accs if a["title"] not in matched],
+        "unmatched_truth": [a["title"] for k, a in truths.items() if k not in matched],
+        "matches": {truths[k]["title"]: items[v][0] for k, v in matched.items()},
     }
 
 
