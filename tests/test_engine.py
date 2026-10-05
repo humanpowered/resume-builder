@@ -581,6 +581,52 @@ class Export(unittest.TestCase):
         self.assertEqual(rows[0]["have_it"], "no", "a person's 'no' stands")
 
 
+class Promotions(unittest.TestCase):
+    """Two titles at one employer are two roles, and stay two roles."""
+
+    def record(self):
+        return Record(contact={"Name": "Pat"}, roles=[
+            Role(employer="Mercy Hospital", title="Nurse Manager", fields={"Dates": "2021 - Present"},
+                 accomplishments=[acc("Cut agency spend", results="Agency hours down 40%",
+                                      bullet="Cut agency nursing hours 40%")]),
+            Role(employer="Mercy Hospital", title="Staff RN", fields={"Dates": "2016 - 2021"},
+                 accomplishments=[acc("Precepted new grads", results="Trained 14 new graduates",
+                                      bullet="Precepted 14 new graduate nurses")])])
+
+    def profile(self):
+        return {"work_history": [
+            {"company": "Mercy Hospital", "title": "Nurse Manager", "dates": "2021 - Present",
+             "highlights": ["Cut agency nursing hours 40%"]},
+            {"company": "Mercy Hospital", "title": "Staff Nurse", "dates": "2016 - 2021",
+             "highlights": ["Precepted 14 new graduate nurses"]}]}
+
+    def test_reimporting_the_earlier_title_adds_no_duplicate(self):
+        rec = self.record()
+        importer.merge(rec, Record(roles=[Role(employer="Mercy Hospital", title="Staff RN")]))
+        self.assertEqual([r.title for r in rec.roles], ["Nurse Manager", "Staff RN"])
+
+    def test_a_new_title_is_still_a_new_role(self):
+        rec = self.record()
+        importer.merge(rec, Record(roles=[Role(employer="Mercy Hospital", title="Charge Nurse")]))
+        self.assertEqual(len(rec.roles), 3)
+
+    def test_export_keeps_each_title_with_its_own_highlights(self):
+        ex = export.Export(self.record(), self.profile())
+        self.assertEqual(ex.losses(), {})
+        history = ex.build()["work_history"]
+        self.assertEqual(len(history), 2)
+        self.assertEqual(history[0]["title"], "Nurse Manager")
+        self.assertEqual(history[0]["highlights"], ["Cut agency nursing hours 40%"])
+        self.assertEqual(history[1]["title"], "Staff Nurse")     # matched on dates; curated title kept
+        self.assertEqual(history[1]["highlights"], ["Precepted 14 new graduate nurses"])
+
+    def test_a_lost_highlight_names_the_title(self):
+        profile = self.profile()
+        profile["work_history"][1]["highlights"].append("Won the Daisy Award in 2019")
+        lost = export.Export(self.record(), profile).losses()
+        self.assertEqual(list(lost), ["Mercy Hospital — Staff Nurse"])
+
+
 class Health(unittest.TestCase):
 
     def test_date_forms_people_write(self):
@@ -599,6 +645,22 @@ class Health(unittest.TestCase):
             Role(employer="Old", title="t", fields={"Dates": "2015 - Jan 2020"})])
         rep = health.check(rec)
         self.assertTrue(any("gap" in i for i in rep.record_issues))
+
+    def test_a_side_job_inside_a_long_role_is_not_a_gap(self):
+        rec = Record(contact={"Name": "x", "Email": "y"}, education=["e"], roles=[
+            Role(employer="Clinic", title="RN", fields={"Dates": "2024 - Present"}),
+            Role(employer="Agency", title="Per diem RN", fields={"Dates": "2012 - 2013"}),
+            Role(employer="Mercy", title="RN", fields={"Dates": "2010 - 2024"})])
+        rep = health.check(rec)
+        self.assertFalse(any("gap" in i for i in rep.record_issues), rep.record_issues)
+
+    def test_a_gap_after_overlapping_roles_is_measured_from_the_last_end(self):
+        rec = Record(contact={"Name": "x", "Email": "y"}, education=["e"], roles=[
+            Role(employer="Now", title="t", fields={"Dates": "Jan 2023 - Present"}),
+            Role(employer="Side", title="t", fields={"Dates": "2012 - 2013"}),
+            Role(employer="Main", title="t", fields={"Dates": "2010 - Dec 2021"})])
+        rep = health.check(rec)
+        self.assertIn("13-month gap between Main — t and Now — t", rep.record_issues)
 
     def test_unsettled_notes_and_blanks_are_flagged(self):
         rec = Record(roles=[Role(employer="A", title="t", fields={

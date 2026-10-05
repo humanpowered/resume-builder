@@ -83,22 +83,71 @@ class Export:
 
     # -- checks -------------------------------------------------------------
 
-    def losses(self) -> dict:
-        """employer -> highlights the export would drop."""
-        lost = {}
-        for entry in self.profile.get("work_history", []):
-            role = self.rec.role_by_employer(entry.get("company", ""))
+    def pairs(self) -> list:
+        """
+        (role or None, profile entry) for each work_history entry.
+
+        Matched one to one: employer and title first, then employer and dates,
+        then an employer's one remaining role. Matching on employer alone puts
+        both of a promoted person's titles on the first role.
+        """
+        entries = self.profile.get("work_history", [])
+        found, used = {}, set()
+
+        def digits(text):
+            return re.sub(r"\D", "", ANNOTATION.sub("", text or ""))
+
+        tests = [
+            lambda r, e: mr._squash(r.title) == mr._squash(e.get("title", "")),
+            lambda r, e: digits(r.fields.get("Dates")) and
+                         digits(r.fields.get("Dates")) == digits(e.get("dates", "")),
+        ]
+        for same in tests:
+            for i, e in enumerate(entries):
+                if i in found:
+                    continue
+                for r in self.rec.roles:
+                    if (id(r) not in used and mr._squash(r.employer) == mr._squash(e.get("company", ""))
+                            and same(r, e)):
+                        found[i] = r
+                        used.add(id(r))
+                        break
+        for i, e in enumerate(entries):
+            key = mr._squash(e.get("company", ""))
+            roles = [r for r in self.rec.roles
+                     if id(r) not in used and mr._squash(r.employer) == key]
+            others = [j for j, x in enumerate(entries)
+                      if j not in found and mr._squash(x.get("company", "")) == key]
+            if i not in found and len(roles) == 1 and others == [i]:
+                found[i] = roles[0]
+                used.add(id(roles[0]))
+        return [(found.get(i), e) for i, e in enumerate(entries)]
+
+    def _name(self, entry) -> str:
+        """The employer, with the title when the employer appears twice."""
+        company = entry.get("company", "")
+        twice = sum(1 for e in self.profile.get("work_history", [])
+                    if mr._squash(e.get("company", "")) == mr._squash(company)) > 1
+        return f"{company} — {entry.get('title', '')}" if twice else company
+
+    def _losses(self) -> list:
+        out = []
+        for role, entry in self.pairs():
             if role is None:
                 continue    # roles only in the profile are carried over untouched
             missing = orphans(role, entry.get("highlights", []))
             if missing:
-                lost[entry.get("company", "")] = missing
-        return lost
+                out.append((role, self._name(entry), missing))
+        return out
+
+    def losses(self) -> dict:
+        """employer (with title, if the employer appears twice) -> highlights
+        the export would drop."""
+        return {name: missing for _, name, missing in self._losses()}
 
     def adopt(self) -> int:
         added = 0
-        for employer, missing in self.losses().items():
-            role = self.rec.role_by_employer(employer)
+        for role, _, missing in self._losses():
             role.recorded_bullets.extend(missing)
             role.notes.append(
                 f"{len(missing)} highlight(s) copied from master_profile.json on "
@@ -138,13 +187,11 @@ class Export:
         return acc.bullet
 
     def work_history(self) -> list:
-        existing = {mr._squash(e.get("company", "")): e
-                    for e in self.profile.get("work_history", [])}
-        seen, history = set(), []
+        pairs = self.pairs()
+        existing = {id(role): e for role, e in pairs if role is not None}
+        history = []
         for role in self.rec.roles:
-            key = mr._squash(role.employer)
-            seen.add(key)
-            entry = dict(existing.get(key, {}))
+            entry = dict(existing.get(id(role), {}))
             entry.setdefault("company", role.employer)
             self._take(entry, "title", role.title, role.employer)
             self._take(entry, "dates", role.fields.get("Dates"), role.employer)
@@ -173,9 +220,7 @@ class Export:
                      "evidence": a.evidence, "bullet": a.bullet}
                     for a in role.accomplishments if not a.is_empty()]
             history.append(entry)
-        for key, entry in existing.items():
-            if key not in seen:
-                history.append(entry)
+        history += [e for role, e in pairs if role is None]
         return history
 
     def identity(self) -> None:

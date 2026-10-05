@@ -137,12 +137,19 @@ def check(rec: mr.Record, target: int = 10, today=(2026, 10)) -> Report:
     # legitimate (a side role, a consulting client); it is listed so a person
     # can confirm it, not flagged as wrong. A gap over six months is the thing
     # a recruiter asks about, so it is worth an answer ready in the record.
-    spans.sort(key=lambda s: s[0][0], reverse=True)
-    for (newer, n_label), (older, o_label) in zip(spans, spans[1:]):
-        gap = months_between(older[1], newer[0])
-        if gap > 6:
-            rep.record_issues.append(
-                f"{gap}-month gap between {o_label} and {n_label}")
+    # Walk forward from the oldest start, measuring each start against the
+    # latest end so far. Comparing neighbours instead reports a gap after a
+    # short side job that a longer role was covering all along.
+    spans.sort(key=lambda s: s[0][0])
+    covered, c_label = None, ""
+    for (start, end), label in spans:
+        if covered is not None:
+            gap = months_between(covered, start)
+            if gap > 6:
+                rep.record_issues.append(
+                    f"{gap}-month gap between {c_label} and {label}")
+        if covered is None or months_between(covered, end) > 0:
+            covered, c_label = end, label
 
     for key in ("Name", "Email"):
         if not rec.contact.get(key):

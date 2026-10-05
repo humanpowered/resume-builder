@@ -280,8 +280,8 @@ def merge(existing: mr.Record, incoming: mr.Record) -> list:
             existing.contact[key] = value
             changes.append(f"contact: added {key}")
     for role in incoming.roles:
-        have = existing.role_by_employer(role.employer)
-        if have is None or _norm(have.title) != _norm(role.title):
+        have = existing.role_by_employer(role.employer, role.title, strict=True)
+        if have is None:
             existing.roles.append(role)
             changes.append(f"role added: {role.label()}")
             continue

@@ -219,12 +219,22 @@ class Record:
                 return s
         return None
 
-    def role_by_employer(self, employer: str):
+    def role_by_employer(self, employer: str, title: str = None, strict: bool = False):
+        """
+        The role at this employer. Someone promoted inside one employer has a
+        role per title, so a title, when given, picks between them. Without an
+        exact title match, the employer's only role is still returned (a title
+        edited in one file and not the other is the same job), unless `strict`
+        or there is more than one role to choose from.
+        """
         key = _squash(employer)
-        for role in self.roles:
-            if _squash(role.employer) == key:
+        matches = [r for r in self.roles if _squash(r.employer) == key]
+        if title is None:
+            return matches[0] if matches else None
+        for role in matches:
+            if _squash(role.title) == _squash(title):
                 return role
-        return None
+        return matches[0] if len(matches) == 1 and not strict else None
 
 
 def _squash(name: str) -> str:
