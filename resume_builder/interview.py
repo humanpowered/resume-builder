@@ -662,7 +662,7 @@ def link_skills(rec: mr.Record, names: list, title: str) -> None:
             continue
         skill = rec.skill(name)
         if skill is None:
-            skill = mr.Skill(name=name, category="From the interview")
+            skill = mr.Skill(name=name, category="From the interview", source="interview")
             rec.skills.append(skill)
         if title not in skill.evidence:
             skill.evidence.append(title)

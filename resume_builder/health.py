@@ -81,6 +81,8 @@ class Report:
     skills_total: int = 0
     skills_without_evidence: list = field(default_factory=list)
     skills_unconfirmed: int = 0
+    skills_without_level: int = 0
+    skills_list_built: bool = False
     next_steps: list = field(default_factory=list)
 
     @property
@@ -152,7 +154,9 @@ def check(rec: mr.Record, target: int = 10, today=(2026, 10)) -> Report:
     rep.skills_total = len(rec.skills)
     rep.skills_unconfirmed = sum(1 for s in rec.skills if is_pending(s))
     rep.skills_without_evidence = [s.name for s in rec.skills
-                                   if not s.evidence and not is_pending(s)]
+                                   if not s.evidence and s.have == "yes"]
+    rep.skills_without_level = sum(1 for s in rec.skills if s.have == "yes" and not s.level)
+    rep.skills_list_built = any(s.source in ("your field", "your record") for s in rec.skills)
 
     rep.next_steps = next_steps(rec, rep, target)
     return rep
@@ -175,10 +179,13 @@ def next_steps(rec: mr.Record, rep: Report, target: int) -> list:
         if len(h.context_missing) >= 3:
             steps.append(f"Answer the role questions for {h.label} "
                          f"({', '.join(h.context_missing)}).")
+    if rec.roles and not rep.skills_list_built:
+        steps.append("Build your skills list: the standard skills for your field, "
+                     "filled in from your record.")
     if rep.skills_unconfirmed:
-        steps.append(f"Confirm {rep.skills_unconfirmed} suggested skill(s).")
-    if rec.roles and len(rec.skills) < 10:
-        steps.append("Run the skills suggestion; the record lists fewer than 10 skills.")
+        steps.append(f"Answer {rep.skills_unconfirmed} skill(s) on your list: yes with a level, or no.")
+    if rep.skills_without_level:
+        steps.append(f"Set a level for {rep.skills_without_level} skill(s) you have.")
     return steps[:5]
 
 
@@ -190,8 +197,8 @@ def render(rep: Report) -> str:
                    f"{h.accomplishments:>5} {h.quantified:>7}  {missing}")
     out.append("")
     out.append(f"{rep.total} accomplishment(s); {rep.quantified} with a figure. "
-               f"{rep.skills_total} skill(s), {rep.skills_unconfirmed} awaiting "
-               f"confirmation, {len(rep.skills_without_evidence)} with no evidence linked.")
+               f"{rep.skills_total} skill(s), {rep.skills_unconfirmed} not yet "
+               f"answered, {len(rep.skills_without_evidence)} with no evidence linked.")
     problems = [(h.label, i) for h in rep.roles for i in h.issues]
     if problems or rep.record_issues:
         out += ["", "Fix before export:"]

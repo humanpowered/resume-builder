@@ -2,69 +2,90 @@
 The skills inventory: what the person can do, in the words a job posting in
 their field would use, each tied to what proves it.
 
-Skills arrive three ways. Imported from a resume, as written. Named during the
-interview, already linked to the accomplishment that showed them. And
-suggested here: the standard skills for the person's profession that their
-record implies but never names. Suggestions are only ever suggestions. They go
-into a "To verify" group, export as have_it = "verify", and stay off every
-resume until the person says yes.
+It starts from their field rather than from their documents. `build` asks for
+the standard skills a posting in that field draws from, then fills in as much
+as the record supports: a skill their resume already names is theirs; one
+their accomplishments show is filled in with a likely level for them to check;
+one nothing shows waits for their answer. The person then answers, adjusts
+levels, adds what the list missed, and can come back and change any of it.
 
-Why suggest at all: people describe their work in their own words, and an
-applicant tracking system matches the industry's words. A nurse writes "kept
-the drips running"; the posting says "titration of vasoactive infusions".
+Only a skill marked "yes" reaches a resume. "no" is kept too: it is a gap the
+pipeline can see, and it stops the same skill being suggested again.
+
+Why start from the field: people describe their work in their own words, and
+an applicant tracking system matches the industry's words. A nurse writes
+"kept the drips running"; the posting says "titration of vasoactive
+infusions". A list drawn only from what someone wrote can't contain the term
+they never thought to use.
 """
 import json
 
 from . import llm
 from . import record as mr
 
-# A suggested skill's category carries its intended group, "To verify:
-# Clinical", so confirming it puts it where it belongs. Imported skills were on
-# the person's own resume but have never been graded, so they are asked too.
-PENDING = "To verify"
+YES, NO, VERIFY = "yes", "no", "verify"
+HAVE = (YES, NO, VERIFY)
+# Where a skill came from, shown beside it so the person can see why it's there.
+FROM_RESUME, FROM_RECORD, FROM_FIELD, FROM_YOU = "resume", "your record", "your field", "you"
+# Categories that only say where a skill came from, not what it is; the next
+# build moves a skill out of them into a real group.
+UNSORTED = {"", "imported", "from the interview", "other"}
 
 
 def is_pending(skill) -> bool:
-    c = (skill.category or "").lower()
-    return c.startswith(PENDING.lower()) or c == "imported"
+    """On the list but not yet answered."""
+    return skill.have == VERIFY
 
 
-def confirmed_category(skill) -> str:
-    c = skill.category or ""
-    if c.lower().startswith(PENDING.lower()) and ":" in c:
-        return c.split(":", 1)[1].strip() or "Other"
-    return "Other"
-
-
-SUGGEST_SCHEMA = {
+BUILD_SCHEMA = {
     "type": "object",
     "properties": {
-        "profession": {"type": "string"},
+        "field": {"type": "string"},
         "skills": {"type": "array", "items": {"type": "object", "properties": {
             "name": {"type": "string"},
             "category": {"type": "string"},
-            "because": {"type": "array", "items": {"type": "string"}}},
-            "required": ["name", "category", "because"],
+            "same_as": {"type": "string"},
+            "named": {"type": "boolean"},
+            "because": {"type": "array", "items": {"type": "string"}},
+            "level": {"type": "string", "enum": ["", *mr.LEVELS]}},
+            "required": ["name", "category", "same_as", "named", "because", "level"],
             "additionalProperties": False}},
     },
-    "required": ["profession", "skills"],
+    "required": ["field", "skills"],
     "additionalProperties": False,
 }
 
-SUGGEST_PROMPT = """Below is someone's career record. List the skills it shows
-that a job posting in their field would ask for, using the standard term
-employers and applicant tracking systems use.
+BUILD_PROMPT = """You are building a skills inventory for someone in this field:
+{field}
+
+STEP 1. List the skills a job posting in this field draws from, at this
+person's level and the level above it: 40 to 80 of them. Include tools and
+software, methods and techniques, domain and industry knowledge, regulations,
+and leadership or people skills, whichever this field's postings ask for.
+Include standard skills the record gives no sign of; the person will say
+whether they have them. Leave out licences and certifications, which are kept
+separately.
+
+STEP 2. Fill in what the record below already shows, for each skill:
+- "same_as": if the record's skills list (already_listed) has this skill under
+  another wording, that exact already_listed name; otherwise "". Every
+  already_listed skill should appear once, under its own name or a better one.
+- "named": true only if the record itself uses this skill's name or an
+  obvious form of it.
+- "because": the exact accomplishment titles from the record that show the
+  skill being used. Empty if none do. Never invent a title.
+- "level": your best estimate from the record, or "" if it gives no grounds.
+  Expert = led others in it or did it at depth for years; Advanced = used it
+  independently with results; Working = used it regularly; Familiar = some
+  exposure.
 
 RULES
-- Only skills the record gives direct evidence for. For each, list in
-  "because" the exact accomplishment titles (from the record) that show it.
-  A skill you cannot tie to at least one title is not listed.
-- Use the industry's standard term. Where an acronym is common, give both
-  forms in the name, separated by a comma: "Electronic Health Records, EHR".
-- Group into categories a hiring manager in this field would recognise
-  (e.g. for a nurse: Clinical, Patient Safety, Leadership, Systems).
-- Do not repeat a skill already in already_listed.
-- At most 40.
+- Use the industry's standard term, the one an applicant tracking system
+  matches. Where an acronym is common, give both: "Electronic Health Records,
+  EHR".
+- Group into the categories a hiring manager in this field would use (for a
+  nurse: Clinical, Patient Safety, Systems, Leadership).
+- "field": the field as you understood it, in a few words.
 
 RECORD
 {record}
@@ -72,54 +93,167 @@ RECORD
 already_listed: {listed}"""
 
 
-def suggest(rec: mr.Record) -> dict:
-    """Ask for suggestions and keep only those whose evidence checks out."""
+def field_hint(rec: mr.Record) -> str:
+    """What the record says about the person's field, for when they haven't."""
+    parts = [rec.target.get("Industries", ""), rec.target.get("Titles", "")]
+    parts += [f"{r.title} at {r.employer}" for r in rec.roles[:3]]
+    return "; ".join(p for p in parts if p)
+
+
+def build(rec: mr.Record, field: str = "") -> dict:
+    """
+    Fill the record's skills from the standard list for the person's field.
+    Only blanks are filled: an answer, level or group the person set is never
+    changed. Returns what happened, for the person to read.
+    """
     titles = {a.title for _, a in rec.all_accomplishments()}
-    record_text = mr.render(mr.Record(roles=rec.roles))
+    text = mr.render(rec)
     reply = llm.request_json(
-        [{"role": "user", "content": SUGGEST_PROMPT.format(
-            record=record_text[:50000],
+        [{"role": "user", "content": BUILD_PROMPT.format(
+            field=field.strip() or f"(not given; work it out from the record: {field_hint(rec)})",
+            record=text[:60000],
             listed=json.dumps([s.name for s in rec.skills]))}],
-        8000, "skills", schema=SUGGEST_SCHEMA)
-    kept = []
-    for s in reply.get("skills") or []:
-        because = [t for t in s.get("because") or [] if t in titles]
-        if not because or rec.skill(s.get("name", "")):
+        12000, "skills", schema=BUILD_SCHEMA)
+    plain = mr._squash(text)
+    out = {"field": reply.get("field", "") or field, "added": [], "filled": [], "yours": []}
+    for item in reply.get("skills") or []:
+        name = (item.get("name") or "").strip()
+        if not name:
             continue
-        kept.append(mr.Skill(name=s["name"].strip(),
-                             category=f"{PENDING}: {s.get('category') or 'Other'}",
-                             evidence=because))
-    return {"profession": reply.get("profession", ""), "skills": kept}
+        because = [t for t in item.get("because") or [] if t in titles]
+        level = item.get("level") if item.get("level") in mr.LEVELS else ""
+        category = (item.get("category") or "").strip() or "Other"
+        s = rec.skill(item.get("same_as") or "") or rec.skill(name)
+        if s is not None:
+            if _fill(s, category, level, because):
+                out["filled"].append(s.name)
+            continue
+        if item.get("named") and _named_in(name, plain):
+            s = mr.Skill(name=name, category=category, level=level, evidence=because,
+                         have=YES, source=FROM_RESUME)
+            out["yours"].append(name)
+        else:
+            s = mr.Skill(name=name, category=category, level=level if because else "",
+                         evidence=because, have=VERIFY,
+                         source=FROM_RECORD if because else FROM_FIELD)
+            out["added"].append(name)
+        rec.skills.append(s)
+    return out
+
+
+def _named_in(name: str, plain: str) -> bool:
+    """The record uses the skill's name, or one of its forms: "Electronic
+    Health Records, EHR" is named by either half."""
+    return any(len(k) > 2 and k in plain
+               for k in (mr._squash(part) for part in [name, *name.split(",")]))
+
+
+def _fill(s, category, level, because) -> bool:
+    """Fill what the person left blank on a skill already listed."""
+    changed = False
+    if (s.category or "").strip().lower() in UNSORTED and category.lower() not in UNSORTED:
+        s.category, changed = category, True
+    if not s.level and level and s.have != NO:
+        s.level, changed = level, True
+    for t in because:
+        if t not in s.evidence:
+            s.evidence.append(t)
+            changed = True
+    return changed
+
+
+def accept_shown(rec: mr.Record) -> list:
+    """Say yes to every unanswered skill the record shows, at its estimated
+    level: the one-click answer when the estimates look right."""
+    done = []
+    for s in rec.skills:
+        if s.have == VERIFY and s.evidence:
+            s.have = YES
+            done.append(s.name)
+    return done
+
+
+def set_skill(rec: mr.Record, name: str, have: str | None = None, level: str | None = None,
+              category: str | None = None, rename: str | None = None):
+    """Change one skill. LookupError if it isn't there; ValueError, with a
+    message a person can read, if the change makes no sense."""
+    s = rec.skill(name)
+    if s is None:
+        raise LookupError(f"No skill called {name!r}")
+    if have is not None and have not in HAVE:
+        raise ValueError(f"have must be one of {', '.join(HAVE)}")
+    if level and level not in mr.LEVELS:
+        raise ValueError(f"Level must be one of {', '.join(mr.LEVELS)}")
+    if rename is not None and rename.strip() and rename.strip() != s.name:
+        other = rec.skill(rename)
+        if other is not None and other is not s:
+            raise ValueError(f"{rename.strip()!r} is already on your list")
+        s.name = rename.strip()
+    if have is not None:
+        s.have = have
+    if level is not None:
+        s.level = level
+        if level and have is None:          # giving a level is saying yes
+            s.have = YES
+    if s.have == NO:
+        s.level = ""
+    if category is not None:
+        s.category = category.strip() or "Other"
+    return s
+
+
+def add_skill(rec: mr.Record, name: str, category: str = "", level: str = ""):
+    """A skill the list missed. Adding it is saying you have it."""
+    name = (name or "").strip()
+    if not name:
+        raise ValueError("A skill needs a name")
+    if level and level not in mr.LEVELS:
+        raise ValueError(f"Level must be one of {', '.join(mr.LEVELS)}")
+    if rec.skill(name) is not None:
+        return set_skill(rec, name, have=YES, level=level or None, category=category or None)
+    s = mr.Skill(name=name, category=category.strip() or "Other", level=level,
+                 have=YES, source=FROM_YOU)
+    rec.skills.append(s)
+    return s
+
+
+def remove_skill(rec: mr.Record, name: str) -> None:
+    s = rec.skill(name)
+    if s is None:
+        raise LookupError(f"No skill called {name!r}")
+    rec.skills.remove(s)
 
 
 def verify(rec: mr.Record, ask, say=print) -> int:
     """
-    Walk the unconfirmed skills, one question each. Yes moves a skill into
-    its proper group with a level; no removes it. Returns how many were
-    settled.
+    Walk the unanswered skills, one question each. A level says yes at that
+    level; y accepts the estimate shown; n records that you don't have it.
+    Returns how many were settled.
     """
     settled = 0
     pending = [s for s in rec.skills if is_pending(s)]
     if not pending:
-        say("  no skills waiting to be confirmed")
+        say("  no skills waiting for an answer")
         return 0
-    say(f"\n{len(pending)} skill(s) to confirm. Answer with a level -- "
-        f"e (expert), a (advanced), w (working), f (familiar) -- or n if you "
-        f"do not have it. Enter skips; 'done' stops.")
+    say(f"\n{len(pending)} skill(s) to answer. Reply with a level -- e (expert), "
+        f"a (advanced), w (working), f (familiar) -- or y to accept the estimate "
+        f"shown, or n if you don't have it. Enter skips; 'done' stops.")
     levels = {"e": "Expert", "a": "Advanced", "w": "Working", "f": "Familiar"}
     for s in pending:
+        guess = f" [estimate: {s.level}]" if s.level else ""
         why = f"  (shown by: {'; '.join(s.evidence)})" if s.evidence else ""
-        answer = (ask(f"{s.name}?{why}") or "").strip().lower()
+        answer = (ask(f"{s.category}: {s.name}?{guess}{why}") or "").strip().lower()
         if answer in ("done", "stop"):
             break
         if not answer:
             continue
         if answer in ("n", "no"):
-            rec.skills.remove(s)
-            settled += 1
+            set_skill(rec, s.name, have=NO)
+        elif answer in ("y", "yes"):
+            set_skill(rec, s.name, have=YES)
+        elif answer[:1] in levels:
+            set_skill(rec, s.name, have=YES, level=levels[answer[:1]])
+        else:
             continue
-        if answer[:1] in levels:
-            s.level = levels[answer[:1]]
-            s.category = confirmed_category(s)
-            settled += 1
+        settled += 1
     return settled

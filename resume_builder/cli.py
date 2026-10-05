@@ -7,8 +7,9 @@ pipeline.
   python -m resume_builder interview              # fill gaps, thinnest role first
   python -m resume_builder interview --role Acme  # one employer
   python -m resume_builder interview --education  # just education and certifications
-  python -m resume_builder skills --suggest       # skills your record shows but never names
-  python -m resume_builder skills --verify        # confirm suggested skills
+  python -m resume_builder skills --build         # your field's skills, filled in from your record
+  python -m resume_builder skills --verify        # answer them: a level, or no
+  python -m resume_builder skills --add "Telemetry" --category Clinical --level Expert
   python -m resume_builder health                 # what is complete, what to do next
   python -m resume_builder export --to DIR        # show what exporting would change
   python -m resume_builder export --to DIR --write
@@ -112,14 +113,22 @@ def cmd_interview(args, path: Path) -> int:
 def cmd_skills(args, path: Path) -> int:
     rec = load(path)
     print(f"  record: {path}")
-    if args.suggest:
+    if args.build:
         llm.require_credentials()
-        out = skills.suggest(rec)
-        rec.skills += out["skills"]
+        out = skills.build(rec, args.field)
         save(path, rec)
-        print(f"  {len(out['skills'])} skill(s) suggested for a {out['profession'] or 'person'} "
-              f"with this record, each tied to an accomplishment. They are marked "
-              f"'To verify' and stay off resumes until you confirm them.")
+        print(f"  Skills list for {out['field'] or 'your field'}: {len(out['added'])} added for "
+              f"you to answer, {len(out['yours'])} already in your record, "
+              f"{len(out['filled'])} existing skill(s) sorted or filled in. Nothing you had "
+              f"set was changed. Next: skills --verify")
+    if args.add:
+        try:
+            s = skills.add_skill(rec, args.add, args.category, args.level)
+        except ValueError as exc:
+            print(f"  {exc}")
+            return 2
+        save(path, rec)
+        print(f"  added: {s.name} ({s.category}{', ' + s.level if s.level else ''})")
     if args.verify:
         try:
             n = skills.verify(rec, ask)
@@ -127,15 +136,22 @@ def cmd_skills(args, path: Path) -> int:
             n = 0
         save(path, rec)
         print(f"  {n} skill(s) settled")
-    if not (args.suggest or args.verify):
-        cats = {}
-        for s in rec.skills:
-            cats.setdefault(s.category or "Other", []).append(s)
-        for cat, items in cats.items():
-            print(f"\n  {cat}")
-            for s in items:
-                ev = f"  <- {'; '.join(s.evidence)}" if s.evidence else ""
-                print(f"    {s.name}{' (' + s.level + ')' if s.level else ''}{ev}")
+    if not (args.build or args.verify or args.add):
+        for state, heading in mr.SKILL_SECTIONS.items():
+            group = [s for s in rec.skills if s.have == state]
+            if not group:
+                continue
+            print(f"\n  {heading.upper()}")
+            cats = {}
+            for s in group:
+                cats.setdefault(s.category or "Other", []).append(s)
+            for cat, items in cats.items():
+                print(f"\n  {cat}")
+                for s in items:
+                    ev = f"  <- {'; '.join(s.evidence)}" if s.evidence else ""
+                    print(f"    {s.name}{' (' + s.level + ')' if s.level else ''}{ev}")
+        print("\n  Change a level, group or answer by editing the record file, or with "
+              "skills --verify.")
     return 0
 
 
@@ -248,9 +264,14 @@ def main(argv=None) -> int:
     p.add_argument("--education", action="store_true",
                    help="just education, licences and certifications")
     p.add_argument("--target", type=int, default=10, help="accomplishments per role to aim for")
-    p = sub.add_parser("skills", help="list, suggest or confirm skills")
-    p.add_argument("--suggest", action="store_true")
-    p.add_argument("--verify", action="store_true")
+    p = sub.add_parser("skills", help="build, answer, add to or list your skills")
+    p.add_argument("--build", action="store_true",
+                   help="the standard skills for your field, filled in from your record")
+    p.add_argument("--field", default="", help="your field, e.g. 'ICU nursing' (with --build)")
+    p.add_argument("--verify", action="store_true", help="answer the skills on your list")
+    p.add_argument("--add", default="", metavar="SKILL", help="add a skill the list missed")
+    p.add_argument("--category", default="", help="its group (with --add)")
+    p.add_argument("--level", default="", choices=["", *mr.LEVELS], help="(with --add)")
     p = sub.add_parser("health", help="what the record holds and what to do next")
     p.add_argument("--target", type=int, default=10)
     p = sub.add_parser("export", help="write the pipeline's profile and skills CSV")

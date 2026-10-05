@@ -322,31 +322,118 @@ class InterviewEngine(unittest.TestCase):
 
 class Skills(unittest.TestCase):
 
-    def test_a_suggestion_without_real_evidence_is_dropped(self):
-        rec = Record(roles=[Role(employer="A", title="t", accomplishments=[acc("Cut falls")])])
-        use({"profession": "nurse", "skills": [
-            {"name": "Fall prevention", "category": "Patient Safety", "because": ["Cut falls"]},
-            {"name": "Telemetry", "category": "Clinical", "because": ["Ran telemetry unit"]},
-            {"name": "Quality improvement", "category": "Leadership", "because": []}]})
-        out = skills.suggest(rec)
-        self.assertEqual([s.name for s in out["skills"]], ["Fall prevention"])
-        self.assertTrue(skills.is_pending(out["skills"][0]))
+    @staticmethod
+    def item(name, category="Clinical", same_as="", named=False, because=(), level=""):
+        return {"name": name, "category": category, "same_as": same_as, "named": named,
+                "because": list(because), "level": level}
 
-    def test_confirming_moves_a_skill_into_its_group(self):
-        rec = Record(skills=[Skill("Fall prevention", "To verify: Patient Safety"),
-                             Skill("Telemetry", "To verify: Clinical")])
-        answers = iter(["a", "n"])
+    def record(self):
+        rec = Record(roles=[Role(employer="A", title="RN", accomplishments=[acc("Cut falls")],
+                                 recorded_bullets=["Charted in Epic for a 30-bed unit"])],
+                     skills=[Skill("CRRT", "Imported", source="resume"),
+                             Skill("Telemetry", "Clinical", "Expert", have="yes"),
+                             Skill("ECMO", "Clinical", have="no")])
+        return rec
+
+    def test_build_fills_in_what_the_record_shows_and_asks_the_rest(self):
+        rec = self.record()
+        use({"field": "ICU nursing", "skills": [
+            self.item("Continuous Renal Replacement Therapy, CRRT", same_as="CRRT",
+                      level="Advanced"),
+            self.item("Telemetry", level="Working"),               # the person said Expert
+            self.item("ECMO", level="Familiar"),                  # the person said no
+            self.item("Epic", "Systems", named=True, level="Working"),
+            self.item("Fall prevention", "Patient Safety", because=["Cut falls"],
+                      level="Advanced"),
+            self.item("Sepsis protocols", because=["Ran the sepsis unit"], level="Expert"),
+            self.item("Wound care")]})
+        out = skills.build(rec, "ICU nursing")
+        self.assertEqual(out["field"], "ICU nursing")
+        got = {s.name: (s.category, s.have, s.level, s.source) for s in rec.skills}
+        self.assertEqual(got["CRRT"], ("Clinical", "yes", "Advanced", "resume"),
+                         "an imported skill is sorted and given an estimated level")
+        self.assertEqual(got["Telemetry"], ("Clinical", "yes", "Expert", ""),
+                         "a level the person set is never changed")
+        self.assertEqual(got["ECMO"], ("Clinical", "no", "", ""))
+        self.assertEqual(got["Epic"], ("Systems", "yes", "Working", "resume"))
+        self.assertEqual(got["Fall prevention"],
+                         ("Patient Safety", "verify", "Advanced", "your record"))
+        self.assertEqual(got["Sepsis protocols"], ("Clinical", "verify", "", "your field"),
+                         "evidence that isn't in the record is dropped, and its level with it")
+        self.assertEqual(got["Wound care"], ("Clinical", "verify", "", "your field"))
+        self.assertEqual(len(rec.skills), 7)
+
+    def test_a_skill_the_record_does_not_name_is_not_taken_as_yes(self):
+        rec = self.record()
+        use({"field": "nursing", "skills": [self.item("Ventilator management", named=True)]})
+        skills.build(rec)
+        self.assertEqual(rec.skill("Ventilator management").have, "verify")
+
+    def test_answering_on_the_command_line(self):
+        rec = Record(skills=[Skill("Fall prevention", "Patient Safety", "Advanced",
+                                   ["Cut falls"], have="verify"),
+                             Skill("Telemetry", "Clinical", have="verify"),
+                             Skill("Wound care", "Clinical", have="verify")])
+        answers = iter(["y", "n", "w"])
         skills.verify(rec, lambda q: next(answers), say=lambda *a: None)
-        self.assertEqual([(s.name, s.category, s.level) for s in rec.skills],
-                         [("Fall prevention", "Patient Safety", "Advanced")])
+        self.assertEqual([(s.name, s.have, s.level) for s in rec.skills],
+                         [("Fall prevention", "yes", "Advanced"), ("Telemetry", "no", ""),
+                          ("Wound care", "yes", "Working")])
 
-    def test_unconfirmed_skills_never_export_as_yes(self):
-        rec = Record(skills=[Skill("Telemetry", "To verify: Clinical"),
-                             Skill("CRRT", "Imported"), Skill("Epic", "Systems", "Expert")])
+    def test_editing_a_skill(self):
+        rec = self.record()
+        skills.set_skill(rec, "ECMO", level="Working")
+        self.assertEqual((rec.skill("ECMO").have, rec.skill("ECMO").level), ("yes", "Working"))
+        rec.skill("ECMO").have = "verify"
+        skills.set_skill(rec, "ECMO", level="Advanced")
+        self.assertEqual(rec.skill("ECMO").have, "yes", "giving a level is a yes")
+        skills.set_skill(rec, "ECMO", have="no")
+        self.assertEqual(rec.skill("ECMO").level, "")
+        skills.set_skill(rec, "CRRT", rename="CRRT, Continuous Renal Replacement",
+                         category="Renal")
+        self.assertEqual(rec.skill("CRRT, Continuous Renal Replacement").category, "Renal")
+        with self.assertRaises(ValueError):
+            skills.set_skill(rec, "Telemetry", rename="ECMO")
+        with self.assertRaises(ValueError):
+            skills.set_skill(rec, "Telemetry", level="Guru")
+        with self.assertRaises(LookupError):
+            skills.set_skill(rec, "Nothing", have="yes")
+
+    def test_adding_a_skill_the_list_missed(self):
+        rec = self.record()
+        skills.add_skill(rec, "Wound vac", "Clinical", "Expert")
+        self.assertEqual((rec.skill("Wound vac").have, rec.skill("Wound vac").source),
+                         ("yes", "you"))
+        skills.add_skill(rec, "ecmo")                       # already listed as no
+        self.assertEqual(rec.skill("ECMO").have, "yes")
+        self.assertEqual(len(rec.skills), 4)
+
+    def test_yes_to_everything_the_record_shows(self):
+        rec = Record(skills=[Skill("A", have="verify", evidence=["x"], level="Working"),
+                             Skill("B", have="verify")])
+        self.assertEqual(skills.accept_shown(rec), ["A"])
+        self.assertEqual([s.have for s in rec.skills], ["yes", "verify"])
+
+    def test_export_matches_the_pipelines_inventory(self):
+        rec = Record(skills=[Skill("Telemetry", "Clinical", "Working", have="verify"),
+                             Skill("CRRT", "Imported", source="resume"),
+                             Skill("ECMO", "Clinical", have="no", source="your field"),
+                             Skill("Epic", "Systems", "Expert")])
         rows = {r["skill"]: r for r in export.skills_rows(rec)}
         self.assertEqual(rows["Telemetry"]["have_it"], "verify")
-        self.assertEqual(rows["CRRT"]["have_it"], "yes")     # it was on their own resume
+        self.assertEqual(rows["Telemetry"]["proficiency"], "", "an estimate is not an answer")
+        self.assertEqual((rows["CRRT"]["category"], rows["CRRT"]["have_it"],
+                          rows["CRRT"]["source"]), ("Other", "yes", "resume"))
+        self.assertEqual(rows["ECMO"]["have_it"], "no")
         self.assertEqual(rows["Epic"]["proficiency"], "Expert")
+        self.assertEqual(list(rows["Epic"]), export.CSV_COLUMNS)
+
+    def test_the_older_to_verify_layout_still_reads(self):
+        rec = mr.parse("## Skills\n\n### To verify: Clinical\n\n- Telemetry — evidence: A\n")
+        self.assertEqual((rec.skills[0].category, rec.skills[0].have), ("Clinical", "verify"))
+        text = mr.render(rec)
+        self.assertIn("## Skills to check", text)
+        self.assertEqual(mr.render(mr.parse(text)), text)
 
 
 class Export(unittest.TestCase):

@@ -129,7 +129,12 @@ class Role:
 @dataclass
 class Skill:
     """
-    A skill and what proves it.
+    A skill, whether the person has it, and what proves it.
+
+    `have` is "yes", "no" (a skill their field asks for that they lack, kept so
+    nobody suggests it again and the pipeline can see the gap) or "verify" (on
+    the list but not yet answered: a suggestion, or a standard skill for their
+    field). Only "yes" ever reaches a resume.
 
     `evidence` names accomplishments by title. A skill with no evidence is
     still a skill, but tailoring treats it as a claim rather than a fact: it
@@ -139,21 +144,28 @@ class Skill:
     category: str = ""
     level: str = ""
     evidence: list = field(default_factory=list)
+    have: str = "yes"
+    source: str = ""            # resume, interview, suggested, your field, you
 
     def render(self) -> str:
         line = f"- {self.name}"
         if self.level:
             line += f" ({self.level})"
+        if self.source:
+            line += f" — from: {self.source}"
         if self.evidence:
             line += " — evidence: " + "; ".join(self.evidence)
         return line
 
 
 SKILL_LINE = re.compile(r"^-\s+(?P<name>.+?)(?:\s+\((?P<level>Expert|Advanced|Working|Familiar)\))?"
+                        r"(?:\s+(?:—|--)\s+from:\s*(?P<src>.+?))?"
                         r"(?:\s+(?:—|--)\s+evidence:\s*(?P<ev>.+))?\s*$")
 # Only these count as a level, so "SQL (BigQuery, Snowflake)" stays one skill
 # name instead of becoming SQL at level "BigQuery, Snowflake".
 LEVELS = ("Expert", "Advanced", "Working", "Familiar")
+# The three skills sections, by whether the person has the skill.
+SKILL_SECTIONS = {"yes": "Skills", "verify": "Skills to check", "no": "Skills I don't have yet"}
 TARGET_FIELDS = ("Titles", "Industries", "Locations", "Seniority", "Notes")
 
 
@@ -198,6 +210,9 @@ def _squash(name: str) -> str:
     return re.sub(r"[^a-z0-9]", "", (name or "").lower())
 
 
+SKILL_HAVE = {_squash(h): state for state, h in SKILL_SECTIONS.items()}
+
+
 def _extend_attr(obj, name):
     return lambda more: setattr(obj, name, f"{getattr(obj, name)} {more}".strip())
 
@@ -226,6 +241,7 @@ def parse(text: str) -> Record:
     role = None
     acc = None
     in_bullets = False
+    have = "yes"            # which skills section we are in
     extend = None           # appends a continuation line to the last value read
 
     def close_acc():
@@ -262,7 +278,9 @@ def parse(text: str) -> Record:
                 where = "positioning"
             elif name == "roles":
                 where = "roles"
-            elif name in ("skills", "education", "certifications", "target"):
+            elif _squash(name) in SKILL_HAVE:
+                where, have = "skills", SKILL_HAVE[_squash(name)]
+            elif name in ("education", "certifications", "target"):
                 where = name
             else:
                 # any other section is kept verbatim and written back at the end
@@ -278,10 +296,13 @@ def parse(text: str) -> Record:
             m = SKILL_LINE.match(line)
             if m and not LABELLED.match(line):
                 ev = [e.strip() for e in (m.group("ev") or "").split(";") if e.strip()]
-                rec.skills.append(Skill(name=m.group("name").strip(),
-                                        category=sub or "",
+                cat, state = sub or "", have
+                if cat.lower().startswith("to verify"):      # the older layout
+                    cat, state = cat.partition(":")[2].strip() or "Other", "verify"
+                rec.skills.append(Skill(name=m.group("name").strip(), category=cat,
                                         level=(m.group("level") or "").strip(),
-                                        evidence=ev))
+                                        evidence=ev, have=state,
+                                        source=(m.group("src") or "").strip()))
             continue
 
         if where in ("education", "certifications"):
@@ -426,17 +447,20 @@ def render(rec: Record) -> str:
             out += ["", f"#### {BULLETS_HEADING}", ""] + BULLETS_PREAMBLE + [""]
             out += [f"- {b}" for b in role.recorded_bullets]
 
-    if rec.skills:
-        out += ["", "## Skills"]
+    for state, heading in SKILL_SECTIONS.items():
+        group = [x for x in rec.skills if x.have == state]
+        if not group:
+            continue
+        out += ["", f"## {heading}"]
         cats = []
-        for s in rec.skills:
-            if s.category not in cats:
-                cats.append(s.category)
+        for x in group:
+            if x.category not in cats:
+                cats.append(x.category)
         for cat in cats:
             out.append("")
             if cat:
                 out += [f"### {cat}", ""]
-            out += [s.render() for s in rec.skills if s.category == cat]
+            out += [x.render() for x in group if x.category == cat]
 
     for name in ("education", "certifications"):
         items = getattr(rec, name)

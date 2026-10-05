@@ -212,23 +212,21 @@ CSV_COLUMNS = ["category", "skill", "have_it", "proficiency", "source", "notes"]
 
 def skills_rows(rec: mr.Record) -> list:
     """
-    One CSV row per skill. Suggested skills nobody has confirmed get
-    have_it = "verify", which the pipeline treats as not-yes and keeps off
+    One CSV row per skill, in the layout of the pipeline's skills_inventory.csv.
+    have_it is the person's answer: yes, no (a gap in their field), or verify
+    (not answered yet), which the pipeline treats as not-yes and keeps off
     resumes until the person says yes.
     """
-    from .skills import PENDING, confirmed_category
+    from .skills import UNSORTED
     rows = []
     for s in rec.skills:
-        cat = s.category or "Other"
-        suggested = cat.lower().startswith(PENDING.lower())
+        cat = s.category if (s.category or "").strip().lower() not in UNSORTED else "Other"
         rows.append({
-            # an imported skill was on the person's own resume, so it counts
-            # as theirs; a suggested one does not until they say so
-            "category": confirmed_category(s) if suggested or cat.lower() == "imported" else cat,
+            "category": cat,
             "skill": s.name,
-            "have_it": "verify" if suggested else "yes",
-            "proficiency": s.level,
-            "source": "record",
+            "have_it": s.have,
+            "proficiency": s.level if s.have == "yes" else "",
+            "source": s.source or "record",
             "notes": ("evidence: " + "; ".join(s.evidence)) if s.evidence else "",
         })
     return rows

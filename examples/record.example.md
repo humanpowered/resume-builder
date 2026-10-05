@@ -76,9 +76,17 @@ to an employer, as distinct from everyone else with the same job title?
 
 - Hiring and coaching analysts (Expert) — evidence: Built the measurement practice
 
-### To verify: Measurement
+## Skills to check
 
-- Geo-holdout experiments — evidence: Paid search efficiency program
+### Measurement
+
+- Geo-holdout experiments (Advanced) — from: your record — evidence: Paid search efficiency program
+
+## Skills I don't have yet
+
+### Measurement
+
+- Media mix optimisation software, e.g. Robyn — from: your field
 
 ## Education
 

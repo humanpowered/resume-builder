@@ -101,22 +101,38 @@ class Web(unittest.TestCase):
         self.assertIn("High school diploma, Lakeside High, 2010",
                       c.get("/api/record").json()["markdown"])
 
-    def test_suggested_skill_confirm_and_reject(self):
+    def test_skills_list_build_answer_add_and_edit(self):
         c = self.client("a@example.com")
         md = ("# R\n\n## Roles\n\n### Riverside — RN\n\n#### Cut falls\n\n"
               "- **Problem:** p\n- **Actions:** a\n- **Results:** Falls down 30%\n")
         c.put("/api/record", json={"markdown": md})
-        llm.use_backend(FakeBackend({"profession": "nurse", "skills": [
-            {"name": "Fall prevention", "category": "Patient Safety", "because": ["Cut falls"]},
-            {"name": "Telemetry", "category": "Clinical", "because": ["Cut falls"]}]}))
-        self.assertEqual(len(c.post("/api/skills/suggest").json()["added"]), 2)
-        c.post("/api/skills/Fall prevention/confirm", json={"level": "Advanced"})
-        c.post("/api/skills/Telemetry/confirm", json={"level": None})
-        skills = c.get("/api/record").json()["summary"]["skills"]
-        self.assertEqual([(s["name"], s["category"], s["pending"]) for s in skills],
-                         [("Fall prevention", "Patient Safety", False)])
+        item = lambda name, cat, because=(), level="": {
+            "name": name, "category": cat, "same_as": "", "named": False,
+            "because": list(because), "level": level}
+        llm.use_backend(FakeBackend({"field": "Hospital nursing", "skills": [
+            item("Fall prevention", "Patient Safety", ["Cut falls"], "Advanced"),
+            item("Telemetry", "Clinical")]}))
+        out = c.post("/api/skills/build", json={"field": ""}).json()
+        self.assertEqual(out["added"], ["Fall prevention", "Telemetry"])
+        self.assertEqual(c.get("/api/skills").json()["field"], "Hospital nursing")
+        self.assertEqual(c.post("/api/skills/accept-shown").json()["accepted"],
+                         ["Fall prevention"])
+        self.assertEqual(c.patch("/api/skills/Telemetry", json={"have": "no"}).status_code, 200)
+        self.assertEqual(c.patch("/api/skills/Telemetry", json={"level": "Guru"}).status_code, 400)
+        self.assertEqual(c.patch("/api/skills/Nope", json={"have": "no"}).status_code, 404)
+        c.post("/api/skills", json={"name": "Wound care", "category": "Clinical",
+                                    "level": "Working"})
+        c.patch("/api/skills/Wound care", json={"level": "Expert"})
+        rows = {s["name"]: (s["category"], s["have"], s["level"])
+                for s in c.get("/api/skills").json()["skills"]}
+        self.assertEqual(rows, {"Fall prevention": ("Patient Safety", "yes", "Advanced"),
+                                "Telemetry": ("Clinical", "no", ""),
+                                "Wound care": ("Clinical", "yes", "Expert")})
         csv_text = c.get("/api/export/skills_inventory.csv").text
-        self.assertIn("Patient Safety,Fall prevention,yes,Advanced", csv_text)
+        self.assertIn("Patient Safety,Fall prevention,yes,Advanced,your record", csv_text)
+        self.assertIn("Clinical,Telemetry,no,,your field", csv_text)
+        self.assertEqual(c.delete("/api/skills/Telemetry").status_code, 200)
+        self.assertNotIn("Telemetry", c.get("/api/record").json()["markdown"])
 
     def test_delete_removes_everything(self):
         c = self.client("a@example.com")

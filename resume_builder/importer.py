@@ -229,7 +229,7 @@ def to_record(data: dict, source_text: str, source_name: str,
 
     for s in data.get("skills") or []:
         if keep(s) and not rec.skill(s):
-            rec.skills.append(mr.Skill(name=s.strip(), category="Imported"))
+            rec.skills.append(mr.Skill(name=s.strip(), category="Imported", source="resume"))
     for name in ("education", "certifications"):
         for line in data.get(name) or []:
             if keep(line):

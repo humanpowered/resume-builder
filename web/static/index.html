@@ -32,7 +32,7 @@
                  display: inline-block; }
   button.ghost, .btn.ghost { background: transparent; color: var(--accent); border: 1px solid var(--line); }
   button:disabled { opacity: .5; cursor: default; }
-  input[type=text], input[type=email], textarea { width: 100%; font: inherit; color: var(--ink);
+  input[type=text], input[type=email], textarea, select { width: 100%; font: inherit; color: var(--ink);
        background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 10px; }
   #chat { display: flex; flex-direction: column; gap: 10px; max-height: 60vh; overflow-y: auto;
           padding-bottom: 8px; }
@@ -49,6 +49,17 @@
   .tag.metric, .tag.derived { color: var(--ok); }
   .stack > * + * { margin-top: 16px; }
   .hidden { display: none; }
+  .tabs { display: flex; gap: 6px; flex-wrap: wrap; margin: 12px 0 4px; }
+  .tabs button[aria-pressed=true] { background: var(--accent); color: var(--accent-ink); }
+  .skill-cat { font-weight: 600; margin: 14px 0 2px; font-size: 14px; }
+  .skill-row { display: grid; grid-template-columns: minmax(0, 1fr) 150px 130px auto; gap: 8px;
+               align-items: center; padding: 6px 0; border-top: 1px solid var(--line); }
+  .skill-row select { padding: 6px; }
+  .skill-row .why { display: block; font-size: 12px; color: var(--muted); }
+  @media (max-width: 600px) { .skill-row { grid-template-columns: 1fr 1fr; }
+                              .skill-row > :first-child { grid-column: 1 / -1; } }
+  .wrap { flex-wrap: wrap; }
+  .wrap > input, .wrap > select { flex: 1 1 160px; width: auto; }
   .danger { color: var(--warn); background: transparent; border: 1px solid var(--line); }
 </style>
 </head>
@@ -104,9 +115,9 @@
       <ul id="roles" class="clean"></ul>
     </section>
     <section>
-      <h2>Skills to confirm</h2>
-      <ul id="pending" class="clean"></ul>
-      <div class="row"><button id="suggest" class="ghost">Suggest skills from my record</button></div>
+      <h2>Skills</h2>
+      <p id="skillsShort" class="muted"></p>
+      <div class="row"><a class="btn ghost" href="#skillsPanel">Go to your skills list</a></div>
     </section>
     <section>
       <h2>Export</h2>
@@ -119,6 +130,36 @@
       <div class="row"><button id="deleteMe" class="danger">Delete all my data</button></div>
     </section>
   </div>
+
+  <section id="skillsPanel" style="grid-column: 1 / -1">
+    <h2>Your skills</h2>
+    <p class="muted">The list starts from the standard skills for your field. Anything your
+      record already shows is filled in for you; answer the rest, adjust any level, and add
+      what the list missed. Come back and change it whenever you like. Only skills marked
+      Yes go on a resume.</p>
+    <div class="row wrap">
+      <input id="field" type="text" maxlength="200"
+             placeholder="Your field, e.g. ICU nursing, retail store management">
+      <button id="buildSkills">Build my skills list</button>
+    </div>
+    <p id="skillsStatus" class="muted"></p>
+    <div class="row"><button id="acceptShown" class="ghost hidden"></button></div>
+    <div class="tabs" role="group" aria-label="Show">
+      <button class="ghost" data-tab="verify">To answer</button>
+      <button class="ghost" data-tab="yes">I have</button>
+      <button class="ghost" data-tab="no">I don't have</button>
+      <button class="ghost" data-tab="all">All</button>
+    </div>
+    <div id="skillsTable"></div>
+    <h2 style="margin-top:16px">Add a skill the list missed</h2>
+    <form id="addSkill" class="row wrap">
+      <input id="newSkill" type="text" maxlength="200" placeholder="Skill, e.g. Wound care" required>
+      <input id="newCat" type="text" maxlength="100" placeholder="Group, e.g. Clinical" list="cats">
+      <select id="newLevel" aria-label="Level"></select>
+      <button>Add</button>
+    </form>
+    <datalist id="cats"></datalist>
+  </section>
 </main>
 
 <script>
@@ -182,22 +223,134 @@ async function refresh() {
     }
     roles.appendChild(li);
   }
-  const pend = $("pending"); pend.innerHTML = "";
-  const waiting = summary.skills.filter((s) => s.pending);
-  if (!waiting.length) pend.innerHTML = `<li class="muted">Nothing waiting.</li>`;
-  for (const s of waiting) {
-    const li = document.createElement("li");
-    li.textContent = s.name + " ";
-    for (const lvl of ["Expert", "Advanced", "Working", "Familiar", null]) {
-      const b = document.createElement("button"); b.className = "ghost";
-      b.textContent = lvl || "Not me"; b.style.marginLeft = "4px";
-      b.onclick = async () => { await api(`/api/skills/${encodeURIComponent(s.name)}/confirm`,
-        { method: "POST", body: JSON.stringify({ level: lvl }) }); refresh(); };
-      li.appendChild(b);
-    }
-    pend.appendChild(li);
+  const sk = summary.skills;
+  const n = (st) => sk.filter((x) => x.have === st).length;
+  $("skillsShort").textContent = sk.length
+    ? `${n("yes")} you have, ${n("verify")} to answer, ${n("no")} you don't have.`
+    : "No skills list yet.";
+  loadSkills();
+}
+
+// ---- skills list --------------------------------------------------------
+
+let skillTab = "verify", skillData = null;
+const HAVE_LABEL = { yes: "Yes", no: "No", verify: "Not sure yet" };
+
+async function loadSkills() {
+  skillData = await api("/api/skills");
+  if (!$("field").value) $("field").value = skillData.field;
+  $("field").placeholder = skillData.hint ? `Your field (from your record: ${skillData.hint})`
+    : $("field").placeholder;
+  const lv = $("newLevel");
+  if (!lv.options.length) {
+    for (const l of ["", ...skillData.levels]) lv.add(new Option(l || "Level (optional)", l));
+  }
+  const cats = [...new Set(skillData.skills.map((x) => x.category).filter(Boolean))];
+  $("cats").innerHTML = ""; cats.forEach((c) => $("cats").appendChild(new Option(c)));
+  const shown = skillData.skills.filter((x) => x.have === "verify" && x.evidence.length);
+  $("acceptShown").classList.toggle("hidden", !shown.length);
+  $("acceptShown").textContent = `Yes to all ${shown.length} your record shows, at the levels estimated`;
+  if (skillTab === "verify" && !skillData.skills.some((x) => x.have === "verify"))
+    skillTab = skillData.skills.length ? "yes" : "verify";
+  drawSkills();
+}
+
+function drawSkills() {
+  document.querySelectorAll(".tabs button").forEach((b) => {
+    const t = b.dataset.tab;
+    const count = t === "all" ? skillData.skills.length
+      : skillData.skills.filter((x) => x.have === t).length;
+    b.textContent = b.textContent.replace(/ \(\d+\)$/, "") + ` (${count})`;
+    b.setAttribute("aria-pressed", t === skillTab);
+  });
+  const box = $("skillsTable"); box.innerHTML = "";
+  const list = skillData.skills.filter((x) => skillTab === "all" || x.have === skillTab);
+  if (!list.length) {
+    box.innerHTML = `<p class="muted">${skillData.skills.length ? "Nothing here."
+      : "Build your list above to start."}</p>`;
+    return;
+  }
+  const byCat = {};
+  for (const x of list) (byCat[x.category || "Other"] ||= []).push(x);
+  for (const [cat, items] of Object.entries(byCat)) {
+    const h = document.createElement("div"); h.className = "skill-cat"; h.textContent = cat;
+    box.appendChild(h);
+    for (const x of items) box.appendChild(skillRow(x));
   }
 }
+
+function skillRow(x) {
+  const row = document.createElement("div"); row.className = "skill-row";
+  const name = document.createElement("div"); name.textContent = x.name;
+  const why = document.createElement("span"); why.className = "why";
+  why.textContent = x.evidence.length ? `shown by: ${x.evidence.join("; ")}`
+    : x.source ? `from ${x.source}` : "";
+  name.appendChild(why);
+  const have = document.createElement("select"); have.setAttribute("aria-label", "Do you have it");
+  for (const k of ["yes", "verify", "no"]) have.add(new Option(HAVE_LABEL[k], k));
+  have.value = x.have;
+  const level = document.createElement("select"); level.setAttribute("aria-label", "Level");
+  for (const l of ["", ...skillData.levels]) level.add(new Option(l || "No level", l));
+  level.value = x.level; level.disabled = x.have === "no";
+  if (x.have === "verify" && x.level) level.title = "Estimated from your record";
+  const tools = document.createElement("div"); tools.className = "row"; tools.style.marginTop = 0;
+  const edit = document.createElement("button"); edit.className = "ghost"; edit.textContent = "Edit";
+  const del = document.createElement("button"); del.className = "ghost"; del.textContent = "Remove";
+  tools.append(edit, del);
+  const change = async (body) => {
+    try { await api(`/api/skills/${encodeURIComponent(x.name)}`,
+                    { method: "PATCH", body: JSON.stringify(body) }); }
+    catch (e) { alert(e.message); }
+    refresh();
+  };
+  have.onchange = () => change({ have: have.value });
+  level.onchange = () => change(level.value && x.have !== "yes"
+    ? { have: "yes", level: level.value } : { level: level.value });
+  edit.onclick = () => {
+    const rename = prompt("Skill name", x.name); if (rename === null) return;
+    const category = prompt("Group", x.category || ""); if (category === null) return;
+    change({ rename, category });
+  };
+  del.onclick = async () => {
+    if (!confirm(`Remove "${x.name}" from your list? To keep it as a skill you don't have, `
+      + `choose No instead.`)) return;
+    await api(`/api/skills/${encodeURIComponent(x.name)}`, { method: "DELETE" }); refresh();
+  };
+  row.append(name, have, level, tools);
+  return row;
+}
+
+document.querySelectorAll(".tabs button").forEach((b) => {
+  b.onclick = () => { skillTab = b.dataset.tab; drawSkills(); };
+});
+$("buildSkills").onclick = async () => {
+  $("buildSkills").disabled = true;
+  $("skillsStatus").textContent = "Building your list. This reads your whole record, so it takes a little while…";
+  try {
+    const r = await api("/api/skills/build", { method: "POST",
+      body: JSON.stringify({ field: $("field").value }) });
+    $("field").value = r.field;
+    $("skillsStatus").textContent = `Built for ${r.field || "your field"}: ${r.added.length} added `
+      + `for you to answer, ${r.yours.length} already in your record, ${r.filled.length} of your `
+      + `existing skills sorted or filled in. Nothing you had set was changed.`;
+    skillTab = "verify"; refresh();
+  } catch (e) { $("skillsStatus").textContent = e.message; }
+  $("buildSkills").disabled = false;
+};
+$("acceptShown").onclick = async () => {
+  const r = await api("/api/skills/accept-shown", { method: "POST" });
+  $("skillsStatus").textContent = `${r.accepted.length} marked Yes. Change any level below.`;
+  refresh();
+};
+$("addSkill").onsubmit = async (e) => {
+  e.preventDefault();
+  try {
+    await api("/api/skills", { method: "POST", body: JSON.stringify({
+      name: $("newSkill").value, category: $("newCat").value, level: $("newLevel").value }) });
+    $("skillsStatus").textContent = `Added ${$("newSkill").value}.`;
+    $("newSkill").value = ""; refresh();
+  } catch (err) { $("skillsStatus").textContent = err.message; }
+};
 
 $("login").onclick = async () => {
   await api("/dev/login", { method: "POST", body: JSON.stringify({ email: $("email").value }) });
@@ -222,9 +375,6 @@ $("begin").onclick = () => { section = ""; step(null); };
 $("education").onclick = () => { section = "background"; step(null); };
 $("restart").onclick = async () => { await api("/api/interview/restart", { method: "POST" });
   section = ""; $("chat").innerHTML = ""; step(null); };
-$("suggest").onclick = async () => { $("suggest").disabled = true;
-  try { await api("/api/skills/suggest", { method: "POST" }); refresh(); }
-  finally { $("suggest").disabled = false; } };
 $("deleteMe").onclick = async () => {
   if (!confirm("Delete your whole record and every saved version? This cannot be undone.")) return;
   await api("/api/me", { method: "DELETE" }); location.reload();

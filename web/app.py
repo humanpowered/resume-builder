@@ -21,7 +21,7 @@ from pathlib import Path
 
 from fastapi import Depends, FastAPI, File, HTTPException, Request, Response, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
@@ -113,7 +113,8 @@ def summary(rec: mr.Record) -> dict:
                                        for a in r.accomplishments],
                    "resume_bullets": r.recorded_bullets} for r in rec.roles],
         "skills": [{"name": s.name, "category": s.category, "level": s.level,
-                    "evidence": s.evidence, "pending": skills.is_pending(s)}
+                    "evidence": s.evidence, "have": s.have, "source": s.source,
+                    "pending": skills.is_pending(s)}
                    for s in rec.skills],
         "education": rec.education, "certifications": rec.certifications,
     }
@@ -202,34 +203,87 @@ def get_health(store: SqlStore = Depends(store_for)):
             "roles": [vars(r) for r in rep.roles], "issues": rep.record_issues}
 
 
-@app.post("/api/skills/suggest")
-def skills_suggest(store: SqlStore = Depends(store_for)):
+# The skills list. Built once from the person's field and record, then theirs
+# to answer, adjust and add to whenever they like.
+
+SKILLS_FIELD = "skills_field"           # the field the list was last built for
+
+
+class BuildSkills(BaseModel):
+    field: str = Field("", max_length=200)
+
+
+@app.get("/api/skills")
+def skills_list(store: SqlStore = Depends(store_for)):
+    return {"field": store.load_state(SKILLS_FIELD) or "",
+            "hint": skills.field_hint(store.load_record()),
+            "levels": list(mr.LEVELS),
+            "skills": summary(store.load_record())["skills"]}
+
+
+@app.post("/api/skills/build")
+def skills_build(body: BuildSkills, store: SqlStore = Depends(store_for)):
     rec = store.load_record()
-    out = skills.suggest(rec)
-    rec.skills += out["skills"]
+    out = skills.build(rec, body.field)
     store.save_record(rec)
-    return {"added": [s.name for s in out["skills"]], "profession": out["profession"]}
+    store.save_state(SKILLS_FIELD, out["field"])
+    return out
 
 
-class Confirm(BaseModel):
-    level: str | None = None        # None = I do not have this skill
+class NewSkill(BaseModel):
+    name: str = Field(..., max_length=200)
+    category: str = Field("", max_length=100)
+    level: str = ""
 
 
-@app.post("/api/skills/{name}/confirm")
-def skills_confirm(name: str, body: Confirm, store: SqlStore = Depends(store_for)):
+@app.post("/api/skills")
+def skills_add(body: NewSkill, store: SqlStore = Depends(store_for)):
     rec = store.load_record()
-    s = rec.skill(name)
-    if s is None:
-        raise HTTPException(404, "No such skill")
-    if body.level is None:
-        rec.skills.remove(s)
-    else:
-        if body.level not in mr.LEVELS:
-            raise HTTPException(400, f"Level must be one of {', '.join(mr.LEVELS)}")
-        s.level = body.level
-        s.category = skills.confirmed_category(s) if skills.is_pending(s) else s.category
+    try:
+        s = skills.add_skill(rec, body.name, body.category, body.level)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    store.save_record(rec)
+    return {"name": s.name}
+
+
+class SkillChange(BaseModel):
+    have: str | None = None             # yes, no, or verify (not sure yet)
+    level: str | None = None            # "" clears it
+    category: str | None = Field(None, max_length=100)
+    rename: str | None = Field(None, max_length=200)
+
+
+@app.patch("/api/skills/{name}")
+def skills_change(name: str, body: SkillChange, store: SqlStore = Depends(store_for)):
+    rec = store.load_record()
+    try:
+        s = skills.set_skill(rec, name, body.have, body.level, body.category, body.rename)
+    except LookupError as exc:
+        raise HTTPException(404, str(exc))
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    store.save_record(rec)
+    return {"name": s.name, "have": s.have, "level": s.level, "category": s.category}
+
+
+@app.delete("/api/skills/{name}")
+def skills_remove(name: str, store: SqlStore = Depends(store_for)):
+    rec = store.load_record()
+    try:
+        skills.remove_skill(rec, name)
+    except LookupError as exc:
+        raise HTTPException(404, str(exc))
     store.save_record(rec)
     return {"ok": True}
+
+
+@app.post("/api/skills/accept-shown")
+def skills_accept_shown(store: SqlStore = Depends(store_for)):
+    rec = store.load_record()
+    done = skills.accept_shown(rec)
+    store.save_record(rec)
+    return {"accepted": done}
 
 
 def _build(store: SqlStore):

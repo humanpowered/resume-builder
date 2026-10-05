@@ -31,8 +31,10 @@ interview starts.
 | `interview` | Asks about the thinnest role first: role context, then your old bullets opened back up, then accomplishments no resume ever held. Ends with education, licences and certifications. |
 | `interview --role Acme` | One employer. |
 | `interview --education` | Just education, licences and certifications: plain questions, no API calls. Keeps your place in the job interview. |
-| `skills --suggest` | Skills your record shows but never names, in your industry's standard terms, each tied to an accomplishment. Marked "To verify". |
-| `skills --verify` | Confirm or reject suggested skills, with a level. |
+| `skills --build [--field "ICU nursing"]` | Starts your skills list from the standard skills for your field, then fills in what your record shows: skills your resume names are marked yes, skills your accomplishments show get an estimated level, and the rest wait for your answer. Running it again only fills blanks. |
+| `skills --verify` | Answer the list: a level, y to accept the estimate, or n if you don't have it. "No" answers are kept as gaps. |
+| `skills --add "Wound care" --category Clinical --level Expert` | A skill the list missed. |
+| `skills` | Shows the list. To change a level, group or answer later, edit the record file or use the page. |
 | `health` | What the record holds, what's unsettled, and the best use of your next hour. No API calls. |
 | `export --to DIR` | Shows what writing the pipeline's files would change. |
 | `export --to DIR --write` | Writes `master_profile.json` and `skills_inventory.csv` into DIR. |
@@ -125,7 +127,7 @@ search sources belong to the service and cannot be set per person.
 ## Testing
 
 ```bash
-python -m unittest discover -s tests        # 88 tests; no API calls, no network
+python -m unittest discover -s tests        # 93 tests; no API calls, no network
 (cd pipeline/tests && python -m unittest discover -s .)   # the pipeline's 154
 python evals/simulate.py --people 01        # one simulated person (needs a key)
 ```
