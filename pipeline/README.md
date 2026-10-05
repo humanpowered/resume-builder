@@ -209,7 +209,7 @@ The pipeline stops here on purpose. An autofill step (`form_filler.py`) was
 prototyped and removed in September 2026: it never worked reliably, since
 application forms differ per employer even on the same ATS. The Simplify
 browser extension handles autofill better, using `output/<your name> -
-Resume (Master).docx`.
+Resume (General).docx`.
 
 ## Notes / next steps
 
