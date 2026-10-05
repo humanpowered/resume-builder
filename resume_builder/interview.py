@@ -101,6 +101,31 @@ CLEARANCE_QUESTIONS = [
     ("agency", "Which agency or department granted it?", "Enter to skip"),
     ("polygraph", "Any polygraph? e.g. 'CI poly' or 'full scope'.", "Enter if none"),
 ]
+# Asked only when the record shows work where a clearance is plausible. A
+# nurse, teacher or shop manager should never meet the question.
+CLEARANCE_SIGNS = re.compile(
+    r"\b(defen[cs]e|military|army|navy|naval|air force|usaf|marines?|marine corps|usmc|"
+    r"coast guard|national guard|space force|dod|department of defen[cs]e|veteran|"
+    r"federal|government contract\w*|intelligence community|homeland security|dhs|"
+    r"fbi|cia|nsa|dia|nro|nga|department of energy|national lab\w*|nasa|"
+    r"clearance|cleared|classified|top secret|ts/sci|public trust|"
+    r"gs-\d+|contracting officer|lockheed|raytheon|rtx|northrop|general dynamics|"
+    r"bae systems|leidos|booz allen|saic|caci|mantech|l3harris|huntington ingalls|"
+    r"anduril|palantir)\b", re.I)
+
+
+def clearance_relevant(rec) -> bool:
+    """Whether anything in the record suggests cleared work."""
+    if rec.extras.get("clearance"):
+        return True
+    text = [rec.target.get(k, "") for k in ("Titles", "Industries", "Notes")]
+    text += rec.certifications
+    for role in rec.roles:
+        text += [role.employer, role.title, *role.fields.values(), *role.recorded_bullets]
+        text += [a.source_text() + " " + a.title for a in role.accomplishments]
+    return bool(CLEARANCE_SIGNS.search(" ".join(t for t in text if t)))
+
+
 PROJECT_QUESTIONS = [
     ("name", "A project worth showing: something you built, led or made, at work or on "
              "your own? Give it a short name.", "Enter when there are no more"),
@@ -658,6 +683,11 @@ class Interview:
     def _background_prompt(self):
         s = self.state
         bg = s.setdefault("bg", {"section": 0, "q": 0, "draft": {}, "intro": False})
+        asked_for = bg.get("stop") == bg["section"] + 1     # this one section, by name
+        while (bg["section"] < bg.get("stop", len(SECTIONS)) and not asked_for
+               and SECTIONS[bg["section"]][0] == "clearance"
+               and not clearance_relevant(self.rec)):
+            bg.update(section=bg["section"] + 1, q=0, draft={}, intro=False)
         if bg["section"] >= bg.get("stop", len(SECTIONS)):
             return None
         name, questions = SECTIONS[bg["section"]]

@@ -213,7 +213,8 @@ class InterviewEngine(unittest.TestCase):
         self.assertTrue(p.text.startswith("One more angle"))
         self.assertTrue(iv.step("").text.startswith("Your next qualification"))
         self.assertTrue(iv.step("").text.startswith("Your next licence"))
-        self.assertEqual(finish(iv), len(interview.SECTIONS) - 1, "one Enter per section")
+        # one Enter per remaining section; a nurse is never asked about a clearance
+        self.assertEqual(finish(iv), len(interview.SECTIONS) - 2, "one Enter per section")
         rec = self.store.load_record()
         self.assertEqual(rec.roles[0].recorded_bullets, [], "the expanded bullet is replaced")
         self.assertEqual(rec.roles[0].accomplishments[0].evidence, "metric")
@@ -358,6 +359,29 @@ class InterviewEngine(unittest.TestCase):
         self.assertIn("## Security clearance", text)
         self.assertEqual(mr.parse(text).extras["clearance"], rec.extras["clearance"])
         self.assertEqual(export.Export(rec, {}, {}).build()["clearance"], rec.extras["clearance"])
+
+    def asked_in_background(self, rec) -> list:
+        """The first question of every background section, in order."""
+        iv = interview.Interview(MemoryStore(rec), only="background")
+        seen, p = [], iv.step()
+        while p.kind != "done":
+            seen.append(p.text)
+            p = iv.step("")
+        return seen
+
+    def test_the_clearance_question_is_skipped_without_signs_of_cleared_work(self):
+        rec = Record(header=["# R"], roles=[Role(employer="Riverside Hospital", title="ICU RN")])
+        self.assertFalse(any("security clearance" in q for q in self.asked_in_background(rec)))
+
+    def test_the_clearance_question_is_asked_for_defence_and_federal_work(self):
+        for role in (Role(employer="US Army", title="Logistics Officer"),
+                     Role(employer="Leidos", title="Systems Engineer"),
+                     Role(employer="Acme", title="Analyst", fields={"Company": "Federal IT contractor"})):
+            rec = Record(header=["# R"], roles=[role])
+            asked = self.asked_in_background(rec)
+            self.assertTrue(any("security clearance" in q for q in asked), role.employer)
+        self.assertFalse(interview.clearance_relevant(
+            Record(roles=[Role(employer="Acme", title="Fundraiser")])), "'fund' is not 'defense'")
 
     def test_a_resume_clearance_heading_is_filed_as_clearance(self):
         rec = mr.parse("## Clearance\n\n- Secret, active\n")
