@@ -124,7 +124,7 @@ search sources belong to the service and cannot be set per person.
 ## Testing
 
 ```bash
-python -m unittest discover -s tests        # 81 tests; no API calls, no network
+python -m unittest discover -s tests        # 84 tests; no API calls, no network
 (cd pipeline/tests && python -m unittest discover -s .)   # the pipeline's 154
 python evals/simulate.py --people 01        # one simulated person (needs a key)
 ```

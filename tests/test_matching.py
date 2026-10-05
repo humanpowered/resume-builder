@@ -166,6 +166,20 @@ class OverHttp(Base):
         out = c.post("/api/match", json=POSTING).json()
         self.assertEqual(out["score"]["score"], 5)
 
+    def test_no_model_credentials_is_a_clear_503(self):
+        """Seen on the first real run: no key gave a bare 500."""
+        class Unconfigured:
+            messages = types.SimpleNamespace(create=lambda **kw: (_ for _ in ()).throw(
+                TypeError('"Could not resolve authentication method. Expected one of '
+                          'api_key, auth_token, or credentials to be set."')))
+        c = TestClient(self.appmod.app, raise_server_exceptions=False)
+        c.post("/dev/login", json={"email": "a@example.com"})
+        c.put("/api/record", json={"markdown": RECORD})
+        self.use(Unconfigured())
+        r = c.post("/api/match", json=POSTING)
+        self.assertEqual(r.status_code, 503)
+        self.assertIn("isn't available", r.json()["detail"])
+
 
 if __name__ == "__main__":
     unittest.main()

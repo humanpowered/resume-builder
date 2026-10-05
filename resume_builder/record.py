@@ -198,6 +198,26 @@ def _squash(name: str) -> str:
     return re.sub(r"[^a-z0-9]", "", (name or "").lower())
 
 
+def _extend_attr(obj, name):
+    return lambda more: setattr(obj, name, f"{getattr(obj, name)} {more}".strip())
+
+
+def _extend_key(d, key):
+    return lambda more: d.__setitem__(key, f"{d.get(key, '')} {more}".strip())
+
+
+def _extend_last(items):
+    def extend(more):
+        items[-1] = f"{items[-1]} {more}".strip()
+    return extend
+
+
+# An indented line that is not itself a list item continues the value above
+# it. Editors wrap long lines this way, and so do people; dropping the second
+# half of a sentence without a word is the worst thing a record can do.
+CONTINUATION = re.compile(r"^[ \t]+(?![-*+]\s)\S")
+
+
 def parse(text: str) -> Record:
     lines = (text or "").split("\n")
     rec = Record()
@@ -206,6 +226,7 @@ def parse(text: str) -> Record:
     role = None
     acc = None
     in_bullets = False
+    extend = None           # appends a continuation line to the last value read
 
     def close_acc():
         nonlocal acc
@@ -222,6 +243,11 @@ def parse(text: str) -> Record:
 
     for raw in lines:
         line = raw.rstrip()
+
+        if extend and CONTINUATION.match(line):
+            extend(line.strip())
+            continue
+        extend = None
 
         m = SECTION.match(line)
         if m and not line.startswith("###"):
@@ -262,6 +288,7 @@ def parse(text: str) -> Record:
             m = PLAIN_BULLET.match(line)
             if m:
                 getattr(rec, where).append(m.group("text").strip())
+                extend = _extend_last(getattr(rec, where))
             continue
 
         if where == "target":
@@ -269,6 +296,7 @@ def parse(text: str) -> Record:
             if m:
                 rec.target[m.group("label").strip()] = _blank_to_empty(
                     m.group("value").strip())
+                extend = _extend_key(rec.target, m.group("label").strip())
             continue
 
         if where == "trailing":
@@ -283,6 +311,7 @@ def parse(text: str) -> Record:
             m = LABELLED.match(line)
             if m:
                 rec.contact[m.group("label").strip()] = m.group("value").strip()
+                extend = _extend_key(rec.contact, m.group("label").strip())
             continue
 
         if where == "positioning":
@@ -295,6 +324,7 @@ def parse(text: str) -> Record:
                 m = PLAIN_BULLET.match(line)
                 if m:
                     rec.competencies.append(m.group("text").strip())
+                    extend = _extend_last(rec.competencies)
             elif sub == "sets_apart" and line.strip():
                 rec.sets_apart.append(line.strip())
             continue
@@ -326,8 +356,10 @@ def parse(text: str) -> Record:
             label, value = m.group("label").strip(), m.group("value").strip()
             if acc is not None and label in ACC_FIELDS:
                 setattr(acc, label.lower(), _blank_to_empty(value))
+                extend = _extend_attr(acc, label.lower())
             else:
                 role.fields[label] = _blank_to_empty(value)
+                extend = _extend_key(role.fields, label)
             continue
 
         if line.startswith(">"):
@@ -337,6 +369,7 @@ def parse(text: str) -> Record:
         m = PLAIN_BULLET.match(line)
         if m and in_bullets:
             role.recorded_bullets.append(m.group("text").strip())
+            extend = _extend_last(role.recorded_bullets)
             continue
 
     if where == "roles":

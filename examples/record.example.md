@@ -40,14 +40,14 @@ to an employer, as distinct from everyone else with the same job title?
 
 #### Paid search efficiency program
 
-- **Problem:** Acquisition cost had risen 40% over two years while last-click
-- **Actions:** Built geo-holdout tests across the ten largest markets, then an
+- **Problem:** Acquisition cost had risen 40% over two years while last-click reports showed paid search as the best channel.
+- **Actions:** Built geo-holdout tests across the ten largest markets, then an always-on testing calendar the media team ran from.
 - **Results:** Cut acquisition cost 23% in two quarters with no revenue loss.
 
 #### Built the measurement practice
 
-- **Problem:** No one owned measurement; three teams reported different numbers
-- **Actions:** Hired four analysts, published one definition per metric, moved
+- **Problem:** No one owned measurement; three teams reported different numbers for the same campaigns.
+- **Actions:** Hired four analysts, published one definition per metric, and moved reporting into a single warehouse.
 - **Results:** One source of truth adopted by marketing, finance and the board.
 
 ### Baker Media — Director, Analytics
@@ -61,8 +61,8 @@ to an employer, as distinct from everyone else with the same job title?
 
 #### Launched marketing mix modeling as a service
 
-- **Problem:** Clients wanted channel-level ROI; the agency only had platform
-- **Actions:** Built the modeling practice from scratch and trained the account
+- **Problem:** Clients wanted channel-level ROI; the agency only had platform-reported results.
+- **Actions:** Built the modeling practice from scratch and trained the account teams to present it.
 - **Results:** Four clients on retainer within a year, $1.3M in new fees.
 
 ## Skills

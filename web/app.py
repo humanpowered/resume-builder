@@ -20,7 +20,7 @@ import tempfile
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, File, HTTPException, Request, Response, UploadFile
-from fastapi.responses import FileResponse, PlainTextResponse
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
 from pydantic import BaseModel
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -36,6 +36,25 @@ DEV = os.environ.get("RB_DEV") == "1"
 MAX_UPLOAD = 5 * 1024 * 1024
 
 app = FastAPI(title="Resume Builder")
+
+
+def _model_unreachable(exc: BaseException) -> bool:
+    """The model has no credentials or rejected them. Every turn of the
+    interview, every import and every match needs it, so this is the service
+    being unconfigured, not something the person did."""
+    name, msg = type(exc).__name__.lower(), str(exc).lower()
+    return ("authentication" in name or "permissiondenied" in name
+            or "could not resolve authentication method" in msg
+            or "invalid x-api-key" in msg)
+
+
+@app.exception_handler(Exception)
+async def unexpected(request: Request, exc: Exception):
+    if _model_unreachable(exc):
+        return JSONResponse(status_code=503, content={
+            "detail": "The AI model isn't available right now, so this step can't run. "
+                      "Nothing was changed; try again later."})
+    raise exc
 
 
 def db():

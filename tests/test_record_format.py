@@ -337,5 +337,30 @@ class InterviewLogic(unittest.TestCase):
         self.assertEqual(set(mr.EVIDENCE_TIERS), set(mr.EVIDENCE_HELP))
 
 
+class WrappedLines(unittest.TestCase):
+    """An editor that wraps long lines must not cost the second half of a
+    sentence. The shipped example lost several that way before this test."""
+
+    MD = ("# R\n\n## Contact\n\n- **Name:** Sam\n  Rivera\n\n## Roles\n\n"
+          "### Mercy — RN\n\n- **Challenge:** falls above\n  the state benchmark\n\n"
+          "#### Cut falls\n\n- **Problem:** nine falls a quarter, which\n"
+          "  was above benchmark.\n- **Results:** down 30%\n\n"
+          "## Education\n\n- BSN, Ohio State\n  University\n")
+
+    def test_continuations_join_the_value_above(self):
+        rec = mr.parse(self.MD)
+        acc = rec.roles[0].accomplishments[0]
+        self.assertEqual(acc.problem, "nine falls a quarter, which was above benchmark.")
+        self.assertEqual(acc.results, "down 30%")
+        self.assertEqual(rec.roles[0].fields["Challenge"], "falls above the state benchmark")
+        self.assertEqual(rec.contact["Name"], "Sam Rivera")
+        self.assertEqual(rec.education, ["BSN, Ohio State University"])
+
+    def test_a_round_trip_keeps_every_word(self):
+        once = mr.render(mr.parse(self.MD))
+        self.assertIn("which was above benchmark.", once)
+        self.assertEqual(mr.render(mr.parse(once)), once)
+
+
 if __name__ == "__main__":
     unittest.main()
