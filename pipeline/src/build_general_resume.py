@@ -26,7 +26,7 @@ sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 # Named from the profile rather than hardcoded, so this file carries no
 # personal details.
-BASENAME_TEMPLATE = "{name} - Resume (General)"
+BASENAME_TEMPLATE = "{name} - Resume (Master)"
 
 # Which highlights to carry, by company. Chosen for metrics and breadth;
 # keeping every bullet from master_profile would run past three pages. This
