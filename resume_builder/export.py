@@ -276,9 +276,21 @@ def skills_rows(rec: mr.Record) -> list:
             "have_it": s.have,
             "proficiency": s.level if s.have == "yes" else "",
             "source": s.source or "record",
-            "notes": ("evidence: " + "; ".join(s.evidence)) if s.evidence else "",
+            "notes": " ".join(x for x in (_use(s), ("evidence: " + "; ".join(s.evidence))
+                                           if s.evidence else "") if x),
         })
     return rows
+
+
+def _use(s) -> str:
+    """'Used 8 yrs, last used current.' -- for the CSV's free-text notes, which
+    the pipeline reads as text, so its column layout stays as it is."""
+    parts = []
+    if s.years:
+        parts.append(f"used {s.years.lstrip('~')} yrs")
+    if s.last_used:
+        parts.append(f"last used {s.last_used.lstrip('~')}")
+    return (", ".join(parts) + ".").capitalize() if parts else ""
 
 
 def merge_csv(existing: list, new: list) -> tuple:

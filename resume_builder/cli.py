@@ -137,6 +137,7 @@ def cmd_skills(args, path: Path) -> int:
         save(path, rec)
         print(f"  added: {s.name} ({s.category}{', ' + s.level if s.level else ''})")
     if args.verify:
+        skills.estimate_use(rec)        # dates the skills a record from before this had
         try:
             n = skills.verify(rec, ask)
         except interview.Stop:
@@ -156,9 +157,13 @@ def cmd_skills(args, path: Path) -> int:
                 print(f"\n  {cat}")
                 for s in items:
                     ev = f"  <- {'; '.join(s.evidence)}" if s.evidence else ""
-                    print(f"    {s.name}{' (' + s.level + ')' if s.level else ''}{ev}")
-        print("\n  Change a level, group or answer by editing the record file, or with "
-              "skills --verify.")
+                    bits = [b for b in (s.level,
+                                        f"{s.years.lstrip('~')} yrs" if s.years else "",
+                                        f"last used {s.last_used.lstrip('~')}" if s.last_used
+                                        else "") if b]
+                    print(f"    {s.name}{' (' + ', '.join(bits) + ')' if bits else ''}{ev}")
+        print("\n  Change a level, group, years or answer by editing the record file, or "
+              "with skills --verify. A '~' marks years worked out from your role dates.")
     return 0
 
 

@@ -158,6 +158,12 @@ class Skill:
     evidence: list = field(default_factory=list)
     have: str = "yes"
     source: str = ""            # resume, interview, suggested, your field, you
+    # How long and how recently. Postings ask for "5+ years of X", and a skill
+    # last used in 2009 should not be tailored as current. A leading "~" marks
+    # an estimate worked out from the dates of the roles in `evidence`; a value
+    # the person typed has none.
+    years: str = ""
+    last_used: str = ""
 
     def render(self) -> str:
         line = f"- {self.name}"
@@ -165,6 +171,10 @@ class Skill:
             line += f" ({self.level})"
         if self.source:
             line += f" — from: {self.source}"
+        if self.years:
+            line += f" — years: {self.years}"
+        if self.last_used:
+            line += f" — last used: {self.last_used}"
         if self.evidence:
             line += " — evidence: " + "; ".join(self.evidence)
         return line
@@ -172,6 +182,8 @@ class Skill:
 
 SKILL_LINE = re.compile(r"^-\s+(?P<name>.+?)(?:\s+\((?P<level>Expert|Advanced|Working|Familiar)\))?"
                         r"(?:\s+(?:—|--)\s+from:\s*(?P<src>.+?))?"
+                        r"(?:\s+(?:—|--)\s+years:\s*(?P<years>.+?))?"
+                        r"(?:\s+(?:—|--)\s+last used:\s*(?P<last>.+?))?"
                         r"(?:\s+(?:—|--)\s+evidence:\s*(?P<ev>.+))?\s*$")
 # Only these count as a level, so "SQL (BigQuery, Snowflake)" stays one skill
 # name instead of becoming SQL at level "BigQuery, Snowflake".
@@ -360,7 +372,9 @@ def parse(text: str) -> Record:
                 rec.skills.append(Skill(name=m.group("name").strip(), category=cat,
                                         level=(m.group("level") or "").strip(),
                                         evidence=ev, have=state,
-                                        source=(m.group("src") or "").strip()))
+                                        source=(m.group("src") or "").strip(),
+                                        years=(m.group("years") or "").strip(),
+                                        last_used=(m.group("last") or "").strip()))
             continue
 
         if where == "summary":

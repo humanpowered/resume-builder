@@ -115,6 +115,7 @@ def summary(rec: mr.Record) -> dict:
                                        for a in r.accomplishments],
                    "resume_bullets": r.recorded_bullets} for r in rec.roles],
         "skills": [{"name": s.name, "category": s.category, "level": s.level,
+                    "years": s.years, "last_used": s.last_used,
                     "evidence": s.evidence, "have": s.have, "source": s.source,
                     "pending": skills.is_pending(s)}
                    for s in rec.skills],
@@ -318,19 +319,23 @@ class SkillChange(BaseModel):
     level: str | None = None            # "" clears it
     category: str | None = Field(None, max_length=100)
     rename: str | None = Field(None, max_length=200)
+    years: str | None = Field(None, max_length=20)          # e.g. "8"
+    last_used: str | None = Field(None, max_length=20)      # a year, or "current"
 
 
 @app.patch("/api/skills/{name}")
 def skills_change(name: str, body: SkillChange, store: SqlStore = Depends(store_for)):
     rec = store.load_record()
     try:
-        s = skills.set_skill(rec, name, body.have, body.level, body.category, body.rename)
+        s = skills.set_skill(rec, name, body.have, body.level, body.category, body.rename,
+                             body.years, body.last_used)
     except LookupError as exc:
         raise HTTPException(404, str(exc))
     except ValueError as exc:
         raise HTTPException(400, str(exc))
     store.save_record(rec)
-    return {"name": s.name, "have": s.have, "level": s.level, "category": s.category}
+    return {"name": s.name, "have": s.have, "level": s.level, "category": s.category,
+            "years": s.years, "last_used": s.last_used}
 
 
 @app.delete("/api/skills/{name}")

@@ -498,6 +498,63 @@ class Skills(unittest.TestCase):
         self.assertEqual(mr.render(mr.parse(text)), text)
 
 
+class SkillUse(unittest.TestCase):
+    """Years used and last used, worked out from the roles that prove a skill."""
+
+    def record(self):
+        return Record(roles=[
+            Role(employer="Clinic", title="RN", fields={"Dates": "Jan 2022 - Present"},
+                 accomplishments=[acc("Ran the telemetry unit")]),
+            Role(employer="Mercy", title="RN", fields={"Dates": "Jan 2015 - Dec 2022"},
+                 accomplishments=[acc("Cut falls"), acc("Charted on paper")])],
+            skills=[Skill(name="Telemetry", evidence=["Ran the telemetry unit", "Cut falls"]),
+                    Skill(name="Paper charting", evidence=["Charted on paper"]),
+                    Skill(name="Epic", evidence=["Cut falls"], years="3", last_used="2019"),
+                    Skill(name="Wound care"),
+                    Skill(name="Dialysis", evidence=["Cut falls"], have="no")])
+
+    def test_overlapping_roles_count_once_and_present_is_current(self):
+        rec = self.record()
+        dated = skills.estimate_use(rec, today=(2026, 10))
+        tele = rec.skill("Telemetry")
+        self.assertEqual((tele.years, tele.last_used), ("~12", "~current"))   # 2015-01 .. 2026-10
+        paper = rec.skill("Paper charting")
+        self.assertEqual((paper.years, paper.last_used), ("~8", "~2022"))
+        self.assertEqual(dated, ["Telemetry", "Paper charting"])
+
+    def test_typed_values_unproven_and_absent_skills_are_left_alone(self):
+        rec = self.record()
+        skills.estimate_use(rec, today=(2026, 10))
+        self.assertEqual((rec.skill("Epic").years, rec.skill("Epic").last_used), ("3", "2019"))
+        self.assertEqual(rec.skill("Wound care").years, "")
+        self.assertEqual(rec.skill("Dialysis").years, "")
+
+    def test_years_round_trip_through_the_record(self):
+        rec = self.record()
+        skills.estimate_use(rec, today=(2026, 10))
+        text = mr.render(rec)
+        self.assertIn("- Telemetry — years: ~12 — last used: ~current — evidence:", text)
+        back = mr.parse(text)
+        self.assertEqual((back.skill("Telemetry").years, back.skill("Telemetry").last_used),
+                         ("~12", "~current"))
+        self.assertEqual(back.skill("Telemetry").evidence, ["Ran the telemetry unit", "Cut falls"])
+        self.assertEqual(back.skill("Epic").years, "3")
+
+    def test_the_csv_carries_use_in_its_notes_column(self):
+        rec = self.record()
+        skills.estimate_use(rec, today=(2026, 10))
+        row = next(r for r in export.skills_rows(rec) if r["skill"] == "Telemetry")
+        self.assertEqual(row["notes"],
+                         "Used 12 yrs, last used current. evidence: Ran the telemetry unit; Cut falls")
+        self.assertEqual(set(row), {"category", "skill", "have_it", "proficiency", "source", "notes"})
+
+    def test_a_person_can_correct_the_estimate(self):
+        rec = self.record()
+        skills.estimate_use(rec, today=(2026, 10))
+        skills.set_skill(rec, "Telemetry", years="10")
+        self.assertEqual(rec.skill("Telemetry").years, "10")
+
+
 class Summary(unittest.TestCase):
     def test_a_draft_flags_figures_the_record_does_not_hold(self):
         rec = Record(roles=[Role(employer="A", title="RN", accomplishments=[

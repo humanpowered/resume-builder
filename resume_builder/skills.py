@@ -19,8 +19,9 @@ infusions". A list drawn only from what someone wrote can't contain the term
 they never thought to use.
 """
 import json
+from datetime import date
 
-from . import llm
+from . import health, llm
 from . import record as mr
 
 YES, NO, VERIFY = "yes", "no", "verify"
@@ -138,7 +139,49 @@ def build(rec: mr.Record, field: str = "") -> dict:
                          source=FROM_RECORD if because else FROM_FIELD)
             out["added"].append(name)
         rec.skills.append(s)
+    out["dated"] = estimate_use(rec)
     return out
+
+
+def estimate_use(rec: mr.Record, today=None) -> list:
+    """
+    Years used and last used, for each skill the person has or may have, from
+    the dates of the roles whose accomplishments prove it. Fills blanks only,
+    marked "~" as an estimate, so a value the person typed is never touched.
+    Overlapping roles are counted once. Returns the skills it dated.
+
+    An estimate can undercount (a skill used in a role with no accomplishment
+    recorded for it) but never overcounts, which is the safe direction.
+    """
+    if today is None:
+        t = date.today()
+        today = (t.year, t.month)
+    role_of = {}
+    for role, acc in rec.all_accomplishments():
+        role_of.setdefault(acc.title, []).append(role)
+    dated = []
+    for s in rec.skills:
+        if s.have == NO or not s.evidence or (s.years and s.last_used):
+            continue
+        months, latest = set(), None
+        for title in s.evidence:
+            for role in role_of.get(title, []):
+                rng = health.parse_range(role.fields.get("Dates", ""), today=today)
+                if not rng or health.months_between(*rng) < 0:
+                    continue
+                (y0, m0), (y1, m1) = rng
+                months |= {y * 12 + m for y in range(y0, y1 + 1) for m in range(1, 13)
+                           if (y0, m0) <= (y, m) <= (y1, m1)}
+                latest = max(latest or rng[1], rng[1])
+        if not months:
+            continue
+        if not s.years:
+            n = round(len(months) / 12)
+            s.years = f"~{n}" if n else "~<1"
+        if not s.last_used:
+            s.last_used = "~current" if latest == today else f"~{latest[0]}"
+        dated.append(s.name)
+    return dated
 
 
 def _named_in(name: str, plain: str) -> bool:
@@ -174,7 +217,8 @@ def accept_shown(rec: mr.Record) -> list:
 
 
 def set_skill(rec: mr.Record, name: str, have: str | None = None, level: str | None = None,
-              category: str | None = None, rename: str | None = None):
+              category: str | None = None, rename: str | None = None,
+              years: str | None = None, last_used: str | None = None):
     """Change one skill. LookupError if it isn't there; ValueError, with a
     message a person can read, if the change makes no sense."""
     s = rec.skill(name)
@@ -199,6 +243,10 @@ def set_skill(rec: mr.Record, name: str, have: str | None = None, level: str | N
         s.level = ""
     if category is not None:
         s.category = category.strip() or "Other"
+    if years is not None:
+        s.years = years.strip()
+    if last_used is not None:
+        s.last_used = last_used.strip()
     return s
 
 
@@ -241,6 +289,8 @@ def verify(rec: mr.Record, ask, say=print) -> int:
     levels = {"e": "Expert", "a": "Advanced", "w": "Working", "f": "Familiar"}
     for s in pending:
         guess = f" [estimate: {s.level}]" if s.level else ""
+        if s.years:
+            guess += f" [{s.years.lstrip('~')} yrs, last used {s.last_used.lstrip('~')}]"
         why = f"  (shown by: {'; '.join(s.evidence)})" if s.evidence else ""
         answer = (ask(f"{s.category}: {s.name}?{guess}{why}") or "").strip().lower()
         if answer in ("done", "stop"):
