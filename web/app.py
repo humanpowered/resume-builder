@@ -110,6 +110,7 @@ def summary(rec: mr.Record) -> dict:
         "roles": [{"employer": r.employer, "title": r.title,
                    "dates": r.fields.get("Dates", ""),
                    "accomplishments": [{"title": a.title, "results": a.results,
+                                        "contribution": a.contribution,
                                         "evidence": a.evidence, "bullet": a.bullet}
                                        for a in r.accomplishments],
                    "resume_bullets": r.recorded_bullets} for r in rec.roles],

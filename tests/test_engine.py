@@ -219,6 +219,20 @@ class InterviewEngine(unittest.TestCase):
         self.assertEqual(rec.roles[0].accomplishments[0].evidence, "metric")
         self.assertEqual(rec.skill("Precepting").evidence, ["Precepted new graduate nurses"])
 
+    def test_a_team_result_keeps_the_persons_own_part(self):
+        fake = use(self.turn("complete", title="Cut unit falls",
+                             problem="Falls above benchmark", actions="We ran hourly rounding",
+                             contribution="I designed the rounding checklist and trained 30 staff",
+                             results="Our falls dropped 30%", evidence="metric"),
+                   self.turn("role_done"))
+        iv = interview.Interview(self.store)
+        iv.step()
+        iv.step("")
+        acc_ = self.store.load_record().roles[0].accomplishments[0]
+        self.assertEqual(acc_.contribution, "I designed the rounding checklist and trained 30 staff")
+        self.assertFalse(acc_.team_unclear())
+        self.assertIn("what their own part was", fake.requests[0]["messages"][0]["content"])
+
     def test_the_expanded_bullet_is_not_its_own_duplicate(self):
         use(self.turn("complete", title="Precepted new graduate nurses",
                       problem="p", actions="a", results="r", evidence="qualitative"),
@@ -579,6 +593,45 @@ class Export(unittest.TestCase):
             Skill("CRRT", "Clinical", "Expert"), Skill("Epic", "Systems")])))
         self.assertEqual(added, 1)
         self.assertEqual(rows[0]["have_it"], "no", "a person's 'no' stands")
+
+
+class TeamResults(unittest.TestCase):
+    """Most results are shared; the record says which part was the person's."""
+
+    def test_contribution_round_trips_and_only_shows_when_filled(self):
+        a = acc("Cut falls", actions="We ran rounding", results="Falls down 30%")
+        a.contribution = "Wrote the checklist"
+        role = Role(employer="Mercy", title="RN", accomplishments=[a, acc("Solo work")])
+        text = mr.render(Record(contact={"Name": "x"}, roles=[role]))
+        self.assertEqual(text.count("**Contribution:**"), 1)
+        back = mr.parse(text).roles[0].accomplishments
+        self.assertEqual(back[0].contribution, "Wrote the checklist")
+        self.assertEqual(back[1].contribution, "")
+
+    def test_a_team_result_with_no_part_is_flagged(self):
+        team = acc("Cut falls", actions="We ran hourly rounding", results="Falls down 30%")
+        mine = acc("Wrote policy", actions="Drafted the falls policy", results="Adopted hospital-wide")
+        self.assertTrue(team.team_unclear())
+        self.assertFalse(mine.team_unclear())
+        rec = Record(contact={"Name": "x", "Email": "y"}, education=["e"],
+                     roles=[Role(employer="Mercy", title="RN", accomplishments=[team, mine])])
+        issues = health.check(rec).roles[0].issues
+        self.assertEqual(issues, ["'Cut falls' reads as a team result; what was your part?"])
+
+    def test_figures_in_the_persons_part_are_grounded(self):
+        a = acc("Cut falls", actions="We ran rounding", results="Falls down 30%")
+        a.contribution = "Trained 30 staff"
+        self.assertEqual(bullets.ungrounded("Trained 30 staff in rounding that cut falls 30%",
+                                            a.source_text()), set())
+
+    def test_the_bullet_prompt_carries_the_part(self):
+        fake = use({"bullet": "Trained 30 staff in hourly rounding, part of a unit effort that cut falls 30%"})
+        a = acc("Cut falls", actions="We ran rounding", results="Falls down 30%")
+        a.contribution = "Trained 30 staff"
+        bullets.compile_bullet(a)
+        prompt = fake.requests[0]["messages"][0]["content"]
+        self.assertIn("My part: Trained 30 staff", prompt)
+        self.assertIn("never to\n  them alone", prompt)
 
 
 class Promotions(unittest.TestCase):

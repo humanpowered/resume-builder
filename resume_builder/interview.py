@@ -250,14 +250,18 @@ Rules:
    of those, say so and ask for a different one.
 7. Also note the skills, tools, methods, licences or equipment the
    accomplishment shows, in their words or the standard industry term.
+8. If the result belongs to a group ("we", "the team", "our unit"), ask once
+   what their own part was, and put it in "contribution" in their words: what
+   they led, built, decided or did. "I was one of six on it" is a real answer.
+   Leave "contribution" "" when the work was theirs alone.
 
 {mode}
 
 Return ONLY JSON:
 {{
   "say": "the single thing to show them: a question, or a derived figure to confirm",
-  "draft": {{"title": "", "problem": "", "actions": "", "results": "",
-             "evidence": "", "skills": []}},
+  "draft": {{"title": "", "problem": "", "actions": "", "contribution": "",
+             "results": "", "evidence": "", "skills": []}},
   "status": "asking" | "complete" | "role_done"
 }}
 
@@ -266,8 +270,10 @@ Return ONLY JSON:
 - "title": a few words, no figures.
 - "evidence": one of metric, derived, scope, qualitative.
 - "complete" only when title, problem, actions, results and evidence are all
-  filled; then "say" is one short line confirming what was recorded.
+  filled, and, for a team result, contribution too; then "say" is one short line confirming what was recorded.
 """
+
+DRAFT_KEYS = ("title", "problem", "actions", "contribution", "results", "evidence")
 
 MODE_NEW = ("MODE: find a new accomplishment that is not in already_recorded.")
 MODE_EXPAND = ("MODE: expand this bullet from their old resume into a full record. "
@@ -283,11 +289,13 @@ INTERVIEW_SCHEMA = {
             "type": "object",
             "properties": {
                 "title": {"type": "string"}, "problem": {"type": "string"},
-                "actions": {"type": "string"}, "results": {"type": "string"},
+                "actions": {"type": "string"}, "contribution": {"type": "string"},
+                "results": {"type": "string"},
                 "evidence": {"type": "string", "enum": list(mr.EVIDENCE_TIERS) + [""]},
                 "skills": {"type": "array", "items": {"type": "string"}},
             },
-            "required": ["title", "problem", "actions", "results", "evidence", "skills"],
+            "required": ["title", "problem", "actions", "contribution", "results",
+                         "evidence", "skills"],
             "additionalProperties": False,
         },
         "status": {"type": "string", "enum": ["asking", "complete", "role_done"]},
@@ -701,7 +709,7 @@ class Interview:
                              {"say": q, "draft": {}, "status": "asking"})},
                          {"role": "user", "content": a}]
         return {"messages": messages, "bullet": bullet, "say": "", "pending": True,
-                "draft": {k: "" for k in ("title", "problem", "actions", "results", "evidence")},
+                "draft": {k: "" for k in DRAFT_KEYS},
                 "skills": []}
 
     def _model_turn(self):
@@ -712,7 +720,8 @@ class Interview:
         reply = llm.request_json(list(t["messages"]), 4096, "interview", schema=INTERVIEW_SCHEMA)
         status = reply.get("status", "asking")
         d = reply.get("draft") or {}
-        for key in t["draft"]:
+        for key in DRAFT_KEYS:
+            t["draft"].setdefault(key, "")    # a talk saved before a key existed
             if d.get(key):
                 t["draft"][key] = str(d[key]).strip()
         for sk in d.get("skills") or []:

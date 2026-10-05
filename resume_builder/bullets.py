@@ -92,11 +92,15 @@ RULES
   or estimate one. If the source has no number, write the bullet without one.
 - Do not name the employer; the resume shows it above the bullet.
 - Plain words. No "spearheaded", "leveraged", "utilized", no em dashes.
+- If "My part" is filled, the result was a team's: the bullet says what this
+  person did and credits the outcome to the team or the effort, never to
+  them alone.
 {emphasis}
 SOURCE
 Title:   {title}
 Problem: {problem}
 Actions: {actions}
+My part: {contribution}
 Results: {results}
 
 Return JSON: {{"bullet": "..."}}"""
@@ -117,7 +121,8 @@ def compile_bullet(acc, emphasis: list | None = None) -> str:
                 + ", ".join(emphasis) + ".\n")
     prompt = BULLET_PROMPT.format(max_words=MAX_BULLET_WORDS, emphasis=hint,
                                   title=acc.title, problem=acc.problem,
-                                  actions=acc.actions, results=acc.results)
+                                  actions=acc.actions, results=acc.results,
+                                  contribution=acc.contribution or "(theirs alone)")
     messages = [{"role": "user", "content": prompt}]
     for attempt in range(2):
         reply = llm.request_json(messages, 1024, "bullet", schema=BULLET_SCHEMA)

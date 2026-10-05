@@ -73,6 +73,9 @@ next run offers to pick up the half-finished one.
 - **Put a figure on a bullet that isn't in your own words.** Every number in
   a drafted bullet is checked against the problem, actions and results you
   gave. After two bad drafts it uses your wording instead.
+- **File a team's result as yours alone.** When a result belongs to a group,
+  the interview asks what your own part was and keeps it beside the result;
+  the bullet says what you did and credits the outcome to the effort.
 - **Accept an imported line that isn't in your document.** Every line the
   importer files is matched against the source. Anything it can't find is set
   aside for you to check. Anything it didn't file is kept under "Unplaced".

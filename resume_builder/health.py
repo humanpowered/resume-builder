@@ -120,6 +120,9 @@ def check(rec: mr.Record, target: int = 10, today=(2026, 10)) -> Report:
             for name in ("problem", "actions", "results"):
                 if LEFTOVER.search(getattr(a, name) or ""):
                     h.issues.append(f"'{a.title}' {name} has an unsettled note or blank")
+        for a in accs:
+            if a.team_unclear():
+                h.issues.append(f"'{a.title}' reads as a team result; what was your part?")
         if role.employer.startswith("[FILL IN") or role.title.startswith("[FILL IN"):
             h.issues.append("employer or title is blank")
         dates = role.fields.get("Dates", "")

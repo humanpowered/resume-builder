@@ -55,7 +55,10 @@ EVIDENCE_HELP = {
 ROLE_FIELDS = ("Dates", "Location", "Company", "Challenge", "Authority",
                "Territory", "Budget", "Reported to", "Markets",
                "Responsibilities", "Recognition", "Note on accomplishments")
-ACC_FIELDS = ("Problem", "Actions", "Results", "Evidence", "Bullet")
+ACC_FIELDS = ("Problem", "Actions", "Contribution", "Results", "Evidence", "Bullet")
+# Words that mark a result as a team's. Most work is shared, and "we cut costs
+# 23%" filed as one person's result is exactly the claim an interviewer probes.
+TEAM_WORDS = re.compile(r"\b(we|our|us|the team|my team|our team|together|jointly|co-led)\b", re.I)
 
 BULLETS_HEADING = "Recorded resume bullets"
 BULLETS_PREAMBLE = [
@@ -77,6 +80,9 @@ class Accomplishment:
     title: str = ""
     problem: str = ""
     actions: str = ""
+    # Their own part of a shared result, in their words. Empty when the work
+    # was theirs alone.
+    contribution: str = ""
     results: str = ""
     evidence: str = ""
     # The resume line compiled from the three fields above, kept here rather
@@ -87,7 +93,13 @@ class Accomplishment:
 
     def source_text(self) -> str:
         """What a compiled bullet has to be grounded in."""
-        return " ".join(x for x in (self.problem, self.actions, self.results) if x)
+        return " ".join(x for x in (self.problem, self.actions, self.contribution,
+                                    self.results) if x)
+
+    def team_unclear(self) -> bool:
+        """A result told as a team's, with nothing saying what was theirs."""
+        return (not self.contribution.strip()
+                and bool(TEAM_WORDS.search(f"{self.actions} {self.results}")))
 
     def is_empty(self) -> bool:
         return not any((self.title, self.problem, self.actions, self.results))
@@ -502,7 +514,8 @@ def render(rec: Record) -> str:
                 # Evidence is set by the interview and Bullet by the build
                 # step; neither is a gap for a person to fill in by hand, so
                 # neither gets a [FILL IN] marker inviting them to.
-                if label in ("Evidence", "Bullet") and not value:
+                # Contribution only applies to shared work.
+                if label in ("Evidence", "Bullet", "Contribution") and not value:
                     continue
                 out.append(f"- **{label}:** {value or '[FILL IN]'}")
         if role.recorded_bullets:

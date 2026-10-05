@@ -216,7 +216,8 @@ class Export:
             if self.with_details:
                 entry["accomplishments"] = [
                     {"title": a.title, "problem": clean(a.problem),
-                     "actions": clean(a.actions), "results": clean(a.results),
+                     "actions": clean(a.actions), "contribution": clean(a.contribution),
+                     "results": clean(a.results),
                      "evidence": a.evidence, "bullet": a.bullet}
                     for a in role.accomplishments if not a.is_empty()]
             history.append(entry)
