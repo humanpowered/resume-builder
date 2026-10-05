@@ -6,3 +6,8 @@ evals/results/
 __pycache__/
 *.pyc
 web/*.sqlite3
+
+# Keys never belong in the repository; they come from the environment
+.env
+.env.*
+*.key
