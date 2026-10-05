@@ -87,6 +87,20 @@ class Web(unittest.TestCase):
         self.assertTrue(any("recorded: Cut falls" in n for n in p["notes"]))
         self.assertEqual(c.get("/api/health").json()["quantified"], 1)
 
+    def test_education_over_http_needs_no_model(self):
+        c = self.client("a@example.com")
+        self.seed(c)
+        step = lambda a: c.post("/api/interview/step",
+                                json={"answer": a, "role": "background"}).json()
+        self.assertTrue(step(None)["text"].startswith("Your next qualification"))
+        for a in ("High school diploma", "", "Lakeside High", "2010"):
+            step(a)
+        self.assertIn("recorded: High school diploma, Lakeside High, 2010", step("")["notes"])
+        step("")
+        self.assertEqual(step("")["kind"], "done")
+        self.assertIn("High school diploma, Lakeside High, 2010",
+                      c.get("/api/record").json()["markdown"])
+
     def test_suggested_skill_confirm_and_reject(self):
         c = self.client("a@example.com")
         md = ("# R\n\n## Roles\n\n### Riverside — RN\n\n#### Cut falls\n\n"

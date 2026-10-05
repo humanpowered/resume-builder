@@ -28,8 +28,9 @@ interview starts.
 | Command | What it does |
 |---|---|
 | `import resume.pdf` | Files an existing resume (.docx, .pdf, .txt) into the record. Copies; never rewrites. |
-| `interview` | Asks about the thinnest role first: role context, then your old bullets opened back up, then accomplishments no resume ever held. |
+| `interview` | Asks about the thinnest role first: role context, then your old bullets opened back up, then accomplishments no resume ever held. Ends with education, licences and certifications. |
 | `interview --role Acme` | One employer. |
+| `interview --education` | Just education, licences and certifications: plain questions, no API calls. Keeps your place in the job interview. |
 | `skills --suggest` | Skills your record shows but never names, in your industry's standard terms, each tied to an accomplishment. Marked "To verify". |
 | `skills --verify` | Confirm or reject suggested skills, with a level. |
 | `health` | What the record holds, what's unsettled, and the best use of your next hour. No API calls. |
@@ -124,7 +125,7 @@ search sources belong to the service and cannot be set per person.
 ## Testing
 
 ```bash
-python -m unittest discover -s tests        # 84 tests; no API calls, no network
+python -m unittest discover -s tests        # 88 tests; no API calls, no network
 (cd pipeline/tests && python -m unittest discover -s .)   # the pipeline's 154
 python evals/simulate.py --people 01        # one simulated person (needs a key)
 ```

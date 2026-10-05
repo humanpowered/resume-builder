@@ -6,6 +6,7 @@ pipeline.
   python -m resume_builder import resume.pdf      # start from a resume or LinkedIn PDF
   python -m resume_builder interview              # fill gaps, thinnest role first
   python -m resume_builder interview --role Acme  # one employer
+  python -m resume_builder interview --education  # just education and certifications
   python -m resume_builder skills --suggest       # skills your record shows but never names
   python -m resume_builder skills --verify        # confirm suggested skills
   python -m resume_builder health                 # what is complete, what to do next
@@ -89,9 +90,13 @@ def cmd_import(args, path: Path) -> int:
 
 
 def cmd_interview(args, path: Path) -> int:
-    llm.require_credentials()
+    only = interview.BACKGROUND if getattr(args, "education", False) else args.role or ""
+    if only != interview.BACKGROUND:            # education needs no model
+        llm.require_credentials()
     print(f"  record: {path}")
-    iv = interview.Interview(FileStore(path), only=args.role or "", target=args.target)
+    if only == interview.BACKGROUND:
+        print("  Education and certifications only; your place in the job interview is kept.")
+    iv = interview.Interview(FileStore(path), only=only, target=args.target)
     if iv.state:
         print("  Picking up where you left off.")
     try:
@@ -240,6 +245,8 @@ def main(argv=None) -> int:
     p.add_argument("file")
     p = sub.add_parser("interview", help="add accomplishments")
     p.add_argument("--role", default="", help="one employer (substring match)")
+    p.add_argument("--education", action="store_true",
+                   help="just education, licences and certifications")
     p.add_argument("--target", type=int, default=10, help="accomplishments per role to aim for")
     p = sub.add_parser("skills", help="list, suggest or confirm skills")
     p.add_argument("--suggest", action="store_true")

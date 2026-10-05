@@ -186,6 +186,7 @@ def interview_step(body: Step, store: SqlStore = Depends(store_for)):
 @app.post("/api/interview/restart")
 def interview_restart(store: SqlStore = Depends(store_for)):
     store.clear_state(interview.STATE)
+    store.clear_state(interview.BACKGROUND_STATE)
     return {"ok": True}
 
 

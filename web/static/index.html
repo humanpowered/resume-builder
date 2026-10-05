@@ -91,6 +91,7 @@
       </form>
       <div class="row">
         <button id="begin" class="ghost">Start or resume interview</button>
+        <button id="education" class="ghost">Education and certifications</button>
         <button id="restart" class="ghost">Start over</button>
       </div>
     </section>
@@ -142,11 +143,14 @@ function say(text, cls) {
 }
 function busy(on) { $("send").disabled = on; $("answer").disabled = on; }
 
+let section = "";      // "background" while answering education questions
+
 async function step(answer) {
   busy(true);
   try {
     const p = await api("/api/interview/step", { method: "POST",
-      body: JSON.stringify({ answer }) });
+      body: JSON.stringify({ answer, role: section }) });
+    if (p.kind === "done") section = "";
     (p.notes || []).forEach((n) => say(n, "note"));
     say(p.text + (p.hint ? `\n(${p.hint})` : ""), "q");
     if (p.kind === "done") refresh();
@@ -214,9 +218,10 @@ $("answerForm").onsubmit = (e) => {
   e.preventDefault(); const a = $("answer").value; $("answer").value = "";
   say(a || "(skip)", "a"); step(a);
 };
-$("begin").onclick = () => step(null);
+$("begin").onclick = () => { section = ""; step(null); };
+$("education").onclick = () => { section = "background"; step(null); };
 $("restart").onclick = async () => { await api("/api/interview/restart", { method: "POST" });
-  $("chat").innerHTML = ""; step(null); };
+  section = ""; $("chat").innerHTML = ""; step(null); };
 $("suggest").onclick = async () => { $("suggest").disabled = true;
   try { await api("/api/skills/suggest", { method: "POST" }); refresh(); }
   finally { $("suggest").disabled = false; } };

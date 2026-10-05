@@ -69,6 +69,51 @@ CONTEXT_QUESTIONS = [
 
 
 # --------------------------------------------------------------------------
+# Education and certifications
+#
+# Asked once the roles are done, or on their own. Plain questions, no model:
+# these are facts the person knows and a resume needs exactly as they are.
+# Each list ends when the first question is left blank.
+
+BACKGROUND = "background"       # Interview(only=BACKGROUND) asks just these
+
+# (key, question, hint)
+EDUCATION_QUESTIONS = [
+    ("degree", "Your next qualification: a degree, diploma, apprenticeship, bootcamp or "
+               "high-school diploma? Write it as it should read, e.g. 'BSN' or 'MBA'.",
+     "Enter when there are no more"),
+    ("field", "Field of study or major?", "Enter to skip"),
+    ("school", "School, college or institution?", "Enter to skip"),
+    ("year", "Year finished, or the year you expect to?", "Enter to skip"),
+    ("honours", "Honours, a GPA worth showing, or a thesis title?", "Enter to skip"),
+]
+CERTIFICATION_QUESTIONS = [
+    ("name", "Your next licence or certification? e.g. 'Registered Nurse', 'PMP', "
+             "'CDL Class A', 'CPA'.", "Enter when there are no more"),
+    ("issuer", "Who issued it? (a board, state or organisation)", "Enter to skip"),
+    ("year", "Year earned?", "Enter to skip"),
+    ("expires", "Does it expire or need renewing? When?", "Enter if it doesn't"),
+]
+SECTIONS = [("education", EDUCATION_QUESTIONS), ("certifications", CERTIFICATION_QUESTIONS)]
+
+
+def format_education(d: dict) -> str:
+    """'BSN in Nursing, Ohio State University, 2015; magna cum laude'"""
+    head = d.get("degree", "") + (f" in {d['field']}" if d.get("field") else "")
+    line = ", ".join(x for x in (head, d.get("school"), d.get("year")) if x)
+    return line + (f"; {d['honours']}" if d.get("honours") else "")
+
+
+def format_certification(d: dict) -> str:
+    """'CCRN, AACN, 2020 (expires 2026)'"""
+    line = ", ".join(x for x in (d.get("name"), d.get("issuer"), d.get("year")) if x)
+    return line + (f" (expires {d['expires']})" if d.get("expires") else "")
+
+
+FORMAT = {"education": format_education, "certifications": format_certification}
+
+
+# --------------------------------------------------------------------------
 # The model's half of the conversation
 
 COACH = """You are interviewing someone to build a master record of their career
@@ -238,6 +283,9 @@ class Prompt:
 
 
 STATE = "interview"
+# Jumping to education keeps its own place, so it never loses an open
+# conversation about a job.
+BACKGROUND_STATE = "interview_background"
 
 
 def role_key(role: Role) -> str:
@@ -256,7 +304,8 @@ class Interview:
         self.only = only
         self.target = target
         self.rec = store.load_record()
-        self.state = store.load_state(STATE)
+        self.key = BACKGROUND_STATE if only == BACKGROUND else STATE
+        self.state = store.load_state(self.key)
         self.notes = []
         self.recorded = 0
 
@@ -267,9 +316,9 @@ class Interview:
 
     def _save_state(self):
         if self.state is None or self.state.get("phase") == "done":
-            self.store.clear_state(STATE)
+            self.store.clear_state(self.key)
         else:
-            self.store.save_state(STATE, self.state)
+            self.store.save_state(self.key, self.state)
 
     def role(self):
         key = self.state["queue"][self.state["qi"]]
@@ -280,7 +329,7 @@ class Interview:
 
     def _queue(self):
         roles = by_need(self.rec)
-        if self.only:
+        if self.only and self.only != BACKGROUND:
             roles = [r for r in roles if self.only.lower() in r.employer.lower()]
         return [role_key(r) for r in roles]
 
@@ -301,7 +350,9 @@ class Interview:
     def _fresh(self) -> dict:
         s = {"phase": "begin_role", "queue": [], "qi": 0, "ctx_i": 0, "bullet_i": 0,
              "talk": None, "lens_used": False, "new_role": {}}
-        if not self.rec.roles:
+        if self.only == BACKGROUND:
+            s["phase"] = BACKGROUND
+        elif not self.rec.roles:
             s["phase"] = "roles"
             s["new_role"] = {"stage": "employer"}
             self.notes.append("List your jobs, newest first. Include part-time, contract, "
@@ -334,6 +385,10 @@ class Interview:
                 self.rec.roles.append(role)
                 self._save_record()
                 s["new_role"] = {"stage": "employer"}
+            return
+
+        if phase == BACKGROUND:
+            self._take_background(a)
             return
 
         if phase == "context":
@@ -387,10 +442,25 @@ class Interview:
                         "title": Prompt(f"Your job title at {emp}?"),
                         "dates": Prompt("Dates? (anything readable, e.g. 2019 - 2022)")}[stage]
 
-            if phase == "done" or s["qi"] >= len(s["queue"]):
+            if phase == BACKGROUND:
+                prompt = self._background_prompt()
+                if prompt is not None:
+                    return prompt
+                s["background_done"] = True
                 s["phase"] = "done"
-                return Prompt(f"That's everything for now. {self.recorded} accomplishment(s) "
-                              f"recorded this session.", kind="done")
+                continue
+
+            if phase != "done" and s["qi"] >= len(s["queue"]):
+                # roles finished: education and certifications, once
+                s["phase"] = "done" if s.get("background_done") or self.only else BACKGROUND
+                continue
+
+            if phase == "done":
+                added = s.get("background_added", 0)
+                extra = f" and {added} education or certification entr{'y' if added == 1 else 'ies'}" \
+                    if added else ""
+                return Prompt(f"That's everything for now. {self.recorded} accomplishment(s)"
+                              f"{extra} recorded this session.", kind="done")
 
             role = self.role()
             if role is None:                # deleted by hand between turns
@@ -447,6 +517,52 @@ class Interview:
                 return Prompt(f"One more angle before we move on ({name}): {question}",
                               hint="Enter to skip")
         raise RuntimeError("interview made no progress")
+
+    # -- education and certifications ----------------------------------------
+
+    def _background_prompt(self):
+        s = self.state
+        bg = s.setdefault("bg", {"section": 0, "q": 0, "draft": {}, "intro": False})
+        if bg["section"] >= len(SECTIONS):
+            return None
+        name, questions = SECTIONS[bg["section"]]
+        if not bg["intro"]:
+            bg["intro"] = True
+            have = getattr(self.rec, name)
+            label = "Education" if name == "education" else "Licences and certifications"
+            if have:
+                self.notes.append(f"{label} on your record: " + "; ".join(have)
+                                  + ". Add any that are missing.")
+            else:
+                self.notes.append(f"{label}: nothing recorded yet. Include anything an "
+                                  f"employer could check" + (", even a high-school diploma "
+                                  "or a training programme." if name == "education" else "."))
+        key, question, hint = questions[bg["q"]]
+        if bg["q"]:
+            first = bg["draft"].get(questions[0][0], "")
+            question = f"{first}: {question[0].lower()}{question[1:]}"
+        return Prompt(question, hint=hint)
+
+    def _take_background(self, a: str) -> None:
+        bg = self.state.setdefault("bg", {"section": 0, "q": 0, "draft": {}, "intro": True})
+        name, questions = SECTIONS[bg["section"]]
+        key = questions[bg["q"]][0]
+        if bg["q"] == 0 and gave_up(a):            # blank first answer ends this list
+            bg.update(section=bg["section"] + 1, q=0, draft={}, intro=False)
+            return
+        if not gave_up(a):
+            bg["draft"][key] = a
+        bg["q"] += 1
+        if bg["q"] < len(questions):
+            return
+        line = FORMAT[name](bg["draft"])
+        items = getattr(self.rec, name)
+        if mr._squash(line) not in {mr._squash(x) for x in items}:
+            items.append(line)
+            self._save_record()
+            self.state["background_added"] = self.state.get("background_added", 0) + 1
+            self.notes.append(f"recorded: {line}")
+        bg.update(q=0, draft={})
 
     # -- conversations with the model ----------------------------------------
 

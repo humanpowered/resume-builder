@@ -185,6 +185,8 @@ class InterviewEngine(unittest.TestCase):
         p = iv.step("12 over two years")
         self.assertTrue(any("recorded" in n for n in p.notes))
         self.assertTrue(p.text.startswith("One more angle"))
+        self.assertTrue(iv.step("").text.startswith("Your next qualification"))
+        self.assertTrue(iv.step("").text.startswith("Your next licence"))
         self.assertEqual(iv.step("").kind, "done")
         rec = self.store.load_record()
         self.assertEqual(rec.roles[0].recorded_bullets, [], "the expanded bullet is replaced")
@@ -239,8 +241,63 @@ class InterviewEngine(unittest.TestCase):
         use(self.turn("role_done"))
         interview.run(interview.Interview(store),
                       ask=lambda q: asked.append(q) or "", say=lambda *a: None)
-        context = [q for q in asked if not q.startswith("One more angle")]
+        context = [q for q in asked if not q.startswith(("One more angle", "Your next"))]
         self.assertEqual(len(context), len(interview.CONTEXT_QUESTIONS) - 1)
+
+    def test_education_and_certifications_on_their_own(self):
+        rec = self.store.load_record()
+        rec.education = ["BSN in Nursing, Ohio State University, 2015"]
+        self.store.save_record(rec)
+        iv = interview.Interview(self.store, only=interview.BACKGROUND)
+        p = iv.step()
+        self.assertTrue(any("Ohio State" in n for n in p.notes), "says what is there")
+        self.assertTrue(p.text.startswith("Your next qualification"))
+        p = iv.step("MSN")
+        self.assertTrue(p.text.startswith("MSN: field of study"))
+        for a in ("Nursing Leadership", "Duke University", "2021"):
+            iv.step(a)
+        p = iv.step("")                                    # no honours
+        self.assertIn("recorded: MSN in Nursing Leadership, Duke University, 2021", p.notes)
+        for a in ("BSN", "Nursing", "Ohio State University", "2015"):
+            iv.step(a)
+        p = iv.step("")                                    # already there: not added twice
+        self.assertFalse(any(n.startswith("recorded") for n in p.notes))
+        p = iv.step("")                                    # no more education
+        self.assertTrue(p.text.startswith("Your next licence"))
+        for a in ("CCRN", "AACN", "2020"):
+            iv.step(a)
+        iv.step("2026")
+        p = iv.step("")
+        self.assertEqual(p.kind, "done")
+        self.assertIn("2 education or certification entries", p.text)
+        rec = self.store.load_record()
+        self.assertEqual(rec.education, ["BSN in Nursing, Ohio State University, 2015",
+                                         "MSN in Nursing Leadership, Duke University, 2021"])
+        self.assertEqual(rec.certifications, ["CCRN, AACN, 2020 (expires 2026)"])
+        ex = export.Export(rec, {}, {})
+        profile = ex.build()
+        self.assertIn("CCRN, AACN, 2020 (expires 2026)", profile["certifications"])
+        self.assertEqual(len(profile["education"]), 2)
+
+    def test_jumping_to_education_keeps_the_place_in_a_job(self):
+        use(self.turn(say="How many?"))
+        iv = interview.Interview(self.store)
+        iv.step()
+        self.assertEqual(iv.step("").text, "How many?")
+        bg = interview.Interview(self.store, only=interview.BACKGROUND)
+        self.assertTrue(bg.step().text.startswith("Your next qualification"))
+        bg.step("")
+        self.assertEqual(bg.step("").kind, "done")
+        self.assertEqual(interview.Interview(self.store).step(None).text, "How many?")
+
+    def test_an_employer_filter_skips_education(self):
+        use(self.turn("role_done"))
+        iv = interview.Interview(self.store, only="Riverside")
+        iv.step()
+        p = iv.step("skip")
+        while p.kind != "done":
+            self.assertFalse(p.text.startswith("Your next"))
+            p = iv.step("")
 
     def test_listing_jobs_from_nothing(self):
         store = MemoryStore()
