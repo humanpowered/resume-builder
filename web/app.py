@@ -28,6 +28,7 @@ sys.path.insert(0, str(ROOT))
 
 from resume_builder import export as X  # noqa: E402
 from resume_builder import health, importer, interview, matching, skills  # noqa: E402
+from resume_builder import summary as summary_mod  # noqa: E402
 from resume_builder import record as mr  # noqa: E402
 from resume_builder.store import SqlStore  # noqa: E402
 
@@ -117,6 +118,7 @@ def summary(rec: mr.Record) -> dict:
                     "pending": skills.is_pending(s)}
                    for s in rec.skills],
         "education": rec.education, "certifications": rec.certifications,
+        "summary": rec.summary,
     }
 
 
@@ -179,7 +181,10 @@ class Step(BaseModel):
 
 @app.post("/api/interview/step")
 def interview_step(body: Step, store: SqlStore = Depends(store_for)):
-    iv = interview.Interview(store, only=body.role)
+    try:
+        iv = interview.Interview(store, only=body.role)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
     p = iv.step(body.answer)
     return {"text": p.text, "kind": p.kind, "hint": p.hint, "notes": p.notes}
 
@@ -188,7 +193,67 @@ def interview_step(body: Step, store: SqlStore = Depends(store_for)):
 def interview_restart(store: SqlStore = Depends(store_for)):
     store.clear_state(interview.STATE)
     store.clear_state(interview.BACKGROUND_STATE)
+    for key in interview.SECTION_KEYS:
+        store.clear_state(f"{interview.BACKGROUND_STATE}:{key}")
     return {"ok": True}
+
+
+# --------------------------------------------------------------------------
+# Summary and the list sections, editable any time
+
+class SummaryText(BaseModel):
+    text: str = Field("", max_length=3000)
+
+
+@app.get("/api/summary")
+def summary_get(store: SqlStore = Depends(store_for)):
+    text = store.load_record().summary
+    return {"text": text, "issues": summary_mod.check(text)}
+
+
+@app.put("/api/summary")
+def summary_put(body: SummaryText, store: SqlStore = Depends(store_for)):
+    rec = store.load_record()
+    rec.summary = " ".join(body.text.split())
+    store.save_record(rec)
+    return {"text": rec.summary, "issues": summary_mod.check(rec.summary)}
+
+
+class DraftAsk(BaseModel):
+    emphasis: str = Field("", max_length=300)
+
+
+@app.post("/api/summary/draft")
+def summary_draft(body: DraftAsk, store: SqlStore = Depends(store_for)):
+    """A draft to edit; nothing is saved until the person saves it."""
+    out = summary_mod.draft(store.load_record(), body.emphasis)
+    return {**out, "issues": summary_mod.check(out["text"])}
+
+
+@app.get("/api/sections")
+def sections_get(store: SqlStore = Depends(store_for)):
+    rec = store.load_record()
+    return [{"key": k, "label": interview.LABELS[k],
+             "items": list(interview.section_items(rec, k))} for k in interview.SECTION_KEYS]
+
+
+class SectionItems(BaseModel):
+    items: list[str] = Field(..., max_length=200)
+
+
+@app.put("/api/sections/{key}")
+def sections_put(key: str, body: SectionItems, store: SqlStore = Depends(store_for)):
+    """Replace one section's entries: how the page edits, removes and reorders."""
+    if key not in interview.SECTION_KEYS:
+        raise HTTPException(404, "No such section")
+    items = [" ".join(i.split()) for i in body.items if i.strip()]
+    if any(len(i) > 1000 for i in items):
+        raise HTTPException(400, "An entry is longer than 1,000 characters")
+    rec = store.load_record()
+    target = interview.section_items(rec, key)
+    target[:] = items
+    store.save_record(rec)
+    return {"key": key, "items": items}
 
 
 # --------------------------------------------------------------------------

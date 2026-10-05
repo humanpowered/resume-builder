@@ -59,6 +59,8 @@
   @media (max-width: 600px) { .skill-row { grid-template-columns: 1fr 1fr; }
                               .skill-row > :first-child { grid-column: 1 / -1; } }
   .wrap { flex-wrap: wrap; }
+  .item-row { grid-template-columns: minmax(0, 1fr) auto; }
+  @media (max-width: 600px) { .item-row { grid-template-columns: 1fr; } }
   .wrap > input, .wrap > select { flex: 1 1 160px; width: auto; }
   .danger { color: var(--warn); background: transparent; border: 1px solid var(--line); }
 </style>
@@ -91,6 +93,22 @@
       <p id="importResult" class="muted"></p>
     </section>
 
+    <section id="summaryPanel">
+      <h2>Professional summary</h2>
+      <p class="muted">The three or four sentences at the top of your resume. Write your own,
+        or have one drafted from your record and edit it. The job pipeline adjusts it for
+        each posting.</p>
+      <textarea id="summaryText" rows="5" maxlength="3000"
+                placeholder="e.g. ICU charge nurse with ten years in critical care..."></textarea>
+      <div class="row wrap">
+        <input id="emphasis" type="text" maxlength="300"
+               placeholder="What to lead with (optional), e.g. leadership">
+        <button id="draftSummary" class="ghost">Draft one for me</button>
+        <button id="saveSummary">Save</button>
+      </div>
+      <p id="summaryNote" class="muted"></p>
+    </section>
+
     <section>
       <h2>Interview</h2>
       <p class="muted">One question at a time. Answer briefly; say “skip” or “done” any time.
@@ -102,7 +120,7 @@
       </form>
       <div class="row">
         <button id="begin" class="ghost">Start or resume interview</button>
-        <button id="education" class="ghost">Education and certifications</button>
+        <button id="education" class="ghost">Education and more</button>
         <button id="restart" class="ghost">Start over</button>
       </div>
     </section>
@@ -130,6 +148,14 @@
       <div class="row"><button id="deleteMe" class="danger">Delete all my data</button></div>
     </section>
   </div>
+
+  <section id="morePanel" style="grid-column: 1 / -1">
+    <h2>Education and more</h2>
+    <p class="muted">Everything beyond your jobs. Education and licences matter for most
+      people; the rest are optional, so fill in only what applies. Add entries through a few
+      short questions, and edit or remove them here whenever you like.</p>
+    <div id="sections"></div>
+  </section>
 
   <section id="skillsPanel" style="grid-column: 1 / -1">
     <h2>Your skills</h2>
@@ -228,7 +254,75 @@ async function refresh() {
   $("skillsShort").textContent = sk.length
     ? `${n("yes")} you have, ${n("verify")} to answer, ${n("no")} you don't have.`
     : "No skills list yet.";
-  loadSkills();
+  loadSkills(); loadSummary(); loadSections();
+}
+
+// ---- summary and other sections ----------------------------------------
+
+async function loadSummary() {
+  const s = await api("/api/summary");
+  if (document.activeElement !== $("summaryText")) $("summaryText").value = s.text;
+  $("summaryNote").textContent = s.issues.join(" ");
+}
+$("draftSummary").onclick = async () => {
+  if ($("summaryText").value.trim() &&
+      !confirm("Replace what's in the box with a draft? Your saved summary is kept until you press Save.")) return;
+  $("draftSummary").disabled = true; $("summaryNote").textContent = "Drafting from your record…";
+  try {
+    const d = await api("/api/summary/draft", { method: "POST",
+      body: JSON.stringify({ emphasis: $("emphasis").value }) });
+    $("summaryText").value = d.text;
+    const notes = ["Draft only: edit it, then Save."];
+    if (d.unsupported.length) notes.push(`Check these figures; your record doesn't contain them: ${d.unsupported.join(", ")}.`);
+    $("summaryNote").textContent = [...notes, ...d.issues].join(" ");
+  } catch (e) { $("summaryNote").textContent = e.message; }
+  $("draftSummary").disabled = false;
+};
+$("saveSummary").onclick = async () => {
+  const s = await api("/api/summary", { method: "PUT",
+    body: JSON.stringify({ text: $("summaryText").value }) });
+  $("summaryNote").textContent = ["Saved.", ...s.issues].join(" ");
+  refresh();
+};
+
+async function loadSections() {
+  const list = await api("/api/sections");
+  const box = $("sections"); box.innerHTML = "";
+  for (const sec of list) {
+    const wrap = document.createElement("div");
+    const h = document.createElement("div"); h.className = "skill-cat";
+    h.textContent = sec.label + (sec.items.length ? ` (${sec.items.length})` : "");
+    wrap.appendChild(h);
+    sec.items.forEach((text, i) => {
+      const row = document.createElement("div"); row.className = "skill-row item-row";
+      const t = document.createElement("div"); t.textContent = text;
+      const tools = document.createElement("div"); tools.className = "row"; tools.style.marginTop = 0;
+      const edit = document.createElement("button"); edit.className = "ghost"; edit.textContent = "Edit";
+      const del = document.createElement("button"); del.className = "ghost"; del.textContent = "Remove";
+      const save = async (items) => {
+        try { await api(`/api/sections/${sec.key}`, { method: "PUT", body: JSON.stringify({ items }) }); }
+        catch (e) { alert(e.message); }
+        loadSections();
+      };
+      edit.onclick = () => {
+        const v = prompt(sec.label, text); if (v === null) return;
+        const items = [...sec.items]; items[i] = v; save(items);
+      };
+      del.onclick = () => {
+        if (!confirm(`Remove "${text}"?`)) return;
+        save(sec.items.filter((_, j) => j !== i));
+      };
+      tools.append(edit, del); row.append(t, tools); wrap.appendChild(row);
+    });
+    const add = document.createElement("button"); add.className = "ghost";
+    add.textContent = `Add to ${sec.label.toLowerCase()}`; add.style.margin = "6px 0 4px";
+    add.onclick = () => {
+      section = `background:${sec.key}`;
+      $("chat").scrollIntoView({ behavior: "smooth", block: "center" });
+      step(null);
+    };
+    wrap.appendChild(add); box.appendChild(wrap);
+  }
 }
 
 // ---- skills list --------------------------------------------------------

@@ -96,8 +96,9 @@ class Web(unittest.TestCase):
         for a in ("High school diploma", "", "Lakeside High", "2010"):
             step(a)
         self.assertIn("recorded: High school diploma, Lakeside High, 2010", step("")["notes"])
-        step("")
-        self.assertEqual(step("")["kind"], "done")
+        p = step("")
+        while p["kind"] != "done":
+            p = step("")
         self.assertIn("High school diploma, Lakeside High, 2010",
                       c.get("/api/record").json()["markdown"])
 
@@ -133,6 +134,25 @@ class Web(unittest.TestCase):
         self.assertIn("Clinical,Telemetry,no,,your field", csv_text)
         self.assertEqual(c.delete("/api/skills/Telemetry").status_code, 200)
         self.assertNotIn("Telemetry", c.get("/api/record").json()["markdown"])
+
+    def test_summary_and_sections_are_editable(self):
+        c = self.client("a@example.com")
+        self.seed(c)
+        r = c.put("/api/summary", json={"text": "  I run   ICU units. "}).json()
+        self.assertEqual(r["text"], "I run ICU units.")
+        self.assertTrue(r["issues"], "first person is flagged")
+        self.assertEqual(c.put("/api/sections/languages",
+                               json={"items": ["Spanish (fluent)", " ", "French"]}).status_code, 200)
+        c.put("/api/sections/education", json={"items": ["BSN, Ohio State, 2015"]})
+        secs = {x["key"]: x["items"] for x in c.get("/api/sections").json()}
+        self.assertEqual(secs["languages"], ["Spanish (fluent)", "French"])
+        self.assertEqual(secs["education"], ["BSN, Ohio State, 2015"])
+        self.assertEqual(c.put("/api/sections/hobbies", json={"items": []}).status_code, 404)
+        md = c.get("/api/record").json()["markdown"]
+        self.assertIn("## Summary\n\nI run ICU units.", md)
+        self.assertIn("## Languages\n\n- Spanish (fluent)\n- French", md)
+        self.assertEqual(c.post("/api/interview/step",
+                                json={"answer": None, "role": "background:hobbies"}).status_code, 400)
 
     def test_delete_removes_everything(self):
         c = self.client("a@example.com")

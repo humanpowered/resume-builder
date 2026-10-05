@@ -66,16 +66,16 @@ CONTEXT_QUESTIONS = [
 ]
 
 
-
-
 # --------------------------------------------------------------------------
-# Education and certifications
+# Education, certifications and the optional sections
 #
 # Asked once the roles are done, or on their own. Plain questions, no model:
 # these are facts the person knows and a resume needs exactly as they are.
-# Each list ends when the first question is left blank.
+# Each list ends when the first question is left blank, so a section that
+# doesn't apply costs one Enter.
 
-BACKGROUND = "background"       # Interview(only=BACKGROUND) asks just these
+BACKGROUND = "background"       # Interview(only=BACKGROUND) asks just these;
+                                # "background:languages" asks one section
 
 # (key, question, hint)
 EDUCATION_QUESTIONS = [
@@ -94,7 +94,91 @@ CERTIFICATION_QUESTIONS = [
     ("year", "Year earned?", "Enter to skip"),
     ("expires", "Does it expire or need renewing? When?", "Enter if it doesn't"),
 ]
-SECTIONS = [("education", EDUCATION_QUESTIONS), ("certifications", CERTIFICATION_QUESTIONS)]
+PROJECT_QUESTIONS = [
+    ("name", "A project worth showing: something you built, led or made, at work or on "
+             "your own? Give it a short name.", "Enter when there are no more"),
+    ("context", "Where or for whom? An employer, a client, a course, or 'personal'.",
+     "Enter to skip"),
+    ("year", "When?", "Enter to skip"),
+    ("what", "What did you do, in a sentence?", "Enter to skip"),
+    ("result", "What came of it? A number if there is one.", "Enter to skip"),
+    ("link", "A link to it, if there is one (portfolio, GitHub, article)?", "Enter to skip"),
+]
+LANGUAGE_QUESTIONS = [
+    ("language", "A language you speak, read or sign besides the one you're answering in?",
+     "Enter when there are no more"),
+    ("level", "How well? Native, fluent, professional, conversational or basic.",
+     "Enter to skip"),
+]
+VOLUNTEER_QUESTIONS = [
+    ("role", "Volunteer work worth listing? Your role, e.g. 'Board treasurer' or "
+             "'Weekend shelter volunteer'.", "Enter when there are no more"),
+    ("org", "For which organisation?", "Enter to skip"),
+    ("dates", "When? e.g. 2018 - Present", "Enter to skip"),
+    ("what", "What did you do or achieve there, in a sentence? A number if there is one.",
+     "Enter to skip"),
+]
+AWARD_QUESTIONS = [
+    ("name", "An award, honour or ranking you haven't already mentioned for a job? e.g. "
+             "'President's Club', 'Dean's List'.", "Enter when there are no more"),
+    ("from", "Who gave it?", "Enter to skip"),
+    ("year", "Year?", "Enter to skip"),
+    ("why", "What was it for?", "Enter to skip"),
+]
+PUBLICATION_QUESTIONS = [
+    ("title", "Something you published, presented or patented? Its title.",
+     "Enter when there are no more"),
+    ("where", "Where? A journal, conference, publisher or patent number.", "Enter to skip"),
+    ("year", "Year?", "Enter to skip"),
+    ("link", "A link?", "Enter to skip"),
+]
+MEMBERSHIP_QUESTIONS = [
+    ("org", "A professional association, society, union or board you belong to?",
+     "Enter when there are no more"),
+    ("role", "Your role there, if more than member? e.g. 'Chapter president'.",
+     "Enter to skip"),
+    ("years", "Since when, or which years?", "Enter to skip"),
+]
+TRAINING_QUESTIONS = [
+    ("name", "A course, workshop or programme you finished that didn't come with a "
+             "certification?", "Enter when there are no more"),
+    ("provider", "Who ran it?", "Enter to skip"),
+    ("year", "Year?", "Enter to skip"),
+]
+TESTIMONIAL_QUESTIONS = [
+    ("quote", "A line someone wrote or said about your work that you'd be glad to quote? "
+              "Paste it as they put it.", "Enter when there are no more"),
+    ("who", "Who said it? Name and title, e.g. 'Dana Ruiz, VP Operations'.", "Enter to skip"),
+    ("relation", "How did they know you? e.g. 'my manager at Acme'.", "Enter to skip"),
+]
+BREAK_QUESTIONS = [
+    ("dates", "Any time away from work you'd like explained once, so you don't have to "
+              "each time? When was it? e.g. 2019 - 2020", "Enter if none"),
+    ("reason", "What were you doing? Only what you're comfortable sharing, e.g. 'caring "
+               "for a parent' or 'full-time study'.", "Enter to skip"),
+    ("note", "Anything you kept up or learned in that time?", "Enter to skip"),
+]
+SECTIONS = [("education", EDUCATION_QUESTIONS), ("certifications", CERTIFICATION_QUESTIONS),
+            ("projects", PROJECT_QUESTIONS), ("languages", LANGUAGE_QUESTIONS),
+            ("volunteer", VOLUNTEER_QUESTIONS), ("awards", AWARD_QUESTIONS),
+            ("publications", PUBLICATION_QUESTIONS), ("memberships", MEMBERSHIP_QUESTIONS),
+            ("training", TRAINING_QUESTIONS), ("testimonials", TESTIMONIAL_QUESTIONS),
+            ("career_breaks", BREAK_QUESTIONS)]
+SECTION_KEYS = [k for k, _ in SECTIONS]
+LABELS = {"education": "Education", "certifications": "Licences and certifications",
+          **{k: h for k, h, _ in mr.EXTRA_SECTIONS}}
+
+
+def section_items(rec, name: str) -> list:
+    """The record's list for a section: education and certifications have
+    their own fields, the optional sections live in rec.extras."""
+    if name in ("education", "certifications"):
+        return getattr(rec, name)
+    return rec.extras.setdefault(name, [])
+
+
+def _join(*parts, sep=", "):
+    return sep.join(p for p in parts if p)
 
 
 def format_education(d: dict) -> str:
@@ -110,7 +194,29 @@ def format_certification(d: dict) -> str:
     return line + (f" (expires {d['expires']})" if d.get("expires") else "")
 
 
-FORMAT = {"education": format_education, "certifications": format_certification}
+FORMAT = {
+    "education": format_education,
+    "certifications": format_certification,
+    # 'Ward rota app (Riverside Hospital, 2022): Built a shared rota. Cut overtime 12%. example.com'
+    "projects": lambda d: _join(
+        d.get("name", "") + (f" ({_join(d.get('context'), d.get('year'))})"
+                             if d.get("context") or d.get("year") else "")
+        + (":" if d.get("what") or d.get("result") else ""),
+        _join(d.get("what"), d.get("result"), d.get("link"), sep=". "), sep=" "),
+    "languages": lambda d: d.get("language", "") + (f" ({d['level']})" if d.get("level") else ""),
+    "volunteer": lambda d: _join(_join(d.get("role"), d.get("org"), d.get("dates"))
+                                 + (":" if d.get("what") else ""), d.get("what"), sep=" "),
+    "awards": lambda d: _join(_join(d.get("name"), d.get("from"), d.get("year"))
+                              + (":" if d.get("why") else ""), d.get("why"), sep=" "),
+    "publications": lambda d: _join(_join(d.get("title"), d.get("where"), d.get("year")),
+                                    d.get("link"), sep=". "),
+    "memberships": lambda d: _join(d.get("org"), d.get("role"), d.get("years")),
+    "training": lambda d: _join(d.get("name"), d.get("provider"), d.get("year")),
+    "testimonials": lambda d: _join(f'"{d.get("quote", "").strip(chr(34))}"',
+                                    _join(d.get("who"), d.get("relation")), sep=" — "),
+    "career_breaks": lambda d: _join(d.get("dates", "") + (":" if d.get("reason") or d.get("note") else ""),
+                                     _join(d.get("reason"), d.get("note"), sep=". "), sep=" "),
+}
 
 
 # --------------------------------------------------------------------------
@@ -302,9 +408,15 @@ class Interview:
     def __init__(self, store, only: str = "", target: int = 10):
         self.store = store
         self.only = only
+        self.background_only = only == BACKGROUND or only.startswith(BACKGROUND + ":")
+        if only.startswith(BACKGROUND + ":") and only.partition(":")[2] not in SECTION_KEYS:
+            raise ValueError(f"No section called {only.partition(':')[2]!r}. "
+                             f"Sections: {', '.join(SECTION_KEYS)}")
         self.target = target
         self.rec = store.load_record()
-        self.key = BACKGROUND_STATE if only == BACKGROUND else STATE
+        # one section on its own keeps its own place too
+        self.key = (f"{BACKGROUND_STATE}:{only.partition(':')[2]}".rstrip(":")
+                    if self.background_only else STATE)
         self.state = store.load_state(self.key)
         self.notes = []
         self.recorded = 0
@@ -329,7 +441,7 @@ class Interview:
 
     def _queue(self):
         roles = by_need(self.rec)
-        if self.only and self.only != BACKGROUND:
+        if self.only and not self.background_only:
             roles = [r for r in roles if self.only.lower() in r.employer.lower()]
         return [role_key(r) for r in roles]
 
@@ -350,8 +462,12 @@ class Interview:
     def _fresh(self) -> dict:
         s = {"phase": "begin_role", "queue": [], "qi": 0, "ctx_i": 0, "bullet_i": 0,
              "talk": None, "lens_used": False, "new_role": {}}
-        if self.only == BACKGROUND:
+        if self.background_only:
             s["phase"] = BACKGROUND
+            one = self.only.partition(":")[2]
+            if one:
+                i = SECTION_KEYS.index(one)
+                s["bg"] = {"section": i, "stop": i + 1, "q": 0, "draft": {}, "intro": False}
         elif not self.rec.roles:
             s["phase"] = "roles"
             s["new_role"] = {"stage": "employer"}
@@ -457,7 +573,7 @@ class Interview:
 
             if phase == "done":
                 added = s.get("background_added", 0)
-                extra = f" and {added} education or certification entr{'y' if added == 1 else 'ies'}" \
+                extra = f" and {added} other entr{'y' if added == 1 else 'ies'}" \
                     if added else ""
                 return Prompt(f"That's everything for now. {self.recorded} accomplishment(s)"
                               f"{extra} recorded this session.", kind="done")
@@ -523,23 +639,26 @@ class Interview:
     def _background_prompt(self):
         s = self.state
         bg = s.setdefault("bg", {"section": 0, "q": 0, "draft": {}, "intro": False})
-        if bg["section"] >= len(SECTIONS):
+        if bg["section"] >= bg.get("stop", len(SECTIONS)):
             return None
         name, questions = SECTIONS[bg["section"]]
         if not bg["intro"]:
             bg["intro"] = True
-            have = getattr(self.rec, name)
-            label = "Education" if name == "education" else "Licences and certifications"
+            have = section_items(self.rec, name)
+            label = LABELS[name]
             if have:
                 self.notes.append(f"{label} on your record: " + "; ".join(have)
                                   + ". Add any that are missing.")
-            else:
+            elif name in ("education", "certifications"):
                 self.notes.append(f"{label}: nothing recorded yet. Include anything an "
                                   f"employer could check" + (", even a high-school diploma "
                                   "or a training programme." if name == "education" else "."))
+            else:
+                self.notes.append(f"{label} (optional; Enter skips it).")
         key, question, hint = questions[bg["q"]]
         if bg["q"]:
             first = bg["draft"].get(questions[0][0], "")
+            first = first if len(first) <= 40 else first[:37].rstrip() + "..."
             question = f"{first}: {question[0].lower()}{question[1:]}"
         return Prompt(question, hint=hint)
 
@@ -556,7 +675,7 @@ class Interview:
         if bg["q"] < len(questions):
             return
         line = FORMAT[name](bg["draft"])
-        items = getattr(self.rec, name)
+        items = section_items(self.rec, name)
         if mr._squash(line) not in {mr._squash(x) for x in items}:
             items.append(line)
             self._save_record()

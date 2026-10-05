@@ -6,7 +6,9 @@ pipeline.
   python -m resume_builder import resume.pdf      # start from a resume or LinkedIn PDF
   python -m resume_builder interview              # fill gaps, thinnest role first
   python -m resume_builder interview --role Acme  # one employer
-  python -m resume_builder interview --education  # just education and certifications
+  python -m resume_builder interview --education  # education, certifications and the optional sections
+  python -m resume_builder interview --section languages   # one of them
+  python -m resume_builder summary --draft        # draft your professional summary from your record
   python -m resume_builder skills --build         # your field's skills, filled in from your record
   python -m resume_builder skills --verify        # answer them: a level, or no
   python -m resume_builder skills --add "Telemetry" --category Clinical --level Expert
@@ -91,12 +93,17 @@ def cmd_import(args, path: Path) -> int:
 
 
 def cmd_interview(args, path: Path) -> int:
-    only = interview.BACKGROUND if getattr(args, "education", False) else args.role or ""
-    if only != interview.BACKGROUND:            # education needs no model
+    only = args.role or ""
+    if getattr(args, "education", False):
+        only = interview.BACKGROUND
+    if getattr(args, "section", ""):
+        only = f"{interview.BACKGROUND}:{args.section}"
+    background = only.startswith(interview.BACKGROUND)
+    if not background:                          # these sections need no model
         llm.require_credentials()
     print(f"  record: {path}")
-    if only == interview.BACKGROUND:
-        print("  Education and certifications only; your place in the job interview is kept.")
+    if background:
+        print("  Just these sections; your place in the job interview is kept.")
     iv = interview.Interview(FileStore(path), only=only, target=args.target)
     if iv.state:
         print("  Picking up where you left off.")
@@ -152,6 +159,33 @@ def cmd_skills(args, path: Path) -> int:
                     print(f"    {s.name}{' (' + s.level + ')' if s.level else ''}{ev}")
         print("\n  Change a level, group or answer by editing the record file, or with "
               "skills --verify.")
+    return 0
+
+
+def cmd_summary(args, path: Path) -> int:
+    from . import summary
+    rec = load(path)
+    print(f"  record: {path}")
+    if args.set:
+        rec.summary = " ".join(args.set.split())
+        save(path, rec)
+        print("  saved.")
+    elif args.draft:
+        llm.require_credentials()
+        out = summary.draft(rec, args.emphasis)
+        print(f"\n  {out['text']}\n")
+        if out["unsupported"]:
+            print(f"  Check these figures; your record doesn't contain them: "
+                  f"{', '.join(out['unsupported'])}")
+        if (ask("Keep this as your summary? y to keep, Enter to discard") or "").lower() \
+                .startswith("y"):
+            rec.summary = out["text"]
+            save(path, rec)
+            print("  saved. Edit it any time in the record file, or with summary --set.")
+    else:
+        print(f"\n  {rec.summary or '(no summary yet: summary --draft, or summary --set TEXT)'}")
+    for issue in summary.check(rec.summary):
+        print(f"  note: {issue}")
     return 0
 
 
@@ -262,7 +296,13 @@ def main(argv=None) -> int:
     p = sub.add_parser("interview", help="add accomplishments")
     p.add_argument("--role", default="", help="one employer (substring match)")
     p.add_argument("--education", action="store_true",
-                   help="just education, licences and certifications")
+                   help="just education, certifications and the optional sections")
+    p.add_argument("--section", default="", choices=["", *interview.SECTION_KEYS],
+                   help="just one of those sections")
+    p = sub.add_parser("summary", help="show, draft or set your professional summary")
+    p.add_argument("--draft", action="store_true", help="draft one from your record")
+    p.add_argument("--emphasis", default="", help="what to lead with (with --draft)")
+    p.add_argument("--set", default="", metavar="TEXT", help="your own summary")
     p.add_argument("--target", type=int, default=10, help="accomplishments per role to aim for")
     p = sub.add_parser("skills", help="build, answer, add to or list your skills")
     p.add_argument("--build", action="store_true",
@@ -285,4 +325,4 @@ def main(argv=None) -> int:
     args = ap.parse_args(argv)
     path = record_path(args.record)
     return {"start": cmd_start, "import": cmd_import, "interview": cmd_interview,
-            "skills": cmd_skills, "health": cmd_health, "export": cmd_export}[args.cmd](args, path)
+            "skills": cmd_skills, "summary": cmd_summary, "health": cmd_health, "export": cmd_export}[args.cmd](args, path)

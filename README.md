@@ -30,7 +30,9 @@ interview starts.
 | `import resume.pdf` | Files an existing resume (.docx, .pdf, .txt) into the record. Copies; never rewrites. |
 | `interview` | Asks about the thinnest role first: role context, then your old bullets opened back up, then accomplishments no resume ever held. Ends with education, licences and certifications. |
 | `interview --role Acme` | One employer. |
-| `interview --education` | Just education, licences and certifications: plain questions, no API calls. Keeps your place in the job interview. |
+| `interview --education` | Education, licences and certifications, then the optional sections: projects, languages, volunteer work, awards, publications and speaking, memberships, training, testimonials and career breaks. Plain questions, no API calls; Enter skips a section. Keeps your place in the job interview. |
+| `interview --section languages` | Just one of those sections. |
+| `summary --draft [--emphasis leadership]` | Drafts a professional summary from your record, flags any figure the record doesn't contain, and saves it only if you say so. `summary --set TEXT` writes your own. |
 | `skills --build [--field "ICU nursing"]` | Starts your skills list from the standard skills for your field, then fills in what your record shows: skills your resume names are marked yes, skills your accomplishments show get an estimated level, and the rest wait for your answer. Running it again only fills blanks. |
 | `skills --verify` | Answer the list: a level, y to accept the estimate, or n if you don't have it. "No" answers are kept as gaps. |
 | `skills --add "Wound care" --category Clinical --level Expert` | A skill the list missed. |
@@ -127,7 +129,7 @@ search sources belong to the service and cannot be set per person.
 ## Testing
 
 ```bash
-python -m unittest discover -s tests        # 93 tests; no API calls, no network
+python -m unittest discover -s tests        # 101 tests; no API calls, no network
 (cd pipeline/tests && python -m unittest discover -s .)   # the pipeline's 154
 python evals/simulate.py --people 01        # one simulated person (needs a key)
 ```

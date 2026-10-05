@@ -189,10 +189,13 @@ class Export:
         titles = self.rec.target.get("Titles", "")
         if titles and not p.get("target_titles"):
             p["target_titles"] = [t.strip() for t in re.split(r"[;,]", titles) if t.strip()]
-        for name in ("education", "certifications"):
+        self._take(p, "summary", self.rec.summary, "summary")
+        for name in ("education", "certifications", *mr.EXTRA_KEYS):
             have = p.get(name) or []
             known = {mr._squash(json.dumps(x) if not isinstance(x, str) else x) for x in have}
-            for item in getattr(self.rec, name):
+            items = getattr(self.rec, name) if name in ("education", "certifications") \
+                else self.rec.extras.get(name, [])
+            for item in items:
                 if mr._squash(item) not in known:
                     have.append(clean(item))
             if have:

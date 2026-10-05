@@ -166,6 +166,28 @@ SKILL_LINE = re.compile(r"^-\s+(?P<name>.+?)(?:\s+\((?P<level>Expert|Advanced|Wo
 LEVELS = ("Expert", "Advanced", "Working", "Familiar")
 # The three skills sections, by whether the person has the skill.
 SKILL_SECTIONS = {"yes": "Skills", "verify": "Skills to check", "no": "Skills I don't have yet"}
+# Optional sections: (key, heading, other headings a resume or person uses).
+# Each holds one line per entry. A section nobody fills is never written.
+EXTRA_SECTIONS = [
+    ("projects", "Projects", ("portfolio", "selected projects", "personal projects",
+                              "portfolio projects", "key projects")),
+    ("languages", "Languages", ("language skills", "spoken languages")),
+    ("volunteer", "Volunteer work", ("volunteer", "volunteer experience", "volunteering",
+                                     "community involvement", "community service")),
+    ("awards", "Awards", ("awards and honors", "awards and honours", "honors", "honours",
+                          "honors and awards", "honours and awards", "recognition")),
+    ("publications", "Publications and speaking", ("publications", "speaking", "presentations",
+                                                   "talks", "patents", "conference talks")),
+    ("memberships", "Memberships", ("professional memberships", "affiliations",
+                                    "professional affiliations", "associations", "boards",
+                                    "board service")),
+    ("training", "Training and courses", ("training", "courses", "professional development",
+                                          "continuing education", "coursework")),
+    ("testimonials", "Testimonials", ("recommendations", "references and testimonials",
+                                      "endorsements")),
+    ("career_breaks", "Career breaks", ("career break", "employment gaps", "gaps")),
+]
+EXTRA_KEYS = [k for k, _, _ in EXTRA_SECTIONS]
 TARGET_FIELDS = ("Titles", "Industries", "Locations", "Seniority", "Notes")
 
 
@@ -180,6 +202,8 @@ class Record:
     education: list = field(default_factory=list)
     certifications: list = field(default_factory=list)
     target: dict = field(default_factory=dict)
+    summary: str = ""
+    extras: dict = field(default_factory=dict)      # EXTRA_SECTIONS key -> lines
     trailing: list = field(default_factory=list)
 
     def all_accomplishments(self):
@@ -211,6 +235,13 @@ def _squash(name: str) -> str:
 
 
 SKILL_HAVE = {_squash(h): state for state, h in SKILL_SECTIONS.items()}
+_EXTRA_NAMES = {_squash(n): key for key, heading, others in EXTRA_SECTIONS
+                for n in (heading, *others)}
+
+
+def extra_key(heading: str) -> str:
+    """The optional section a heading means ("Honors & Awards" is awards), or ""."""
+    return _EXTRA_NAMES.get(_squash(heading.replace("&", " and ")), "")
 
 
 def _extend_attr(obj, name):
@@ -278,6 +309,11 @@ def parse(text: str) -> Record:
                 where = "positioning"
             elif name == "roles":
                 where = "roles"
+            elif name in ("summary", "professional summary", "profile", "summary of qualifications"):
+                where = "summary"
+            elif extra_key(name):
+                where = "extra:" + extra_key(name)
+                rec.extras.setdefault(extra_key(name), [])
             elif _squash(name) in SKILL_HAVE:
                 where, have = "skills", SKILL_HAVE[_squash(name)]
             elif name in ("education", "certifications", "target"):
@@ -303,6 +339,19 @@ def parse(text: str) -> Record:
                                         level=(m.group("level") or "").strip(),
                                         evidence=ev, have=state,
                                         source=(m.group("src") or "").strip()))
+            continue
+
+        if where == "summary":
+            if line.strip():
+                rec.summary = f"{rec.summary} {line.strip()}".strip()
+            continue
+
+        if where.startswith("extra:"):
+            m = PLAIN_BULLET.match(line)
+            if m:
+                items = rec.extras[where[6:]]
+                items.append(m.group("text").strip())
+                extend = _extend_last(items)
             continue
 
         if where in ("education", "certifications"):
@@ -413,6 +462,9 @@ def render(rec: Record) -> str:
         out += ["", "## Contact", ""]
         out += [f"- **{k}:** {v}" for k, v in rec.contact.items()]
 
+    if rec.summary:
+        out += ["", "## Summary", "", rec.summary]
+
     if rec.competencies or rec.sets_apart:
         out += ["", "## Positioning"]
         if rec.competencies:
@@ -466,6 +518,11 @@ def render(rec: Record) -> str:
         items = getattr(rec, name)
         if items:
             out += ["", f"## {name.capitalize()}", ""] + [f"- {i}" for i in items]
+
+    for key, heading, _ in EXTRA_SECTIONS:
+        items = rec.extras.get(key)
+        if items:
+            out += ["", f"## {heading}", ""] + [f"- {i}" for i in items]
 
     if rec.target:
         out += ["", "## Target", ""]

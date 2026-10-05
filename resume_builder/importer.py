@@ -203,9 +203,7 @@ def to_record(data: dict, source_text: str, source_name: str,
         if value and keep(value):
             rec.contact[key] = value.strip()
 
-    for line in data.get("summary") or []:
-        if keep(line):
-            rec.sets_apart.append(line.strip())
+    rec.summary = " ".join(l.strip() for l in data.get("summary") or [] if keep(l))
 
     for r in data.get("roles") or []:
         employer, title = (r.get("employer") or "").strip(), (r.get("title") or "").strip()
@@ -238,8 +236,13 @@ def to_record(data: dict, source_text: str, source_name: str,
     trailing = []
     for block in data.get("other") or []:
         lines = [l for l in block.get("lines") or [] if keep(l)]
-        if lines:
-            heading = (block.get("heading") or "Other").strip()
+        if not lines:
+            continue
+        heading = (block.get("heading") or "Other").strip()
+        key = mr.extra_key(heading)
+        if key:                     # volunteer work, awards, languages and the like
+            rec.extras.setdefault(key, []).extend(l.strip() for l in lines)
+        else:
             trailing += ["", f"## {heading}", ""] + [f"- {l.strip()}" for l in lines]
 
     # What the model never placed. Short lines that are all section headings
@@ -304,5 +307,20 @@ def merge(existing: mr.Record, incoming: mr.Record) -> list:
             if _norm(item) not in mine:
                 getattr(existing, name).append(item)
                 changes.append(f"{name}: added {item}")
+    for key, items in incoming.extras.items():
+        mine = existing.extras.setdefault(key, [])
+        known = {_norm(x) for x in mine}
+        for item in items:
+            if _norm(item) not in known:
+                mine.append(item)
+                changes.append(f"{key}: added {item}")
+    if incoming.summary and not existing.summary:
+        existing.summary = incoming.summary
+        changes.append("summary added")
+    elif incoming.summary and _norm(incoming.summary) != _norm(existing.summary):
+        existing.trailing += ["", "## Summary from the import", "",
+                              "Kept beside yours rather than replacing it.", "",
+                              incoming.summary]
+        changes.append("conflict noted: summary")
     existing.trailing += incoming.trailing
     return changes

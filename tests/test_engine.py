@@ -11,10 +11,18 @@ from pathlib import Path
 import helpers  # noqa: F401
 
 from fakes import FakeBackend
-from resume_builder import bullets, export, health, importer, interview, llm, skills
+from resume_builder import bullets, export, health, importer, interview, llm, skills, summary
 from resume_builder import record as mr
 from resume_builder.record import Accomplishment, Record, Role, Skill
 from resume_builder.store import MemoryStore
+
+
+def finish(iv) -> int:
+    """Skip every remaining question; how many it took."""
+    for n in range(1, 100):
+        if iv.step("").kind == "done":
+            return n
+    raise AssertionError("the interview never finished")
 
 
 def use(*replies) -> FakeBackend:
@@ -114,6 +122,24 @@ class Importer(unittest.TestCase):
             "Responsible for care of 2-3 critically ill patients per shift",
             importer._norm(" ".join(importer.source_lines(src)))))
 
+    def test_volunteer_work_and_summary_land_in_their_sections(self):
+        r = self.reply(other=[{"heading": "VOLUNTEER EXPERIENCE",
+                               "lines": ["Volunteer: free clinic, 2020"]}],
+                       summary=["PAT LEE"])
+        rec, rep = self.build(r)
+        self.assertEqual(rec.extras["volunteer"], ["Volunteer: free clinic, 2020"])
+        self.assertEqual(rec.summary, "PAT LEE")
+        self.assertNotIn("Volunteer: free clinic, 2020", rep["unplaced"])
+        self.assertIn("## Volunteer work", mr.render(rec))
+
+    def test_merge_keeps_your_summary_and_adds_new_entries(self):
+        mine = Record(summary="Mine.", extras={"languages": ["Spanish (fluent)"]})
+        theirs = Record(summary="Theirs.", extras={"languages": ["Spanish (fluent)", "French"]})
+        importer.merge(mine, theirs)
+        self.assertEqual(mine.summary, "Mine.")
+        self.assertIn("Theirs.", "\n".join(mine.trailing))
+        self.assertEqual(mine.extras["languages"], ["Spanish (fluent)", "French"])
+
     def test_merge_never_replaces_a_value(self):
         mine = Record(roles=[Role(employer="Riverside Hospital", title="Registered Nurse, ICU",
                                   fields={"Dates": "2019 - Present"})])
@@ -187,7 +213,7 @@ class InterviewEngine(unittest.TestCase):
         self.assertTrue(p.text.startswith("One more angle"))
         self.assertTrue(iv.step("").text.startswith("Your next qualification"))
         self.assertTrue(iv.step("").text.startswith("Your next licence"))
-        self.assertEqual(iv.step("").kind, "done")
+        self.assertEqual(finish(iv), len(interview.SECTIONS) - 1, "one Enter per section")
         rec = self.store.load_record()
         self.assertEqual(rec.roles[0].recorded_bullets, [], "the expanded bullet is replaced")
         self.assertEqual(rec.roles[0].accomplishments[0].evidence, "metric")
@@ -241,7 +267,8 @@ class InterviewEngine(unittest.TestCase):
         use(self.turn("role_done"))
         interview.run(interview.Interview(store),
                       ask=lambda q: asked.append(q) or "", say=lambda *a: None)
-        context = [q for q in asked if not q.startswith(("One more angle", "Your next"))]
+        firsts = tuple(qs[0][1] for _, qs in interview.SECTIONS)
+        context = [q for q in asked if not q.startswith(("One more angle", *firsts))]
         self.assertEqual(len(context), len(interview.CONTEXT_QUESTIONS) - 1)
 
     def test_education_and_certifications_on_their_own(self):
@@ -268,8 +295,9 @@ class InterviewEngine(unittest.TestCase):
             iv.step(a)
         iv.step("2026")
         p = iv.step("")
-        self.assertEqual(p.kind, "done")
-        self.assertIn("2 education or certification entries", p.text)
+        while p.kind != "done":
+            p = iv.step("")
+        self.assertIn("2 other entries", p.text)
         rec = self.store.load_record()
         self.assertEqual(rec.education, ["BSN in Nursing, Ohio State University, 2015",
                                          "MSN in Nursing Leadership, Duke University, 2021"])
@@ -286,8 +314,7 @@ class InterviewEngine(unittest.TestCase):
         self.assertEqual(iv.step("").text, "How many?")
         bg = interview.Interview(self.store, only=interview.BACKGROUND)
         self.assertTrue(bg.step().text.startswith("Your next qualification"))
-        bg.step("")
-        self.assertEqual(bg.step("").kind, "done")
+        finish(bg)
         self.assertEqual(interview.Interview(self.store).step(None).text, "How many?")
 
     def test_an_employer_filter_skips_education(self):
@@ -298,6 +325,27 @@ class InterviewEngine(unittest.TestCase):
         while p.kind != "done":
             self.assertFalse(p.text.startswith("Your next"))
             p = iv.step("")
+
+    def test_one_optional_section_on_its_own(self):
+        iv = interview.Interview(self.store, only="background:languages")
+        p = iv.step()
+        self.assertIn("Languages (optional; Enter skips it).", p.notes)
+        self.assertTrue(p.text.startswith("A language"))
+        iv.step("Spanish")
+        p = iv.step("professional")
+        self.assertIn("recorded: Spanish (professional)", p.notes)
+        p = iv.step("")
+        self.assertEqual(p.kind, "done", "only that section is asked")
+        self.assertEqual(self.store.load_record().extras["languages"], ["Spanish (professional)"])
+        with self.assertRaises(ValueError):
+            interview.Interview(self.store, only="background:hobbies")
+
+    def test_every_section_formats_its_answers(self):
+        for key, questions in interview.SECTIONS:
+            with self.subTest(key=key):
+                line = interview.FORMAT[key]({k: f"x{k}" for k, _, _ in questions})
+                for k, _, _ in questions:
+                    self.assertIn(f"x{k}", line)
 
     def test_listing_jobs_from_nothing(self):
         store = MemoryStore()
@@ -434,6 +482,27 @@ class Skills(unittest.TestCase):
         text = mr.render(rec)
         self.assertIn("## Skills to check", text)
         self.assertEqual(mr.render(mr.parse(text)), text)
+
+
+class Summary(unittest.TestCase):
+    def test_a_draft_flags_figures_the_record_does_not_hold(self):
+        rec = Record(roles=[Role(employer="A", title="RN", accomplishments=[
+            acc("Cut falls", results="Falls down 30% in a year")])])
+        use({"summary": "ICU nurse who cut falls 30% and saved $2M."})
+        out = summary.draft(rec)
+        self.assertEqual(out["unsupported"], ["2"])
+
+    def test_check_flags_first_person_and_length(self):
+        self.assertEqual(summary.check("ICU nurse with ten years."), [])
+        self.assertEqual(len(summary.check("I am a nurse. " + "word " * 100)), 2)
+
+    def test_summary_and_sections_reach_the_profile(self):
+        rec = Record(header=["# R"], contact={"Name": "Pat"}, summary="ICU nurse.",
+                     extras={"languages": ["Spanish (fluent)"], "volunteer": ["Food bank"]})
+        p = export.Export(rec, {}, {}).build()
+        self.assertEqual(p["summary"], "ICU nurse.")
+        self.assertEqual(p["languages"], ["Spanish (fluent)"])
+        self.assertEqual(p["volunteer"], ["Food bank"])
 
 
 class Export(unittest.TestCase):

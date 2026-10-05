@@ -179,6 +179,8 @@ def next_steps(rec: mr.Record, rep: Report, target: int) -> list:
         if len(h.context_missing) >= 3:
             steps.append(f"Answer the role questions for {h.label} "
                          f"({', '.join(h.context_missing)}).")
+    if rec.roles and not rec.summary:
+        steps.append("Write your professional summary, or have one drafted from your record.")
     if rec.roles and not rep.skills_list_built:
         steps.append("Build your skills list: the standard skills for your field, "
                      "filled in from your record.")
