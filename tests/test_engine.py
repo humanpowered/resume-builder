@@ -454,7 +454,8 @@ class InterviewEngine(unittest.TestCase):
         self.assertTrue(iv.step().text.startswith("Employer"))
         iv.step("Lakeside High School")
         iv.step("Science Teacher")
-        self.assertTrue(iv.step("2014 - Present").text.startswith("Employer"))
+        self.assertTrue(iv.step("2014 - Present").text.startswith("Any other title at Lakeside"))
+        self.assertTrue(iv.step("").text.startswith("Employer"))
         use(self.turn("role_done"))
         p = iv.step("")                                    # done listing
         self.assertIn("Lakeside High School", " ".join(p.notes))
@@ -916,7 +917,8 @@ class DegreeSubstitutes(unittest.TestCase):
         self.assertIn("Mercy — RN (2015 - 2024)", " ".join(p.notes))
         iv.step("Clinic")
         iv.step("Nurse Manager")
-        self.assertTrue(iv.step("2024 - Present").text.startswith("A new job"))
+        self.assertTrue(iv.step("2024 - Present").text.startswith("Any other title at Clinic"))
+        self.assertTrue(iv.step("no").text.startswith("A new job"))
         iv.step("Mercy")
         iv.step("RN")
         p = iv.step("2015 - 2024")
@@ -1112,6 +1114,57 @@ class DegreeSubstitutes(unittest.TestCase):
         iv.step("We cut overtime")                         # the one more angle
         self.assertIn('"not_remembered": [\n  "DAISY award"\n ]',
                       fake.requests[1]["messages"][0]["content"])
+
+    def test_promotions_are_asked_for_and_kept_as_titles_with_dates(self):
+        store = MemoryStore()
+        store.save_state(interview.ASKED_STATE, {"asked": [
+            q[1] for q in interview.PROFILE_QUESTIONS]})
+        iv = interview.Interview(store)
+        p = iv.step()
+        self.assertIn("Promoted, or changed title, at one employer?", " ".join(p.notes))
+        iv.step("Mercy")
+        iv.step("Charge Nurse")
+        p = iv.step("2021 - Present")
+        self.assertTrue(p.text.startswith("Any other title at Mercy, before or after Charge Nurse"))
+        iv.step("Staff RN")
+        self.assertEqual(iv.step("2018 - 2021").text[:24], "Any other title at Mercy")
+        self.assertTrue(iv.step("").text.startswith("Employer"))
+        rec = store.load_record()
+        self.assertEqual([(r.title, r.fields["Dates"]) for r in rec.roles],
+                         [("Charge Nurse", "2021 - Present"), ("Staff RN", "2018 - 2021")])
+        self.assertEqual(rec.roles[0].fields["Other titles"], "Staff RN")
+        rec.roles[0].accomplishments.append(acc("Ran nights", bullet="Ran nights"))
+        rec.roles[1].accomplishments.append(acc("Precepted", bullet="Precepted"))
+        work = export.Export(rec, {}, {}).build()["work_history"]
+        self.assertEqual(work[0]["promoted_from"], "Staff RN, after 36 months")
+        self.assertNotIn("promoted_from", work[1])
+
+    def test_an_imported_job_is_asked_for_other_titles_and_reuses_the_employer_answers(self):
+        use(InterviewEngine.turn("role_done"), InterviewEngine.turn("role_done"))
+        store = MemoryStore(Record(header=["# R"], contact={"Name": "x"}, roles=[Role(
+            employer="Acme", title="Senior Analyst", recorded_bullets=["a", "b", "c"],
+            fields={"Dates": "2020 - Present", "Company": "A grocer, 900 staff",
+                    "Employment type": "Full-time"})]))
+        store.save_state(interview.ASKED_STATE, {"asked": [
+            q[1] for q in interview.PROFILE_QUESTIONS + interview.STORY_QUESTIONS]})
+        iv = interview.Interview(store)
+        iv.step()
+        p = iv.step("")                                    # no new job
+        self.assertTrue(p.text.startswith("Did you hold any other title at Acme"), p.text)
+        p = iv.step("Analyst, 2017 - 2020")
+        self.assertIn("Added Acme — Analyst (2017 - 2020).", p.notes)
+        rec = store.load_record()
+        self.assertEqual(rec.roles[1].fields["Company"], "A grocer, 900 staff",
+                         "the employer isn't described twice")
+        self.assertEqual(interview.split_titles("Staff RN, 2018 - 2021; Intern (2017 - 2018)"),
+                         [("Staff RN", "2018 - 2021"), ("Intern", "2017 - 2018")])
+        self.assertIsNone(interview.same_job(rec, "Acme", "Analyst II", "2015 - 2017"),
+                          "a title in other years is another title, not a duplicate")
+
+    def test_a_promotion_mentioned_only_in_recognition_is_flagged(self):
+        rec = Record(contact={"Name": "x", "Email": "y"}, education=["e"], roles=[Role(
+            employer="Mercy", title="Charge Nurse", fields={"Recognition": "Promoted in 2021"})])
+        self.assertTrue(any("mentions a promotion" in i for i in health.check(rec).roles[0].issues))
 
     def test_promotions_are_listed_with_how_long_they_took(self):
         rec = Record(contact={"Name": "x", "Email": "y"}, education=["e"], roles=[

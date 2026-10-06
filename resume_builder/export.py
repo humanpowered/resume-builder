@@ -199,6 +199,9 @@ class Export:
             self._take(entry, "dates", role.fields.get("Dates"), role.employer)
             self._take(entry, "employment_type", role.fields.get("Employment type"),
                        role.employer)
+            promoted = promotion(self.rec, role)
+            if promoted:
+                entry["promoted_from"] = promoted
             self._take(entry, "location", role.fields.get("Location"), role.employer)
             self._take(entry, "company_descriptor", role.fields.get("Company"), role.employer)
             scope = "; ".join(clean(role.fields[k]) for k in
@@ -299,6 +302,28 @@ class Export:
             self.profile["outside_work"] = outside
         self.identity()
         return self.profile
+
+
+def promotion(rec: mr.Record, role: mr.Role) -> str:
+    """'Staff RN, after 18 months' when this title followed another at the
+    same employer; ''. Tells the resume step to stack the titles under one
+    company heading and say the promotion out loud."""
+    from .health import months_between, parse_range
+    mine = parse_range(role.fields.get("Dates", ""))
+    if not mine:
+        return ""
+    before = []
+    for other in rec.roles:
+        if other is role or other.outside() or \
+                mr._squash(other.employer) != mr._squash(role.employer):
+            continue
+        rng = parse_range(other.fields.get("Dates", ""))
+        if rng and rng[0] < mine[0] and mr._squash(other.title) != mr._squash(role.title):
+            before.append((rng[0], other))
+    if not before:
+        return ""
+    start, prev = max(before, key=lambda b: b[0])
+    return f"{prev.title}, after {months_between(start, mine[0])} months"
 
 
 # --------------------------------------------------------------------------

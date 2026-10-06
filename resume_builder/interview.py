@@ -67,6 +67,12 @@ def blank(answer: str) -> bool:
 # software engineer must all be able to answer each one.
 CONTEXT_QUESTIONS = [
     ("Employment type", "What kind of job was {title} at {employer}?"),
+    # Promotions are easy to lose: people fold them into a title or mention
+    # them under recognition. Each title is its own entry with its own dates,
+    # and the resume stacks them under one company heading.
+    ("Other titles", "Did you hold any other title at {employer}, before or after {title}? "
+                     "e.g. a promotion. Give each with its dates, e.g. 'Staff RN, 2018 - "
+                     "2021'; separate several with ';'."),
     ("Company", "In a sentence, what was {employer}? What it does, roughly how big "
                 "(people, revenue, sites, beds, students -- whatever is natural), and the industry."),
     ("Challenge", "What were you brought in to do, or what problem was waiting for you "
@@ -191,7 +197,24 @@ STORY_QUESTIONS = [
 ASKED_STATE = "interview_asked"     # labels already asked, kept across sessions
 
 
-def same_job(rec, employer: str, title: str):
+LEVEL_WORDS = {"senior", "sr", "junior", "jr", "lead", "principal", "head", "chief", "staff",
+               "manager", "director", "supervisor", "assistant", "associate", "deputy",
+               "vp", "vice", "president", "executive", "ii", "iii", "iv", "trainee"}
+
+
+def _overlap(a: str, b: str) -> float | None:
+    """How much two date ranges overlap, as a share of the shorter. None when
+    either doesn't parse."""
+    from .health import months_between, parse_range
+    ra, rb = parse_range(a or ""), parse_range(b or "")
+    if not ra or not rb:
+        return None
+    start, end = max(ra[0], rb[0]), min(ra[1], rb[1])
+    shorter = max(1, min(months_between(*ra), months_between(*rb)))
+    return max(0, months_between(start, end)) / shorter
+
+
+def same_job(rec, employer: str, title: str, dates: str = ""):
     """A job already on the record under a slightly different wording: the
     same employer (or one name extending the other) and a title sharing most
     of its words. "Registered Nurse, Medical ICU (Relief Charge Nurse since
@@ -205,11 +228,44 @@ def same_job(rec, employer: str, title: str):
         if not e or not other or not (e == other or e.startswith(other) or other.startswith(e)):
             continue
         a, b = words(title), words(r.title)
+        overlap = _overlap(dates, r.fields.get("Dates", ""))
+        if overlap is not None and overlap < 0.5:
+            continue                        # different years: another title there
         if mr._squash(title) == mr._squash(r.title):
             return r
+        if (a ^ b) & LEVEL_WORDS:
+            continue                        # "Senior Analyst" after "Analyst" is a promotion
         if a and b and len(a & b) / min(len(a), len(b)) >= 0.6:
             return r
     return None
+
+
+DATES_AT_END = re.compile(
+    r"^(?P<title>.+?)[\s,(]+(?P<dates>(?:[A-Za-z]{3,9}\.?\s+)?\d{4}\s*(?:-|–|—|to)\s*"
+    r"(?:(?:[A-Za-z]{3,9}\.?\s+)?\d{4}|present|now|current|today))\)?\.?\s*$", re.I)
+
+
+def split_titles(answer: str) -> list:
+    """'Staff RN, 2018 - 2021; Nurse Intern 2017 - 2018' ->
+    [('Staff RN', '2018 - 2021'), ('Nurse Intern', '2017 - 2018')]."""
+    out = []
+    for part in re.split(r"[;\n]", answer or ""):
+        part = part.strip().strip(".")
+        if not part:
+            continue
+        m = DATES_AT_END.match(part)
+        out.append((m.group("title").strip(" ,"), m.group("dates").strip()) if m
+                   else (part, ""))
+    return out
+
+
+EMPLOYER_FIELDS = ("Company", "Location", "Employment type")
+
+
+def siblings(rec, role) -> list:
+    """Other paid titles at the same employer."""
+    return [r for r in rec.roles if r is not role and not r.outside()
+            and mr._squash(r.employer) == mr._squash(role.employer)]
 
 
 def fact(rec, where: str, label: str) -> str:
@@ -766,9 +822,43 @@ class Interview:
                 r.label() + (f" ({r.fields['Dates']})" if r.fields.get("Dates") else "")
                 for r in self.rec.roles) + ".")
         else:
-            self.notes.append("List your jobs, newest first. Include part-time, contract, "
-                              "volunteer and military roles if they matter. Leave the "
-                              "employer blank when you are done.")
+            self.notes.append("List your jobs, newest first. Include part-time, contract "
+                              "and military roles. Promoted, or changed title, at one "
+                              "employer? Enter the latest title first; you'll be asked "
+                              "for the earlier ones, each with its own dates, so the "
+                              "promotion shows. Leave the employer blank when you are done.")
+
+    def _add_title(self, employer: str, title: str, dates: str, queue: bool = False) -> None:
+        """Another title at an employer already listed: its own entry, so the
+        promotion and its dates survive to the resume."""
+        if not title or same_job(self.rec, employer, title, dates):
+            return
+        role = Role(employer=employer, title=title)
+        if dates:
+            role.fields["Dates"] = dates
+        first = next((r for r in self.rec.roles if mr._squash(r.employer) == mr._squash(employer)),
+                     None)
+        if first is not None:
+            for f in EMPLOYER_FIELDS:
+                if first.fields.get(f):
+                    role.fields[f] = first.fields[f]
+        # beside the employer's other titles, so the record reads newest first
+        at = max((i for i, r in enumerate(self.rec.roles)
+                  if mr._squash(r.employer) == mr._squash(employer)), default=len(self.rec.roles) - 1)
+        self.rec.roles.insert(at + 1, role)
+        self._save_record()
+        self.notes.append(f"Added {role.label()}" + (f" ({dates})" if dates else "") + ".")
+        if queue:
+            self.state["queue"].append(role_key(role))
+
+    def _close_titles(self, nr: dict) -> None:
+        """Every title at this employer knows the others were asked about."""
+        names = [r.title for r in self.rec.roles
+                 if mr._squash(r.employer) == mr._squash(nr["employer"])]
+        for r in self.rec.roles:
+            if mr._squash(r.employer) == mr._squash(nr["employer"]) and not r.fields.get("Other titles"):
+                r.fields["Other titles"] = "; ".join(t for t in names if t != r.title) or "None"
+        self._save_record()
 
     def _asked(self) -> set:
         return set((self.store.load_state(ASKED_STATE) or {}).get("asked", []))
@@ -812,8 +902,8 @@ class Interview:
                 nr.update(employer=a, stage="title")
             elif nr["stage"] == "title":
                 nr.update(title=a, stage="dates")
-            else:
-                have = same_job(self.rec, nr["employer"], nr.get("title", ""))
+            elif nr["stage"] == "dates":
+                have = same_job(self.rec, nr["employer"], nr.get("title", ""), a)
                 if have:
                     self.notes.append(f"{have.label()} is already on your record.")
                     s["new_role"] = {"stage": "employer", "adding": nr.get("adding", False)}
@@ -823,7 +913,17 @@ class Interview:
                     role.fields["Dates"] = a
                 self.rec.roles.append(role)
                 self._save_record()
-                s["new_role"] = {"stage": "employer", "adding": nr.get("adding", False)}
+                nr.update(stage="other", others=[])
+            elif nr["stage"] == "other":
+                if blank(a):
+                    self._close_titles(nr)
+                    s["new_role"] = {"stage": "employer", "adding": nr.get("adding", False)}
+                else:
+                    nr.update(other=a, stage="other_dates")
+            else:                                  # other_dates
+                self._add_title(nr["employer"], nr["other"], "" if blank(a) else a)
+                nr["others"].append(nr["other"])
+                nr["stage"] = "other"
             return
 
         if phase == BACKGROUND:
@@ -836,6 +936,15 @@ class Interview:
 
         if phase == "context":
             label = CONTEXT_QUESTIONS[s["ctx_i"]][0]
+            if label == "Other titles":
+                role = self.role()
+                titles = [] if blank(a) else split_titles(a)
+                for title, dates in titles:
+                    self._add_title(role.employer, title, dates, queue=True)
+                role.fields[label] = "; ".join(t for t, _ in titles) or "None"
+                self._save_record()
+                s["ctx_i"] += 1
+                return
             if not blank(a):
                 self.role().fields[label] = pick(a, OPTIONS[label]) if label in OPTIONS else a
                 self._save_record()
@@ -906,7 +1015,12 @@ class Interview:
                     return Prompt("A new job, or one missing from that list? Its employer.",
                                   hint="Enter to carry on")
                 return {"employer": Prompt("Employer (or organisation)?", hint="Enter when done"),
-                        "title": Prompt(f"Your job title at {emp}?"),
+                        "title": Prompt(f"Your job title at {emp}? One title; if you had "
+                                        f"more than one there, the others come next."),
+                        "other": Prompt(f"Any other title at {emp}, before or after "
+                                        f"{s['new_role'].get('title', '')}? e.g. before a "
+                                        f"promotion. Its title.", hint="Enter if none"),
+                        "other_dates": Prompt(f"Dates as {s['new_role'].get('other', '')}?"),
                         "dates": Prompt("Dates? (anything readable, e.g. 2019 - 2022)")}[stage]
 
             if phase == BACKGROUND:
@@ -943,6 +1057,11 @@ class Interview:
                 continue
 
             if phase == "begin_role":
+                for other in siblings(self.rec, role):
+                    for f in EMPLOYER_FIELDS:       # the same employer, not asked twice
+                        if other.fields.get(f) and not role.fields.get(f):
+                            role.fields[f] = other.fields[f]
+                self._save_record()
                 self.notes.append(f"{role.label()}: "
                                   f"{mr.coverage_note(role, self.target, prompt=True)}")
                 s.update(phase="context", ctx_i=0, bullet_i=0, lens_used=False, talk=None)
@@ -950,7 +1069,9 @@ class Interview:
 
             if phase == "context":
                 while s["ctx_i"] < len(CONTEXT_QUESTIONS) and (
-                        role.outside() or role.fields.get(CONTEXT_QUESTIONS[s["ctx_i"]][0])):
+                        role.outside() or role.fields.get(CONTEXT_QUESTIONS[s["ctx_i"]][0])
+                        or (CONTEXT_QUESTIONS[s["ctx_i"]][0] == "Other titles"
+                            and siblings(self.rec, role))):
                     s["ctx_i"] += 1
                 if s["ctx_i"] < len(CONTEXT_QUESTIONS):
                     label, q = CONTEXT_QUESTIONS[s["ctx_i"]]

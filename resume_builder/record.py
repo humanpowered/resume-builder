@@ -52,7 +52,7 @@ EVIDENCE_HELP = {
 
 # Role fields, in the order they render. Only `employer` and `title` live in the
 # heading; everything else is a labelled line underneath.
-ROLE_FIELDS = ("Dates", "Employment type", "Location", "Company", "Challenge", "Authority",
+ROLE_FIELDS = ("Dates", "Employment type", "Other titles", "Location", "Company", "Challenge", "Authority",
                "Territory", "Budget", "Reported to", "Markets",
                "Responsibilities", "Results against targets", "Recognition", "Note on accomplishments")
 # Employment types, offered as choices. The second list is work outside a paid

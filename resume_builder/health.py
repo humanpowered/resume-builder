@@ -127,6 +127,12 @@ def check(rec: mr.Record, target: int = 10, today=(2026, 10)) -> Report:
             for name in ("problem", "actions", "results"):
                 if LEFTOVER.search(getattr(a, name) or ""):
                     h.issues.append(f"'{a.title}' {name} has an unsettled note or blank")
+        if (re.search(r"promot", role.fields.get("Recognition", ""), re.I)
+                and not role.outside()
+                and sum(1 for r in rec.roles if mr._squash(r.employer)
+                        == mr._squash(role.employer)) == 1):
+            h.issues.append("mentions a promotion but has one title; add the earlier "
+                            "title as its own job with its dates, so the promotion shows")
         for a in accs:
             if a.team_unclear():
                 h.issues.append(f"'{a.title}' reads as a team result; what was your part?")
