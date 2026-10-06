@@ -52,9 +52,18 @@ EVIDENCE_HELP = {
 
 # Role fields, in the order they render. Only `employer` and `title` live in the
 # heading; everything else is a labelled line underneath.
-ROLE_FIELDS = ("Dates", "Location", "Company", "Challenge", "Authority",
+ROLE_FIELDS = ("Dates", "Employment type", "Location", "Company", "Challenge", "Authority",
                "Territory", "Budget", "Reported to", "Markets",
                "Responsibilities", "Results against targets", "Recognition", "Note on accomplishments")
+# Employment types, offered as choices. The second list is work outside a paid
+# job: it is kept with the jobs so it gets the same coached interview, but it
+# is never a job on the resume, never a gap in employment, and never a role
+# that "needs more accomplishments".
+PAID_TYPES = ("Full-time", "Part-time", "Contract", "Freelance or self-employed",
+              "Temporary or seasonal", "Internship or apprenticeship", "Military")
+OUTSIDE_TYPES = ("Volunteer", "Board or committee", "Community or faith group",
+                 "Personal or side project", "Study or coursework", "Caregiving or family")
+
 ACC_FIELDS = ("Problem", "Actions", "Contribution", "Results", "Skills used", "Evidence",
               "Bullet")
 # Fields filled only when they apply, so a blank one is never a gap to fill.
@@ -141,6 +150,10 @@ class Role:
     notes: list = field(default_factory=list)
     accomplishments: list = field(default_factory=list)
     recorded_bullets: list = field(default_factory=list)
+
+    def outside(self) -> bool:
+        """Work outside a paid job: volunteering, a project, study."""
+        return self.fields.get("Employment type", "") in OUTSIDE_TYPES
 
     def label(self) -> str:
         return f"{self.employer or '[employer]'} — {self.title or '[title]'}"

@@ -216,12 +216,14 @@ class InterviewEngine(unittest.TestCase):
         self.assertTrue(any("recorded" in n for n in p.notes))
         self.assertTrue(p.text.startswith("One more angle"))
         self.assertEqual(iv.step("").text, interview.DUTIES_QUESTION, "one accomplishment: thin")
+        self.assertTrue(iv.step("").text.startswith("Work outside a paid job"))
         self.assertTrue(iv.step("").text.startswith("Your next qualification"))
         # no degree recorded, so training on the job is asked next
         self.assertTrue(iv.step("").text.startswith("Did any of your jobs give you formal training"))
         self.assertTrue(iv.step("").text.startswith("Your next licence"))
-        # one Enter per remaining section; a nurse is never asked about a clearance
-        self.assertEqual(finish(iv), len(interview.SECTIONS) - 3, "one Enter per section")
+        # one Enter per remaining section; a nurse is never asked about a clearance,
+        # and volunteering was asked with work outside paid jobs
+        self.assertEqual(finish(iv), len(interview.SECTIONS) - 4, "one Enter per section")
         rec = self.store.load_record()
         self.assertEqual(rec.roles[0].recorded_bullets, [], "the expanded bullet is replaced")
         self.assertEqual(rec.roles[0].accomplishments[0].evidence, "metric")
@@ -316,6 +318,7 @@ class InterviewEngine(unittest.TestCase):
         once = tuple(q[2] for q in interview.PROFILE_QUESTIONS + interview.STORY_QUESTIONS)
         context = [q for q in asked if not q.startswith(("One more angle", "A new job",
                                                          interview.DUTIES_QUESTION,
+                                                         "Work outside a paid job",
                                                          *firsts, *once))]
         self.assertEqual(len(context), len(interview.CONTEXT_QUESTIONS) - 1)
 
@@ -992,6 +995,67 @@ class DegreeSubstitutes(unittest.TestCase):
         self.assertEqual(role.fields["Responsibilities"], "Filed 200 claims a week")
         asked, role = run_for(["a", "b", "c"])
         self.assertFalse(any(q.startswith("What did a normal week") for q in asked))
+
+    def test_employment_type_is_a_choice(self):
+        self.assertEqual(interview.pick("3", mr.PAID_TYPES), "Contract")
+        self.assertEqual(interview.pick("part", mr.PAID_TYPES), "Part-time")
+        self.assertEqual(interview.pick("Locum", mr.PAID_TYPES), "Locum", "typed is kept")
+        store = MemoryStore(Record(header=["# R"], contact={"Name": "x"},
+                                   roles=[Role(employer="Acme", title="Analyst")]))
+        store.save_state(interview.ASKED_STATE, {"asked": [
+            q[1] for q in interview.PROFILE_QUESTIONS + interview.STORY_QUESTIONS]})
+        iv = interview.Interview(store)
+        iv.step()
+        p = iv.step("")                                    # no new job
+        self.assertEqual(p.text, "What kind of job was Analyst at Acme?")
+        self.assertEqual(p.options, list(mr.PAID_TYPES))
+        iv.step("3")
+        self.assertEqual(store.load_record().roles[0].fields["Employment type"], "Contract")
+
+    def test_work_outside_paid_jobs_gets_a_full_conversation_and_stays_off_the_job_list(self):
+        store = MemoryStore(Record(header=["# R"], contact={"Name": "x"}, education=["BSN"],
+                                   roles=[Role(employer="Mercy", title="RN",
+                                               fields={"Dates": "2015 - 2018",
+                                                       **{k: "x" for k, _ in interview.CONTEXT_QUESTIONS}},
+                                               recorded_bullets=["a", "b", "c"])]))
+        store.save_state(interview.ASKED_STATE, {"asked": [
+            q[1] for q in interview.PROFILE_QUESTIONS + interview.STORY_QUESTIONS]})
+        use(InterviewEngine.turn("role_done"),
+            InterviewEngine.turn(say="How much did you raise?"),
+            InterviewEngine.turn("complete", title="Ran the spring fundraiser",
+                                 problem="Library short of funds", actions="Organised a book fair",
+                                 results="Raised $4,200", evidence="metric"),
+            InterviewEngine.turn("role_done"))
+        iv = interview.Interview(store)
+        iv.step()
+        iv.step("")                                        # no new job
+        for _ in range(3):                                 # the three resume bullets
+            p = iv.step("skip")
+        p = iv.step("")                                    # no more at Mercy; one more angle
+        self.assertTrue(p.text.startswith("Work outside a paid job"), p.text)
+        self.assertIn("what came of it", " ".join(p.notes))
+        iv.step("Treasurer")
+        p = iv.step("Lakeside PTA")
+        self.assertEqual(p.options, list(mr.OUTSIDE_TYPES))
+        iv.step("1")
+        p = iv.step("2021 - 2023")
+        self.assertEqual(p.text, "How much did you raise?", "straight into its accomplishments")
+        p = iv.step("4,200 dollars")
+        self.assertTrue(any("recorded" in n for n in p.notes))
+        rec = store.load_record()
+        pta = rec.roles[1]
+        self.assertEqual((pta.employer, pta.title, pta.fields["Employment type"]),
+                         ("Lakeside PTA", "Treasurer", "Volunteer"))
+        self.assertTrue(pta.outside())
+        self.assertNotIn("Company", pta.fields, "no job questions for volunteer work")
+        pta.accomplishments[0].bullet = "Raised $4,200 running the spring book fair"
+        profile = export.Export(rec, {}, {}).build()
+        self.assertEqual([e["company"] for e in profile["work_history"]], ["Mercy"])
+        self.assertEqual(profile["outside_work"][0]["organisation"], "Lakeside PTA")
+        self.assertEqual(len(profile["outside_work"][0]["highlights"]), 1)
+        rep = health.check(rec)
+        self.assertFalse(any("gap" in i for i in rep.record_issues),
+                         "volunteering is not a job, so it neither fills nor makes a gap")
 
     def test_promotions_are_listed_with_how_long_they_took(self):
         rec = Record(contact={"Name": "x", "Email": "y"}, education=["e"], roles=[

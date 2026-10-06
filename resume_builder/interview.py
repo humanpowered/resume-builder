@@ -52,6 +52,7 @@ def gave_up(answer: str) -> bool:
 # (field, question). Worded for any job: a nurse, a plant manager and a
 # software engineer must all be able to answer each one.
 CONTEXT_QUESTIONS = [
+    ("Employment type", "What kind of job was {title} at {employer}?"),
     ("Company", "In a sentence, what was {employer}? What it does, roughly how big "
                 "(people, revenue, sites, beds, students -- whatever is natural), and the industry."),
     ("Challenge", "What were you brought in to do, or what problem was waiting for you "
@@ -69,6 +70,47 @@ CONTEXT_QUESTIONS = [
                                 "'top review rating two years running'."),
     ("Recognition", "Any awards, promotions, top ratings or formal recognition there?"),
 ]
+
+
+# Questions answered by picking one of these; a typed answer is kept as typed.
+OPTIONS = {"Employment type": mr.PAID_TYPES}
+
+
+def pick(answer: str, options) -> str:
+    """'3', 'contract' or 'Contract' -> 'Contract'. Anything else as typed."""
+    a = (answer or "").strip()
+    if a.isdigit() and 1 <= int(a) <= len(options):
+        return options[int(a) - 1]
+    hits = [o for o in options if o.lower().startswith(a.lower())] if a else []
+    return hits[0] if len(hits) == 1 else a
+
+
+# --------------------------------------------------------------------------
+# Work outside paid jobs
+#
+# Volunteering, a board seat, a project, a capstone: for a student, a returner
+# or a career changer this is often the strongest evidence they have. Each one
+# is kept with the jobs and gets the same coached conversation, so it has a
+# problem, actions and a result rather than a one-line mention.
+
+OUTSIDE_INTRO = (
+    "Now, work outside a paid job. It counts as much as a job when you put real "
+    "effort in and something changed because of you: volunteering, a board or "
+    "committee seat, a community or faith group, a personal or side project, a "
+    "course or capstone project, or organising something for family or neighbours. "
+    "Answer it the way you answered for your jobs: what the situation was, what "
+    "you did, and what came of it, with a number where there is one (money raised, "
+    "people served, members, users, hours). Skip anything you'd rather not share.")
+OUTSIDE_QUESTIONS = {
+    "what": ("Work outside a paid job worth recording? Your role or the project's name, "
+             "e.g. 'Treasurer', 'Built a budgeting app', 'Capstone project'.",
+             "Enter if there's none"),
+    "more": ("Another piece of work outside a paid job? Your role or the project's name.",
+             "Enter if there's no more"),
+    "where": ("Where, or for whom? An organisation, a school, or 'personal'.", "Enter to skip"),
+    "kind": ("What kind of work was it?", "Pick one, or type your own"),
+    "dates": ("When? e.g. 2021 - 2023", "Enter to skip"),
+}
 
 
 # Asked at the end of a job only when it holds fewer than THIN_ROLE
@@ -299,7 +341,10 @@ SECTIONS = [("education", EDUCATION_QUESTIONS), ("job_training", JOB_TRAINING_QU
 SECTION_KEYS = [k for k, _ in SECTIONS]
 # Sections asked only when they apply; asking for one by name always asks it.
 ASK_IF = {"clearance": lambda rec: clearance_relevant(rec),
-          "job_training": lambda rec: not mr.has_degree(rec)}
+          "job_training": lambda rec: not mr.has_degree(rec),
+          # volunteering is asked in full with work outside paid jobs; this
+          # one-line list is kept for imported entries and asked only by name
+          "volunteer": lambda rec: False}
 LABELS = {"education": "Education", "certifications": "Licences and certifications",
           "job_training": "Training on the job",
           **{k: h for k, h, _ in mr.EXTRA_SECTIONS}}
@@ -556,6 +601,7 @@ class Prompt:
     text: str
     kind: str = "question"      # question | choice | done
     hint: str = ""              # e.g. "Enter to skip"
+    options: list = field(default_factory=list)  # pick one: buttons on a page
     notes: list = field(default_factory=list)   # things to show first
 
 
@@ -720,10 +766,14 @@ class Interview:
             self._take_background(a)
             return
 
+        if phase == "outside":
+            self._take_outside(a)
+            return
+
         if phase == "context":
             label = CONTEXT_QUESTIONS[s["ctx_i"]][0]
             if not gave_up(a):
-                self.role().fields[label] = a
+                self.role().fields[label] = pick(a, OPTIONS[label]) if label in OPTIONS else a
                 self._save_record()
             s["ctx_i"] += 1
             return
@@ -803,9 +853,17 @@ class Interview:
                 s["phase"] = "done" if self.background_only else "story"
                 continue
 
+            if phase == "outside":
+                return self._outside_prompt()
+
             if phase != "done" and s["qi"] >= len(s["queue"]):
-                # roles finished: education and certifications, once
-                s["phase"] = "done" if s.get("background_done") or self.only else BACKGROUND
+                # jobs finished: work outside them, then education and the rest, once
+                if self.only or s.get("background_done"):
+                    s["phase"] = "done"
+                elif not s.get("outside_done"):
+                    s["phase"] = "outside"
+                else:
+                    s["phase"] = BACKGROUND
                 continue
 
             if phase == "done":
@@ -827,13 +885,15 @@ class Interview:
                 continue
 
             if phase == "context":
-                while s["ctx_i"] < len(CONTEXT_QUESTIONS) and \
-                        role.fields.get(CONTEXT_QUESTIONS[s["ctx_i"]][0]):
+                while s["ctx_i"] < len(CONTEXT_QUESTIONS) and (
+                        role.outside() or role.fields.get(CONTEXT_QUESTIONS[s["ctx_i"]][0])):
                     s["ctx_i"] += 1
                 if s["ctx_i"] < len(CONTEXT_QUESTIONS):
-                    q = CONTEXT_QUESTIONS[s["ctx_i"]][1]
+                    label, q = CONTEXT_QUESTIONS[s["ctx_i"]]
                     return Prompt(q.format(employer=role.employer, title=role.title),
-                                  hint="Enter to skip")
+                                  hint="Pick one, or Enter to skip" if label in OPTIONS
+                                  else "Enter to skip",
+                                  options=list(OPTIONS.get(label, ())))
                 s["phase"] = "offer_bullet"
                 continue
 
@@ -1027,10 +1087,63 @@ class Interview:
         else:
             s["phase"] = "lens"
 
+    def _outside_prompt(self) -> Prompt:
+        s = self.state
+        o = s.setdefault("outside", {"stage": "what", "draft": {}})
+        if not s.get("outside_intro"):
+            s["outside_intro"] = True
+            self.notes.append(OUTSIDE_INTRO)
+        stage = o["stage"]
+        if stage == "what" and s.get("outside_added"):
+            stage = "more"
+        question, hint = OUTSIDE_QUESTIONS[stage]
+        return Prompt(question, hint=hint,
+                      options=list(mr.OUTSIDE_TYPES) if stage == "kind" else [])
+
+    def _take_outside(self, a: str) -> None:
+        s = self.state
+        o = s.setdefault("outside", {"stage": "what", "draft": {}})
+        stage = o["stage"]
+        if stage == "what":
+            if gave_up(a):
+                s["outside_done"] = True
+                s.pop("outside", None)
+                s["phase"] = BACKGROUND
+                return
+            o["draft"]["what"] = a
+            o["stage"] = "where"
+            return
+        if stage == "where":
+            o["draft"]["where"] = "" if gave_up(a) else a
+            o["stage"] = "kind"
+            return
+        if stage == "kind":
+            kind = pick(a, mr.OUTSIDE_TYPES) if not gave_up(a) else ""
+            # it has to read as outside a job, or it would join the job history
+            o["draft"]["kind"] = kind if kind in mr.OUTSIDE_TYPES else "Personal or side project"
+            o["stage"] = "dates"
+            return
+        d = o["draft"]
+        role = Role(employer=d.get("where") or "Personal", title=d["what"])
+        role.fields["Employment type"] = d["kind"]
+        if not gave_up(a):
+            role.fields["Dates"] = a
+        s["outside"] = {"stage": "what", "draft": {}}
+        if self.rec.role_by_employer(role.employer, role.title, strict=True):
+            self.notes.append(f"{role.label()} is already on your record.")
+            return
+        self.rec.roles.append(role)
+        self._save_record()
+        s["outside_added"] = s.get("outside_added", 0) + 1
+        # straight into its accomplishments, then back here for the next one
+        s["queue"].append(role_key(role))
+        s["qi"] = len(s["queue"]) - 1
+        s["phase"] = "begin_role"
+
     def _finish_role(self) -> None:
         """Duties for a thin job, then the next job."""
         role = self.role()
-        if (role is not None and not role.fields.get("Responsibilities")
+        if (role is not None and not role.outside() and not role.fields.get("Responsibilities")
                 and role.coverage()["total"] < THIN_ROLE):
             self.state["phase"] = "duties"
         else:
@@ -1067,5 +1180,6 @@ def run(interview: Interview, ask, say=print) -> Interview:
         if prompt.kind == "done":
             say(prompt.text)
             return interview
-        text = prompt.text + (f"\n  ({prompt.hint})" if prompt.hint else "")
+        text = prompt.text + "".join(f"\n    {i}. {o}" for i, o in enumerate(prompt.options, 1))
+        text += f"\n  ({prompt.hint})" if prompt.hint else ""
         prompt = interview.step(ask(text))

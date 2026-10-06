@@ -191,10 +191,14 @@ class Export:
         existing = {id(role): e for role, e in pairs if role is not None}
         history = []
         for role in self.rec.roles:
+            if role.outside():
+                continue                    # in outside_work, not the job history
             entry = dict(existing.get(id(role), {}))
             entry.setdefault("company", role.employer)
             self._take(entry, "title", role.title, role.employer)
             self._take(entry, "dates", role.fields.get("Dates"), role.employer)
+            self._take(entry, "employment_type", role.fields.get("Employment type"),
+                       role.employer)
             self._take(entry, "location", role.fields.get("Location"), role.employer)
             self._take(entry, "company_descriptor", role.fields.get("Company"), role.employer)
             scope = "; ".join(clean(role.fields[k]) for k in
@@ -240,6 +244,26 @@ class Export:
         history += [e for role, e in pairs if role is None]
         return history
 
+    def outside_work(self) -> list:
+        """Work outside paid jobs, with its accomplishments as bullets. Kept
+        apart from work_history so it is never presented as a job."""
+        out = []
+        for role in self.rec.roles:
+            if not role.outside():
+                continue
+            entry = {"organisation": role.employer, "role": role.title,
+                     "type": role.fields.get("Employment type", ""),
+                     "dates": clean(role.fields.get("Dates", "")),
+                     "highlights": [self.bullet_for(role, a) for a in role.accomplishments
+                                    if not a.is_empty()] + list(role.recorded_bullets)}
+            in_context = [{"accomplishment": a.title, "skills": a.skill_names()}
+                          for a in role.accomplishments
+                          if a.skill_names() and not a.is_empty()]
+            if in_context:
+                entry["skills_in_context"] = in_context
+            out.append(entry)
+        return out
+
     def identity(self) -> None:
         p = self.profile
         mapping = {"Name": "name", "Email": "email", "Telephone": "phone",
@@ -270,6 +294,9 @@ class Export:
         from .skills import link_both_ways
         link_both_ways(self.rec)
         self.profile["work_history"] = self.work_history()
+        outside = self.outside_work()
+        if outside:
+            self.profile["outside_work"] = outside
         self.identity()
         return self.profile
 

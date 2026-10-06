@@ -72,6 +72,7 @@ class RoleHealth:
     resume_only: int = 0
     context_missing: list = field(default_factory=list)
     issues: list = field(default_factory=list)
+    outside: bool = False           # work outside a paid job
 
 
 @dataclass
@@ -115,7 +116,9 @@ def check(rec: mr.Record, target: int = 10, today=(2026, 10)) -> Report:
                            or a.evidence in ("metric", "derived")),
             no_result=[a.title for a in accs if not a.results.strip()],
             resume_only=len(role.recorded_bullets),
-            context_missing=[f for f in CONTEXT_FIELDS if not role.fields.get(f)],
+            context_missing=[] if role.outside() else
+            [f for f in CONTEXT_FIELDS if not role.fields.get(f)],
+            outside=role.outside(),
         )
         for label, value in role.fields.items():
             if LEFTOVER.search(value or ""):
@@ -136,7 +139,7 @@ def check(rec: mr.Record, target: int = 10, today=(2026, 10)) -> Report:
                 h.issues.append(f"dates do not parse: {dates!r}")
             elif months_between(*rng) < 0:
                 h.issues.append(f"dates run backwards: {dates!r}")
-            else:
+            elif not role.outside():        # a project doesn't fill a gap in employment
                 spans.append((rng, role.label()))
         rep.roles.append(h)
 
@@ -185,7 +188,7 @@ def progression(rec: mr.Record, today=(2026, 10)) -> list:
     by_employer = {}
     for role in rec.roles:
         rng = parse_range(role.fields.get("Dates", ""), today=today)
-        if rng:
+        if rng and not role.outside():
             by_employer.setdefault(mr._squash(role.employer), []).append((rng[0], role))
     out = []
     for steps in by_employer.values():
@@ -205,7 +208,7 @@ def next_steps(rec: mr.Record, rep: Report, target: int) -> list:
     if issues:
         steps.append(f"Settle {len(issues)} fact issue(s) listed above; they reach resumes as written.")
     # the most recent roles matter most to a reader, so they come first
-    for h in rep.roles[:3]:
+    for h in [h for h in rep.roles if not h.outside][:3]:
         if h.accomplishments + h.resume_only < min(target, 5):
             steps.append(f"Interview {h.label}: only {h.accomplishments + h.resume_only} "
                          f"accomplishment(s) recorded.")
