@@ -168,14 +168,18 @@ def link_both_ways(rec: mr.Record) -> int:
                 added += 1
     # Training that names what it taught proves those skills too: for someone
     # without a degree it is one of the few substitutes employers trust.
-    for line in rec.extras.get("training", []):
+    lines = [("training", x) for x in rec.extras.get("training", [])]
+    lines += [("education", x) for x in rec.education]     # trade programmes
+    for kind, line in lines:
         name, taught = mr.training_skills(line)
+        if kind == "education":
+            name = name.split(",")[0].split(";")[0].strip()
         for skill in taught:
             s = rec.skill(skill)
             if s is None:
                 s = mr.Skill(name=skill, category="From the interview", source=FROM_RECORD)
                 rec.skills.append(s)
-            proof = f"training: {name}"
+            proof = f"{kind}: {name}"
             if proof not in s.evidence:
                 s.evidence.append(proof)
                 added += 1

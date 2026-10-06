@@ -77,7 +77,17 @@ CONTEXT_QUESTIONS = [
 BACKGROUND = "background"       # Interview(only=BACKGROUND) asks just these;
                                 # "background:languages" asks one section
 
-# (key, question, hint)
+def _programme(d: dict) -> bool:
+    """A trade school, bootcamp or other programme: not a degree (associate or
+    higher) and not a high-school diploma. Its hours and what it taught say
+    more than a GPA."""
+    q = d.get("degree", "")
+    return bool(q) and not mr.DEGREE.search(q) and not NOT_PROGRAMME.search(q)
+
+
+NOT_PROGRAMME = re.compile(r"(?i:high[- ]?school|secondary|\bassociate)|\b(GED|AAS|AA|AS|A\.A|A\.S)\b")
+
+# (key, question, hint[, ask_if(draft)])
 EDUCATION_QUESTIONS = [
     ("degree", "Your next qualification: a degree, diploma, apprenticeship, bootcamp or "
                "high-school diploma? Write it as it should read, e.g. 'BSN' or 'MBA'.",
@@ -86,6 +96,10 @@ EDUCATION_QUESTIONS = [
     ("school", "School, college or institution?", "Enter to skip"),
     ("year", "Year finished, or the year you expect to?", "Enter to skip"),
     ("honours", "Honours, a GPA worth showing, or a thesis title?", "Enter to skip"),
+    ("hours", "How long was the programme? Hours or months, e.g. '1,500 hours'.",
+     "Enter to skip", _programme),
+    ("taught", "What did it teach you to do? Name the skills, tools or methods, "
+               "separated by ';'.", "Enter to skip", _programme),
 ]
 CERTIFICATION_QUESTIONS = [
     ("name", "Your next licence or certification? e.g. 'Registered Nurse', 'PMP', "
@@ -235,11 +249,18 @@ def _join(*parts, sep=", "):
     return sep.join(p for p in parts if p)
 
 
+def _wanted(question: tuple, draft: dict) -> bool:
+    """A follow-up with a condition is asked only when the answers so far meet it."""
+    return len(question) < 4 or question[3](draft)
+
+
 def format_education(d: dict) -> str:
     """'BSN in Nursing, Ohio State University, 2015; magna cum laude'"""
     head = d.get("degree", "") + (f" in {d['field']}" if d.get("field") else "")
     line = ", ".join(x for x in (head, d.get("school"), d.get("year")) if x)
-    return line + (f"; {d['honours']}" if d.get("honours") else "")
+    line += f"; {d['honours']}" if d.get("honours") else ""
+    line += f" ({d['hours']})" if d.get("hours") else ""
+    return line + (f". Skills: {d['taught']}" if d.get("taught") else "")
 
 
 def format_certification(d: dict) -> str:
@@ -739,7 +760,7 @@ class Interview:
                                   "or a training programme." if name == "education" else "."))
             else:
                 self.notes.append(f"{label} (optional; Enter skips it).")
-        key, question, hint = questions[bg["q"]]
+        key, question, hint = questions[bg["q"]][:3]
         if bg["q"]:
             first = bg["draft"].get(questions[0][0], "")
             first = first if len(first) <= 40 else first[:37].rstrip() + "..."
@@ -756,6 +777,8 @@ class Interview:
         if not gave_up(a):
             bg["draft"][key] = a
         bg["q"] += 1
+        while bg["q"] < len(questions) and not _wanted(questions[bg["q"]], bg["draft"]):
+            bg["q"] += 1
         if bg["q"] < len(questions):
             return
         line = FORMAT[name](bg["draft"])
@@ -765,7 +788,7 @@ class Interview:
             self._save_record()
             self.state["background_added"] = self.state.get("background_added", 0) + 1
             self.notes.append(f"recorded: {line}")
-            if name == "job_training":
+            if name in ("job_training", "education") and "Skills:" in line:
                 from .skills import link_both_ways
                 link_both_ways(self.rec)
                 self._save_record()

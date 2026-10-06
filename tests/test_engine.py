@@ -425,8 +425,8 @@ class InterviewEngine(unittest.TestCase):
     def test_every_section_formats_its_answers(self):
         for key, questions in interview.SECTIONS:
             with self.subTest(key=key):
-                line = interview.FORMAT[key]({k: f"x{k}" for k, _, _ in questions})
-                for k, _, _ in questions:
+                line = interview.FORMAT[key]({k: f"x{k}" for k, *_ in questions})
+                for k, *_ in questions:
                     self.assertIn(f"x{k}", line)
 
     def test_listing_jobs_from_nothing(self):
@@ -858,6 +858,32 @@ class DegreeSubstitutes(unittest.TestCase):
         self.assertEqual(rec.skill("Lean").evidence, ["training: Green Belt programme"])
         self.assertEqual(rec.skill("Root cause analysis").evidence, ["training: Green Belt programme"])
         self.assertIn("## Training and courses", mr.render(rec))
+
+    def test_a_trade_programme_is_asked_its_hours_and_what_it_taught(self):
+        store = MemoryStore(Record(header=["# R"], roles=[Role(employer="Salon", title="Stylist")]))
+        iv = interview.Interview(store, only="background:education")
+        iv.step()
+        for answer in ("Cosmetology diploma", "", "Paul Mitchell School", "2019", ""):
+            p = iv.step(answer)
+        self.assertIn("how long was the programme", p.text)
+        p = iv.step("1,500 hours")
+        self.assertIn("what did it teach you", p.text)
+        p = iv.step("Hair color; Cutting; Chemical services")
+        line = ("Cosmetology diploma, Paul Mitchell School, 2019 (1,500 hours). "
+                "Skills: Hair color; Cutting; Chemical services")
+        self.assertIn(f"recorded: {line}", p.notes)
+        rec = store.load_record()
+        self.assertEqual(rec.education, [line])
+        self.assertEqual(rec.skill("Cutting").evidence, ["education: Cosmetology diploma"])
+
+    def test_degrees_and_diplomas_skip_the_programme_questions(self):
+        for first in ("BSN", "High school diploma", "Associate of Applied Science", "AAS"):
+            store = MemoryStore(Record(header=["# R"], roles=[Role(employer="A", title="B")]))
+            iv = interview.Interview(store, only="background:education")
+            iv.step()
+            for answer in (first, "", "", "", ""):
+                p = iv.step(answer)
+            self.assertTrue(p.text.startswith("Your next qualification"), (first, p.text))
 
     def test_promotions_are_listed_with_how_long_they_took(self):
         rec = Record(contact={"Name": "x", "Email": "y"}, education=["e"], roles=[
