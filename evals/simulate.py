@@ -90,6 +90,10 @@ class Player:
         self.history = []
         self.limit = limit
         self.asked = 0
+        self.notes = []         # shown on screen before the next question
+
+    def say(self, *parts) -> None:
+        self.notes.append(" ".join(map(str, parts)).strip())
 
     def ask(self, question: str) -> str:
         # Mechanical prompts a real user answers with a keypress.
@@ -101,6 +105,12 @@ class Player:
         if self.asked > self.limit:
             raise interview.Stop()
         q = question.split("\n  (")[0]
+        # A real person reads the notes on screen (the job list, the outside-
+        # work explanation, the confidentiality warning) before answering.
+        seen = [n for n in self.notes if n and not n.startswith("recorded")]
+        self.notes = []
+        if seen:
+            q = "(On screen: " + " ".join(seen) + ")\n" + q
         reply = llm.request_json([{"role": "user", "content": PLAYER.format(
             truth=self.truth, history="\n".join(self.history[-30:]) or "(none)",
             question=q) + '\n\nReturn JSON: {"answer": "..."}'}],
@@ -211,7 +221,8 @@ def run_person(folder: Path, out: Path, limit: int) -> dict:
     log = []
     iv = interview.Interview(FileStore(path))
     try:
-        interview.run(iv, player.ask, say=lambda *a: log.append(" ".join(map(str, a))))
+        interview.run(iv, player.ask,
+                      say=lambda *a: (log.append(" ".join(map(str, a))), player.say(*a)))
     except interview.Stop:
         log.append("[question limit reached]")
     rec = mr.parse(path.read_text(encoding="utf-8"))

@@ -46,6 +46,20 @@ def gave_up(answer: str) -> bool:
     return not answer or answer.strip().lower().rstrip(".!") in GIVE_UP
 
 
+# "I don't remember that detail" answers a plain question with nothing. Short
+# and without a figure, so "I don't recall exactly, about 30%" still counts.
+NON_ANSWER = re.compile(r"^(i\s+)?(don'?t|do not|can'?t|cannot|couldn'?t)\s+(remember|recall|"
+                        r"know|say)|^(not sure|no idea|unknown|n/?a|unsure|not applicable)\b", re.I)
+
+
+def blank(answer: str) -> bool:
+    """A skip, or a non-answer to a plain factual question. Not used in the
+    conversation with the model, which handles "I don't remember" itself."""
+    a = (answer or "").strip()
+    return gave_up(a) or (bool(NON_ANSWER.search(a)) and len(a.split()) <= 8
+                          and not re.search(r"\d", a))
+
+
 # --------------------------------------------------------------------------
 # Role context
 
@@ -77,12 +91,22 @@ OPTIONS = {"Employment type": mr.PAID_TYPES}
 
 
 def pick(answer: str, options) -> str:
-    """'3', 'contract' or 'Contract' -> 'Contract'. Anything else as typed."""
+    """'3', 'contract', '2. Part-time, while I studied' or 'I was part time' ->
+    the option. Anything that names no option, or several, as typed."""
     a = (answer or "").strip()
-    if a.isdigit() and 1 <= int(a) <= len(options):
-        return options[int(a) - 1]
-    hits = [o for o in options if o.lower().startswith(a.lower())] if a else []
-    return hits[0] if len(hits) == 1 else a
+    m = re.match(r"^(\d+)\b", a)
+    if m and 1 <= int(m.group(1)) <= len(options):
+        return options[int(m.group(1)) - 1]
+    if not a:
+        return a
+    hits = [o for o in options if o.lower().startswith(a.lower())]
+    if len(hits) == 1:
+        return hits[0]
+    text = " " + re.sub(r"[^a-z0-9]+", " ", a.lower()) + " "
+    named = [o for o in options
+             if " " + re.sub(r"[^a-z0-9]+", " ", o.lower()).strip() + " " in text
+             or " " + re.sub(r"[^a-z0-9]+", " ", o.lower()).split()[0] + " " in text]
+    return named[0] if len(named) == 1 else a
 
 
 # --------------------------------------------------------------------------
@@ -164,6 +188,27 @@ STORY_QUESTIONS = [
      "Enter to skip"),
 ]
 ASKED_STATE = "interview_asked"     # labels already asked, kept across sessions
+
+
+def same_job(rec, employer: str, title: str):
+    """A job already on the record under a slightly different wording: the
+    same employer (or one name extending the other) and a title sharing most
+    of its words. "Registered Nurse, Medical ICU (Relief Charge Nurse since
+    2021)" is the "Registered Nurse, Medical ICU" job; "Charge Nurse" after
+    "Registered Nurse" is a promotion, not a duplicate."""
+    def words(t):
+        return set(re.findall(r"[a-z]{2,}", (t or "").lower())) - {"and", "the", "of", "since"}
+    e = mr._squash(employer)
+    for r in rec.roles:
+        other = mr._squash(r.employer)
+        if not e or not other or not (e == other or e.startswith(other) or other.startswith(e)):
+            continue
+        a, b = words(title), words(r.title)
+        if mr._squash(title) == mr._squash(r.title):
+            return r
+        if a and b and len(a & b) / min(len(a), len(b)) >= 0.6:
+            return r
+    return None
 
 
 def fact(rec, where: str, label: str) -> str:
@@ -453,8 +498,9 @@ Rules:
 4. Work for any profession. Do not assume office work, marketing or software.
 5. If they cannot remember or want to move on, accept it at once and set status
    "role_done". Never push twice.
-6. Do not ask about anything in already_recorded. If they start describing one
-   of those, say so and ask for a different one.
+6. Do not ask about anything in already_recorded, or again about anything in
+   not_remembered: they have already said they can't recall it. If they start
+   describing one of those, say so and ask for a different one.
 7. Put the skills, tools, methods, equipment, procedures or know-how the
    accomplishment took in "skills": the ones they name, in their words or the
    standard industry term. Before "complete", unless they have already named
@@ -739,7 +785,7 @@ class Interview:
         where, label = self.state.pop("fact", None) or (None, None)
         if not label:
             return
-        if not gave_up(a):
+        if not blank(a):
             set_fact(self.rec, where, label, a)
             self._save_record()
         asked = self._asked() | {label}
@@ -766,9 +812,9 @@ class Interview:
             elif nr["stage"] == "title":
                 nr.update(title=a, stage="dates")
             else:
-                if self.rec.role_by_employer(nr["employer"], nr.get("title", ""), strict=True):
-                    self.notes.append(f"{nr['employer']} — {nr.get('title', '')} is already "
-                                      f"on your record.")
+                have = same_job(self.rec, nr["employer"], nr.get("title", ""))
+                if have:
+                    self.notes.append(f"{have.label()} is already on your record.")
                     s["new_role"] = {"stage": "employer", "adding": nr.get("adding", False)}
                     return
                 role = Role(employer=nr["employer"], title=nr.get("title", ""))
@@ -789,7 +835,7 @@ class Interview:
 
         if phase == "context":
             label = CONTEXT_QUESTIONS[s["ctx_i"]][0]
-            if not gave_up(a):
+            if not blank(a):
                 self.role().fields[label] = pick(a, OPTIONS[label]) if label in OPTIONS else a
                 self._save_record()
             s["ctx_i"] += 1
@@ -816,7 +862,7 @@ class Interview:
             return
 
         if phase == "duties":
-            if not gave_up(a):
+            if not blank(a):
                 self.role().fields["Responsibilities"] = a
                 self._save_record()
             self._next_role()
@@ -990,7 +1036,7 @@ class Interview:
         if bg["q"] == 0 and gave_up(a):            # blank first answer ends this list
             bg.update(section=bg["section"] + 1, q=0, draft={}, intro=False)
             return
-        if not gave_up(a):
+        if not blank(a):
             bg["draft"][key] = a
         bg["q"] += 1
         while bg["q"] < len(questions) and not _wanted(questions[bg["q"]], bg["draft"]):
@@ -1018,6 +1064,7 @@ class Interview:
                "dates": role.fields.get("Dates", ""),
                "role_context": {k: v for k, v in role.fields.items() if v},
                "already_recorded": [a.title for a in role.accomplishments],
+               "not_remembered": self.state.get("not_remembered", {}).get(role_key(role), []),
                "explain_skills": self._explain_skills()}
         mode = MODE_EXPAND.format(bullet=bullet) if bullet else MODE_NEW
         messages = [{"role": "user", "content":
@@ -1091,6 +1138,13 @@ class Interview:
 
     def _end_talk(self, outcome: str) -> None:
         s = self.state
+        title = ((s["talk"] or {}).get("draft") or {}).get("title", "")
+        if outcome != "complete" and title and self.role() is not None:
+            # not asked again in this job: once they can't recall it, asking
+            # a second time only costs them a question
+            gone = s.setdefault("not_remembered", {}).setdefault(role_key(self.role()), [])
+            if title not in gone:
+                gone.append(title)
         was_bullet = bool(s["talk"] and s["talk"]["bullet"])
         s["talk"] = None
         if was_bullet:
@@ -1131,11 +1185,11 @@ class Interview:
             o["stage"] = "where"
             return
         if stage == "where":
-            o["draft"]["where"] = "" if gave_up(a) else a
+            o["draft"]["where"] = "" if blank(a) else a
             o["stage"] = "kind"
             return
         if stage == "kind":
-            kind = pick(a, mr.OUTSIDE_TYPES) if not gave_up(a) else ""
+            kind = pick(a, mr.OUTSIDE_TYPES) if not blank(a) else ""
             # it has to read as outside a job, or it would join the job history
             o["draft"]["kind"] = kind if kind in mr.OUTSIDE_TYPES else "Personal or side project"
             o["stage"] = "dates"
@@ -1143,11 +1197,12 @@ class Interview:
         d = o["draft"]
         role = Role(employer=d.get("where") or "Personal", title=d["what"])
         role.fields["Employment type"] = d["kind"]
-        if not gave_up(a):
+        if not blank(a):
             role.fields["Dates"] = a
         s["outside"] = {"stage": "what", "draft": {}}
-        if self.rec.role_by_employer(role.employer, role.title, strict=True):
-            self.notes.append(f"{role.label()} is already on your record.")
+        have = same_job(self.rec, role.employer, role.title)
+        if have:
+            self.notes.append(f"{have.label()} is already on your record.")
             return
         self.rec.roles.append(role)
         self._save_record()

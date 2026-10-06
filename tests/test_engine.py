@@ -1066,6 +1066,53 @@ class DegreeSubstitutes(unittest.TestCase):
                       "confidential", interview.COACH)
         self.assertIn("record it as given", interview.COACH, "what they give is theirs to share")
 
+    def test_a_job_retyped_in_other_words_is_not_added_twice(self):
+        rec = Record(roles=[Role(employer="Lakeshore Medical Center",
+                                 title="Registered Nurse, Medical ICU")])
+        self.assertIs(interview.same_job(rec, "Lakeshore Medical Center",
+                                         "Registered Nurse, Medical ICU (Relief Charge Nurse "
+                                         "since 2021)"), rec.roles[0])
+        self.assertIs(interview.same_job(rec, "Lakeshore Medical", "RN, Medical ICU"),
+                      rec.roles[0], "a shortened employer name and title")
+        self.assertIsNone(interview.same_job(rec, "Lakeshore Medical Center", "Charge Nurse"),
+                          "a promotion is a new job")
+        self.assertIsNone(interview.same_job(rec, "Mercy", "Registered Nurse, Medical ICU"))
+
+    def test_non_answers_are_not_saved_and_choices_are_read_from_sentences(self):
+        self.assertTrue(interview.blank("I don't remember that detail."))
+        self.assertTrue(interview.blank("Not sure"))
+        self.assertFalse(interview.blank("I don't recall exactly, about 30%"))
+        self.assertFalse(interview.blank("The VP of Nursing"))
+        self.assertEqual(interview.pick("2. Part-time. I worked it while finishing my BSN.",
+                                        mr.PAID_TYPES), "Part-time")
+        self.assertEqual(interview.pick("I was on a contract", mr.PAID_TYPES), "Contract")
+        self.assertEqual(interview.pick("full time", mr.PAID_TYPES), "Full-time")
+        store = MemoryStore(Record(header=["# R"], contact={"Name": "x"},
+                                   roles=[Role(employer="Acme", title="Analyst")]))
+        store.save_state(interview.ASKED_STATE, {"asked": [
+            q[1] for q in interview.PROFILE_QUESTIONS + interview.STORY_QUESTIONS]})
+        iv = interview.Interview(store)
+        iv.step()
+        iv.step("")
+        iv.step("I don't remember that detail.")           # employment type
+        self.assertNotIn("Employment type", store.load_record().roles[0].fields)
+
+    def test_what_they_could_not_recall_is_not_asked_again_in_that_job(self):
+        fake = use(InterviewEngine.turn(say="Tell me about the DAISY award patient?",
+                                        title="DAISY award"),
+                   InterviewEngine.turn("role_done"))
+        store = MemoryStore(Record(header=["# R"], contact={"Name": "x"}, roles=[Role(
+            employer="Mercy", title="RN", fields={k: "x" for k, _ in interview.CONTEXT_QUESTIONS})]))
+        store.save_state(interview.ASKED_STATE, {"asked": [
+            q[1] for q in interview.PROFILE_QUESTIONS + interview.STORY_QUESTIONS]})
+        iv = interview.Interview(store)
+        iv.step()
+        iv.step("")                                        # no new job
+        iv.step("skip")                                    # can't recall it
+        iv.step("We cut overtime")                         # the one more angle
+        self.assertIn('"not_remembered": [\n  "DAISY award"\n ]',
+                      fake.requests[1]["messages"][0]["content"])
+
     def test_promotions_are_listed_with_how_long_they_took(self):
         rec = Record(contact={"Name": "x", "Email": "y"}, education=["e"], roles=[
             Role(employer="Mercy", title="Charge Nurse", fields={"Dates": "Jul 2020 - Present"}),
