@@ -55,8 +55,12 @@ How to answer:
   now 25") but no calculated figure, give the before-and-after when asked;
   do not calculate a percentage yourself. If the interviewer proposes a
   figure, say yes only if it follows from your file.
-- If the interviewer asks about something already covered, or you have
-  nothing more for this job, say "That's all I have for that job."
+- When the interviewer asks for another piece of work at a job and you have
+  given everything in YOUR FILE for it, answer exactly: That's all I have
+  for that job.
+  Say that only then. If a question is about work that is in YOUR FILE,
+  answer it. If it asks for a detail your file lacks, say you don't
+  remember that detail and stop there; the interview goes on.
 - When asked to list your jobs one at a time, give the next one you have not
   given yet as just what is asked (employer, or title, or dates). When you
   have given them all, answer exactly: DONE
@@ -107,7 +111,9 @@ class Player:
         self.history += [f"Interviewer: {q}", f"Me: {answer}"]
         if answer.upper().startswith("DONE") or answer.lower().rstrip(".") == "none":
             return ""
-        if "that's all i have" in answer.lower():
+        # Only the bare sentence ends the job. Tacked onto a real answer it
+        # used to throw the answer away and close the accomplishment.
+        if answer.lower().startswith("that's all i have"):
             return "done"
         return answer
 
