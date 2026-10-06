@@ -213,6 +213,21 @@ class Export:
             # another wording? No: losses() already proved every one has a
             # counterpart, so the record's version replaces it.
             entry["highlights"] = highlights
+            # Which skills each accomplishment proves, names only. The
+            # pipeline sends the whole profile to the model, so this reaches
+            # tailoring as it stands. Problem, actions and results stay out:
+            # every figure in the profile is one the letter's fabrication
+            # check would then accept.
+            in_context = []
+            for a in role.accomplishments:
+                names = [n for n in a.skill_names()
+                         if not (self.rec.skill(n) and self.rec.skill(n).have == "no")]
+                if names and not a.is_empty():
+                    in_context.append({"accomplishment": a.title, "skills": names})
+            if in_context:
+                entry["skills_in_context"] = in_context
+            else:
+                entry.pop("skills_in_context", None)
             if self.with_details:
                 entry["accomplishments"] = [
                     {"title": a.title, "problem": clean(a.problem),
@@ -248,6 +263,8 @@ class Export:
                 p[name] = have
 
     def build(self) -> dict:
+        from .skills import link_both_ways
+        link_both_ways(self.rec)
         self.profile["work_history"] = self.work_history()
         self.identity()
         return self.profile

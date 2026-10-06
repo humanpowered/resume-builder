@@ -139,8 +139,40 @@ def build(rec: mr.Record, field: str = "") -> dict:
                          source=FROM_RECORD if because else FROM_FIELD)
             out["added"].append(name)
         rec.skills.append(s)
+    link_both_ways(rec)
     out["dated"] = estimate_use(rec)
     return out
+
+
+def link_both_ways(rec: mr.Record) -> int:
+    """
+    Keep each accomplishment's "Skills used" and each skill's evidence in step.
+
+    A skill named on an accomplishment is the person's own word that they used
+    it, so it joins the skills list as "yes" and points back to that work. A
+    confirmed skill whose evidence names an accomplishment is added to that
+    accomplishment's line. Unconfirmed and declined skills never are: the line
+    is what the person did, not what the list suggests. Returns links added.
+    """
+    added = 0
+    accs = {}
+    for _, a in rec.all_accomplishments():
+        accs.setdefault(a.title, []).append(a)
+        for name in a.skill_names():
+            s = rec.skill(name)
+            if s is None:
+                s = mr.Skill(name=name, category="From the interview", source=FROM_RECORD)
+                rec.skills.append(s)
+            if a.title not in s.evidence:
+                s.evidence.append(a.title)
+                added += 1
+    for s in rec.skills:
+        if s.have != YES:
+            continue
+        for title in s.evidence:
+            for a in accs.get(title, []):
+                added += a.add_skill(s.name)
+    return added
 
 
 def estimate_use(rec: mr.Record, today=None) -> list:

@@ -137,6 +137,7 @@ def cmd_skills(args, path: Path) -> int:
         save(path, rec)
         print(f"  added: {s.name} ({s.category}{', ' + s.level if s.level else ''})")
     if args.verify:
+        skills.link_both_ways(rec)      # skills typed on an accomplishment by hand
         skills.estimate_use(rec)        # dates the skills a record from before this had
         try:
             n = skills.verify(rec, ask)

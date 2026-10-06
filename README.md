@@ -68,6 +68,16 @@ the same person says "three days a month became half a day". That is.
 Everything is saved as it's confirmed. Stop with Ctrl-C at any time, and the
 next run offers to pick up the half-finished one.
 
+## Skills in context
+
+Each accomplishment keeps a **Skills used** line: the tools, software,
+equipment, methods, procedures or specialist knowledge it took, in the words
+a job posting would use. The interview asks for them once per accomplishment
+(and explains what counts the first time). The skills list points back to
+the work that proves each skill, and export passes the pairs to the pipeline
+as `skills_in_context`, names only, so tailoring can pick the accomplishment
+that proves the skill a posting asks for.
+
 ## What it will not do
 
 - **Put a figure on a bullet that isn't in your own words.** Every number in

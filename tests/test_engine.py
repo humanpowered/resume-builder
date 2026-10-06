@@ -234,6 +234,25 @@ class InterviewEngine(unittest.TestCase):
         self.assertFalse(acc_.team_unclear())
         self.assertIn("what their own part was", fake.requests[0]["messages"][0]["content"])
 
+    def test_skills_used_are_kept_on_the_accomplishment_and_explained_once(self):
+        fake = use(self.turn("complete", title="Automated weekly reporting",
+                             problem="p", actions="Built a pipeline", results="6 hours a week saved",
+                             evidence="metric", skills=["Python", "SQL", "dbt", "python"]),
+                   self.turn("role_done"))
+        iv = interview.Interview(self.store)
+        iv.step()
+        iv.step("")
+        rec = self.store.load_record()
+        a = rec.roles[0].accomplishments[0]
+        self.assertEqual(a.skill_names(), ["Python", "SQL", "dbt"], "kept once each")
+        self.assertEqual(rec.skill("dbt").evidence, ["Automated weekly reporting"])
+        first = fake.requests[0]["messages"][0]["content"]
+        self.assertIn("What tools, methods or know-how did that take?", first)
+        self.assertIn('"explain_skills": true', first)
+        self.assertTrue(iv.state["skills_explained"])
+        self.assertFalse(interview.Interview(self.store)._explain_skills(),
+                         "a record that already has skills used is not told again")
+
     def test_the_expanded_bullet_is_not_its_own_duplicate(self):
         use(self.turn("complete", title="Precepted new graduate nurses",
                       problem="p", actions="a", results="r", evidence="qualitative"),
@@ -736,6 +755,51 @@ class TeamResults(unittest.TestCase):
         prompt = fake.requests[0]["messages"][0]["content"]
         self.assertIn("My part: Trained 30 staff", prompt)
         self.assertIn("never to\n  them alone", prompt)
+
+
+class SkillsInContext(unittest.TestCase):
+    """An accomplishment names the skills it took; the skills list points back."""
+
+    def record(self):
+        a = acc("Automated weekly reporting", results="6 hours a week saved")
+        a.skills_used = "Python; SQL; dbt"
+        b = acc("Cut month-end close", results="Close down 2 days")
+        return Record(contact={"Name": "x"}, roles=[Role(employer="Acme", title="Analyst",
+                                                         accomplishments=[a, b])],
+                      skills=[Skill("Excel", evidence=["Cut month-end close"]),
+                              Skill("Tableau", evidence=["Cut month-end close"], have="verify"),
+                              Skill("dbt", have="no")])
+
+    def test_round_trip_and_hidden_when_empty(self):
+        rec = self.record()
+        text = mr.render(rec)
+        self.assertEqual(text.count("**Skills used:**"), 1)
+        self.assertIn("- **Skills used:** Python; SQL; dbt", text)
+        self.assertEqual(mr.parse(text).roles[0].accomplishments[0].skill_names(),
+                         ["Python", "SQL", "dbt"])
+
+    def test_links_run_both_ways_for_confirmed_skills_only(self):
+        rec = self.record()
+        skills.link_both_ways(rec)
+        a, b = rec.roles[0].accomplishments
+        self.assertEqual(rec.skill("Python").evidence, ["Automated weekly reporting"])
+        self.assertEqual(rec.skill("Python").have, "yes", "the person named it")
+        self.assertEqual(b.skill_names(), ["Excel"], "an unconfirmed skill is not added")
+
+    def test_export_names_skills_per_accomplishment_and_drops_declined_ones(self):
+        rec = self.record()
+        for x in rec.roles[0].accomplishments:
+            x.bullet = x.title
+        entry = export.Export(rec, {}, {}).build()["work_history"][0]
+        self.assertEqual(entry["skills_in_context"], [
+            {"accomplishment": "Automated weekly reporting", "skills": ["Python", "SQL"]},
+            {"accomplishment": "Cut month-end close", "skills": ["Excel"]}])
+
+    def test_adding_skills_does_not_redraft_a_bullet(self):
+        a = acc("Automated weekly reporting")
+        before = export.fingerprint(a)
+        a.skills_used = "Python"
+        self.assertEqual(export.fingerprint(a), before)
 
 
 class Promotions(unittest.TestCase):

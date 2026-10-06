@@ -55,7 +55,15 @@ EVIDENCE_HELP = {
 ROLE_FIELDS = ("Dates", "Location", "Company", "Challenge", "Authority",
                "Territory", "Budget", "Reported to", "Markets",
                "Responsibilities", "Recognition", "Note on accomplishments")
-ACC_FIELDS = ("Problem", "Actions", "Contribution", "Results", "Evidence", "Bullet")
+ACC_FIELDS = ("Problem", "Actions", "Contribution", "Results", "Skills used", "Evidence",
+              "Bullet")
+# Fields filled only when they apply, so a blank one is never a gap to fill.
+ACC_OPTIONAL = ("Evidence", "Bullet", "Contribution", "Skills used")
+
+
+def acc_attr(label: str) -> str:
+    """'Skills used' -> 'skills_used'."""
+    return label.lower().replace(" ", "_")
 # Words that mark a result as a team's. Most work is shared, and "we cut costs
 # 23%" filed as one person's result is exactly the claim an interviewer probes.
 TEAM_WORDS = re.compile(r"\b(we|our|us|the team|my team|our team|together|jointly|co-led)\b", re.I)
@@ -84,6 +92,10 @@ class Accomplishment:
     # was theirs alone.
     contribution: str = ""
     results: str = ""
+    # The skills, tools, methods and know-how this took, "; "-separated as the
+    # record shows them. The skills list's evidence is built from these, so a
+    # skill always points back to the work that proves it.
+    skills_used: str = ""
     evidence: str = ""
     # The resume line compiled from the three fields above, kept here rather
     # than in a hidden cache so it is visible, diffable and editable: a bullet
@@ -95,6 +107,17 @@ class Accomplishment:
         """What a compiled bullet has to be grounded in."""
         return " ".join(x for x in (self.problem, self.actions, self.contribution,
                                     self.results) if x)
+
+    def skill_names(self) -> list:
+        return [s.strip() for s in re.split(r";", self.skills_used or "") if s.strip()]
+
+    def add_skill(self, name: str) -> bool:
+        """Add a skill if it isn't listed already, compared ignoring case."""
+        name = (name or "").strip()
+        if not name or _squash(name) in {_squash(n) for n in self.skill_names()}:
+            return False
+        self.skills_used = "; ".join([*self.skill_names(), name])
+        return True
 
     def team_unclear(self) -> bool:
         """A result told as a team's, with nothing saying what was theirs."""
@@ -466,8 +489,8 @@ def parse(text: str) -> Record:
         if m:
             label, value = m.group("label").strip(), m.group("value").strip()
             if acc is not None and label in ACC_FIELDS:
-                setattr(acc, label.lower(), _blank_to_empty(value))
-                extend = _extend_attr(acc, label.lower())
+                setattr(acc, acc_attr(label), _blank_to_empty(value))
+                extend = _extend_attr(acc, acc_attr(label))
             else:
                 role.fields[label] = _blank_to_empty(value)
                 extend = _extend_key(role.fields, label)
@@ -529,12 +552,13 @@ def render(rec: Record) -> str:
         for acc in role.accomplishments:
             out += ["", f"#### {acc.title or '[FILL IN: short title]'}", ""]
             for label in ACC_FIELDS:
-                value = getattr(acc, label.lower(), "")
+                value = getattr(acc, acc_attr(label), "")
                 # Evidence is set by the interview and Bullet by the build
                 # step; neither is a gap for a person to fill in by hand, so
                 # neither gets a [FILL IN] marker inviting them to.
-                # Contribution only applies to shared work.
-                if label in ("Evidence", "Bullet", "Contribution") and not value:
+                # Contribution only applies to shared work, and Skills used
+                # is filled by the interview and the skills list.
+                if label in ACC_OPTIONAL and not value:
                     continue
                 out.append(f"- **{label}:** {value or '[FILL IN]'}")
         if role.recorded_bullets:

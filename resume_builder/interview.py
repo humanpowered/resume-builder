@@ -284,8 +284,17 @@ Rules:
    "role_done". Never push twice.
 6. Do not ask about anything in already_recorded. If they start describing one
    of those, say so and ask for a different one.
-7. Also note the skills, tools, methods, licences or equipment the
-   accomplishment shows, in their words or the standard industry term.
+7. Put the skills, tools, methods, equipment, procedures or know-how the
+   accomplishment took in "skills": the ones they name, in their words or the
+   standard industry term. Before "complete", unless they have already named
+   them, ask once: "What tools, methods or know-how did that take?" A nurse
+   names equipment and protocols, a plant manager a method or a machine, an
+   analyst software. If they name none, leave "skills" empty; never add one
+   they did not mention. When the ROLE has "explain_skills": true, the first
+   time you ask it, add one short sentence saying what counts: "By skills I
+   mean the tools, software, equipment, methods, procedures, regulations or
+   specialist knowledge you used: the things a job posting in your field
+   would list." Never explain it again after that.
 8. If the result belongs to a group ("we", "the team", "our unit"), ask once
    what their own part was, and put it in "contribution" in their words: what
    they led, built, decided or did. "I was one of six on it" is a real answer.
@@ -739,7 +748,8 @@ class Interview:
         ctx = {"employer": role.employer, "job_title": role.title,
                "dates": role.fields.get("Dates", ""),
                "role_context": {k: v for k, v in role.fields.items() if v},
-               "already_recorded": [a.title for a in role.accomplishments]}
+               "already_recorded": [a.title for a in role.accomplishments],
+               "explain_skills": self._explain_skills()}
         mode = MODE_EXPAND.format(bullet=bullet) if bullet else MODE_NEW
         messages = [{"role": "user", "content":
                      COACH.format(mode=mode) + "\nROLE:\n" + json.dumps(ctx, indent=1)
@@ -752,6 +762,12 @@ class Interview:
         return {"messages": messages, "bullet": bullet, "say": "", "pending": True,
                 "draft": {k: "" for k in DRAFT_KEYS},
                 "skills": []}
+
+    def _explain_skills(self) -> bool:
+        """Explain what "skills" means the first time only: until one
+        accomplishment has been recorded with this question asked."""
+        return not (self.state.get("skills_explained")
+                    or any(a.skills_used for _, a in self.rec.all_accomplishments()))
 
     def _model_turn(self):
         """Ask the model for the next move. Returns a Prompt to show, or None
@@ -789,10 +805,13 @@ class Interview:
                 return None
             if draft.evidence not in mr.EVIDENCE_TIERS:
                 draft.evidence = "qualitative"
+            for name in t["skills"]:
+                draft.add_skill(name)
+            s["skills_explained"] = True
             role.accomplishments.append(draft)
             if t["bullet"] and t["bullet"] in role.recorded_bullets:
                 role.recorded_bullets.remove(t["bullet"])
-            link_skills(self.rec, t["skills"], draft.title)
+            link_skills(self.rec, draft.skill_names(), draft.title)
             self._save_record()
             self.recorded += 1
             self.notes.append(f"recorded: {draft.title} ({draft.evidence})")
