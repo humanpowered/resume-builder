@@ -240,6 +240,30 @@ EXTRA_SECTIONS = [
     ("career_breaks", "Career breaks", ("career break", "employment gaps", "gaps")),
 ]
 EXTRA_KEYS = [k for k, _, _ in EXTRA_SECTIONS]
+# A bachelor's degree or higher, as people write one. Abbreviations are
+# matched in capitals only, so "MS Office" in a course name is not a master's.
+DEGREE = re.compile(
+    r"(?i:\b(bachelor|master|doctor(ate)?|ph\.?d|graduate degree)\b)|"
+    r"\b(BA|BS|BSc|BSN|BBA|BEng|BFA|BEd|BArch|AB|SB|MA|MS(?!\s+(?:Office|Word|Excel|Teams|Access|Project|Dynamics|SQL|Visio))|MSc|MSN|MBA|MEng|MFA|MEd|"
+    r"MPH|MPA|MSW|MPP|MAcc|LLM|PhD|EdD|DBA|JD|MD|DO|DNP|PharmD|DDS|DMD|DVM|PsyD)\b|"
+    r"\b(B\.A|B\.S|M\.A|M\.S|M\.B\.A|J\.D|M\.D)\.")
+
+
+def has_degree(rec) -> bool:
+    """Whether the record shows a bachelor's degree or higher."""
+    return any(DEGREE.search(e or "") for e in rec.education)
+
+
+def training_skills(line: str) -> tuple:
+    """('Lean program', ['Lean', 'Root cause analysis']) from a training line
+    that ends 'Skills: Lean; Root cause analysis'. ('', []) if it names none."""
+    head, sep, tail = (line or "").partition("Skills:")
+    if not sep:
+        return "", []
+    name = re.split(r"\s+\(|\.\s*$", head.strip())[0].strip().rstrip(".")
+    return name, [s.strip().rstrip(".") for s in tail.split(";") if s.strip()]
+
+
 TARGET_FIELDS = ("Titles", "Industries", "Locations", "Seniority", "Notes")
 
 

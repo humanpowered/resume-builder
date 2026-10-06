@@ -177,6 +177,20 @@ TRAINING_QUESTIONS = [
     ("provider", "Who ran it?", "Enter to skip"),
     ("year", "Year?", "Enter to skip"),
 ]
+# Asked only when no degree is recorded. Employers that drop a degree
+# requirement still lean on the degree when comparing candidates, unless
+# something else shows the skill; formal training on the job is one of the few
+# substitutes they trust. Filed with "Training and courses".
+JOB_TRAINING_QUESTIONS = [
+    ("name", "Did any of your jobs give you formal training: a programme, an "
+             "apprenticeship, or a certification you earned there? Its name.",
+     "Enter when there are no more"),
+    ("where", "At which job, or who ran it?", "Enter to skip"),
+    ("year", "Year finished?", "Enter to skip"),
+    ("length", "How long was it? Hours, weeks or months.", "Enter to skip"),
+    ("skills", "What did it teach you to do? Name the skills, tools or methods, "
+               "separated by ';'.", "Enter to skip"),
+]
 TESTIMONIAL_QUESTIONS = [
     ("quote", "A line someone wrote or said about your work that you'd be glad to quote? "
               "Paste it as they put it.", "Enter when there are no more"),
@@ -190,7 +204,8 @@ BREAK_QUESTIONS = [
                "for a parent' or 'full-time study'.", "Enter to skip"),
     ("note", "Anything you kept up or learned in that time?", "Enter to skip"),
 ]
-SECTIONS = [("education", EDUCATION_QUESTIONS), ("certifications", CERTIFICATION_QUESTIONS),
+SECTIONS = [("education", EDUCATION_QUESTIONS), ("job_training", JOB_TRAINING_QUESTIONS),
+            ("certifications", CERTIFICATION_QUESTIONS),
             ("clearance", CLEARANCE_QUESTIONS),
             ("projects", PROJECT_QUESTIONS), ("languages", LANGUAGE_QUESTIONS),
             ("volunteer", VOLUNTEER_QUESTIONS), ("awards", AWARD_QUESTIONS),
@@ -198,7 +213,11 @@ SECTIONS = [("education", EDUCATION_QUESTIONS), ("certifications", CERTIFICATION
             ("training", TRAINING_QUESTIONS), ("testimonials", TESTIMONIAL_QUESTIONS),
             ("career_breaks", BREAK_QUESTIONS)]
 SECTION_KEYS = [k for k, _ in SECTIONS]
+# Sections asked only when they apply; asking for one by name always asks it.
+ASK_IF = {"clearance": lambda rec: clearance_relevant(rec),
+          "job_training": lambda rec: not mr.has_degree(rec)}
 LABELS = {"education": "Education", "certifications": "Licences and certifications",
+          "job_training": "Training on the job",
           **{k: h for k, h, _ in mr.EXTRA_SECTIONS}}
 
 
@@ -207,6 +226,8 @@ def section_items(rec, name: str) -> list:
     their own fields, the optional sections live in rec.extras."""
     if name in ("education", "certifications"):
         return getattr(rec, name)
+    if name == "job_training":
+        return rec.extras.setdefault("training", [])
     return rec.extras.setdefault(name, [])
 
 
@@ -248,6 +269,12 @@ FORMAT = {
                                     d.get("link"), sep=". "),
     "memberships": lambda d: _join(d.get("org"), d.get("role"), d.get("years")),
     "training": lambda d: _join(d.get("name"), d.get("provider"), d.get("year")),
+    # 'Green Belt programme (Acme Foods, 2019, 40 hours). Skills: Lean; Root cause analysis'
+    "job_training": lambda d: _join(
+        d.get("name", "") + (f" ({_join(d.get('where'), d.get('year'), d.get('length'))})"
+                             if d.get("where") or d.get("year") or d.get("length") else ""),
+        "Skills: " + "; ".join(s.strip() for s in d["skills"].split(";") if s.strip())
+        if d.get("skills") else "", sep=". "),
     "testimonials": lambda d: _join(f'"{d.get("quote", "").strip(chr(34))}"',
                                     _join(d.get("who"), d.get("relation")), sep=" — "),
     "career_breaks": lambda d: _join(d.get("dates", "") + (":" if d.get("reason") or d.get("note") else ""),
@@ -694,8 +721,7 @@ class Interview:
         bg = s.setdefault("bg", {"section": 0, "q": 0, "draft": {}, "intro": False})
         asked_for = bg.get("stop") == bg["section"] + 1     # this one section, by name
         while (bg["section"] < bg.get("stop", len(SECTIONS)) and not asked_for
-               and SECTIONS[bg["section"]][0] == "clearance"
-               and not clearance_relevant(self.rec)):
+               and not ASK_IF.get(SECTIONS[bg["section"]][0], lambda rec: True)(self.rec)):
             bg.update(section=bg["section"] + 1, q=0, draft={}, intro=False)
         if bg["section"] >= bg.get("stop", len(SECTIONS)):
             return None
@@ -739,6 +765,10 @@ class Interview:
             self._save_record()
             self.state["background_added"] = self.state.get("background_added", 0) + 1
             self.notes.append(f"recorded: {line}")
+            if name == "job_training":
+                from .skills import link_both_ways
+                link_both_ways(self.rec)
+                self._save_record()
         bg.update(q=0, draft={})
 
     # -- conversations with the model ----------------------------------------

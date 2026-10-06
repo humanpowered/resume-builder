@@ -166,6 +166,19 @@ def link_both_ways(rec: mr.Record) -> int:
             if a.title not in s.evidence:
                 s.evidence.append(a.title)
                 added += 1
+    # Training that names what it taught proves those skills too: for someone
+    # without a degree it is one of the few substitutes employers trust.
+    for line in rec.extras.get("training", []):
+        name, taught = mr.training_skills(line)
+        for skill in taught:
+            s = rec.skill(skill)
+            if s is None:
+                s = mr.Skill(name=skill, category="From the interview", source=FROM_RECORD)
+                rec.skills.append(s)
+            proof = f"training: {name}"
+            if proof not in s.evidence:
+                s.evidence.append(proof)
+                added += 1
     for s in rec.skills:
         if s.have != YES:
             continue

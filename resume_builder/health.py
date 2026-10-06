@@ -83,6 +83,10 @@ class Report:
     skills_unconfirmed: int = 0
     skills_without_level: int = 0
     skills_list_built: bool = False
+    # Promotions inside one employer, with how long each took. A quick step
+    # up is one of the few signals a manager trusts in place of a degree.
+    progression: list = field(default_factory=list)
+    has_degree: bool = True
     next_steps: list = field(default_factory=list)
 
     @property
@@ -154,6 +158,9 @@ def check(rec: mr.Record, target: int = 10, today=(2026, 10)) -> Report:
         if covered is None or months_between(covered, end) > 0:
             covered, c_label = end, label
 
+    rep.progression = progression(rec, today)
+    rep.has_degree = mr.has_degree(rec)
+
     for key in ("Name", "Email"):
         if not rec.contact.get(key):
             rep.record_issues.append(f"contact {key.lower()} is missing")
@@ -170,6 +177,25 @@ def check(rec: mr.Record, target: int = 10, today=(2026, 10)) -> Report:
 
     rep.next_steps = next_steps(rec, rep, target)
     return rep
+
+
+def progression(rec: mr.Record, today=(2026, 10)) -> list:
+    """'Mercy Hospital: Staff RN to Charge Nurse in 18 months', for each step
+    between titles at one employer, oldest first. Undated roles are skipped."""
+    by_employer = {}
+    for role in rec.roles:
+        rng = parse_range(role.fields.get("Dates", ""), today=today)
+        if rng:
+            by_employer.setdefault(mr._squash(role.employer), []).append((rng[0], role))
+    out = []
+    for steps in by_employer.values():
+        steps.sort(key=lambda s: s[0])
+        for (start, lower), (next_start, higher) in zip(steps, steps[1:]):
+            months = months_between(start, next_start)
+            if months > 0 and mr._squash(lower.title) != mr._squash(higher.title):
+                out.append(f"{higher.employer}: {lower.title} to {higher.title} "
+                           f"in {months} months")
+    return out
 
 
 def next_steps(rec: mr.Record, rep: Report, target: int) -> list:
@@ -189,6 +215,10 @@ def next_steps(rec: mr.Record, rep: Report, target: int) -> list:
         if len(h.context_missing) >= 3:
             steps.append(f"Answer the role questions for {h.label} "
                          f"({', '.join(h.context_missing)}).")
+    if rec.roles and not rep.has_degree:
+        steps.append("No degree on your record. Employers still lean on one when comparing "
+                     "candidates, so make the substitutes visible: certifications, training "
+                     "on the job with the skills it taught, and the size of what you ran.")
     if rec.roles and not rec.summary:
         steps.append("Write your professional summary, or have one drafted from your record.")
     if rec.roles and not rep.skills_list_built:
@@ -216,6 +246,9 @@ def render(rep: Report) -> str:
         out += ["", "Fix before export:"]
         out += [f"  - {label}: {i}" for label, i in problems]
         out += [f"  - {i}" for i in rep.record_issues]
+    if rep.progression:
+        out += ["", "Promotions worth showing:"]
+        out += [f"  - {p}" for p in rep.progression]
     no_result = [(h.label, t) for h in rep.roles for t in h.no_result]
     if no_result:
         out += ["", "Accomplishments with no result yet:"]

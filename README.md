@@ -78,6 +78,18 @@ the work that proves each skill, and export passes the pairs to the pipeline
 as `skills_in_context`, names only, so tailoring can pick the accomplishment
 that proves the skill a posting asks for.
 
+## Without a degree
+
+Employers that drop a degree requirement often keep hiring as before, because
+a manager comparing candidates falls back on the degree unless something else
+shows the skill ([Burning Glass Institute and Harvard Business School, Feb
+2024](https://www.burningglassinstitute.org/research/skills-based-hiring-2024)).
+When no bachelor's degree or higher is recorded, the builder asks about formal
+training on the job (what it was, how long, and the skills it taught, which
+then count as evidence for those skills), and the health report says so.
+Promotions inside one employer are listed with how long each took, for
+everyone.
+
 ## What it will not do
 
 - **Put a figure on a bullet that isn't in your own words.** Every number in

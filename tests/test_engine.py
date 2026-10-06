@@ -212,9 +212,11 @@ class InterviewEngine(unittest.TestCase):
         self.assertTrue(any("recorded" in n for n in p.notes))
         self.assertTrue(p.text.startswith("One more angle"))
         self.assertTrue(iv.step("").text.startswith("Your next qualification"))
+        # no degree recorded, so training on the job is asked next
+        self.assertTrue(iv.step("").text.startswith("Did any of your jobs give you formal training"))
         self.assertTrue(iv.step("").text.startswith("Your next licence"))
         # one Enter per remaining section; a nurse is never asked about a clearance
-        self.assertEqual(finish(iv), len(interview.SECTIONS) - 2, "one Enter per section")
+        self.assertEqual(finish(iv), len(interview.SECTIONS) - 3, "one Enter per section")
         rec = self.store.load_record()
         self.assertEqual(rec.roles[0].recorded_bullets, [], "the expanded bullet is replaced")
         self.assertEqual(rec.roles[0].accomplishments[0].evidence, "metric")
@@ -800,6 +802,78 @@ class SkillsInContext(unittest.TestCase):
         before = export.fingerprint(a)
         a.skills_used = "Python"
         self.assertEqual(export.fingerprint(a), before)
+
+
+class DegreeSubstitutes(unittest.TestCase):
+    """For people without a degree: training on the job, and promotions."""
+
+    def test_what_counts_as_a_degree(self):
+        yes = ["BSN, Ohio State University, 2015", "Bachelor of Arts in History", "MBA, Wharton",
+               "B.S. Accounting", "PhD in Chemistry", "Master's in Education"]
+        no = ["High school diploma, 2008", "Associate degree in Nursing", "Welding certificate",
+              "Excel and MS Office course", "GED"]
+        for e in yes:
+            self.assertTrue(mr.has_degree(Record(education=[e])), e)
+        for e in no:
+            self.assertFalse(mr.has_degree(Record(education=[e])), e)
+
+    def asked(self, rec) -> list:
+        iv = interview.Interview(MemoryStore(rec), only="background")
+        seen, p = [], iv.step()
+        while p.kind != "done":
+            seen.append(p.text)
+            p = iv.step("")
+        return seen
+
+    def test_training_is_asked_only_without_a_degree(self):
+        q = "Did any of your jobs give you formal training"
+        none = Record(header=["# R"], roles=[Role(employer="Acme", title="Operator")],
+                      education=["High school diploma"])
+        grad = Record(header=["# R"], roles=[Role(employer="Acme", title="Operator")],
+                      education=["BS Mechanical Engineering, Purdue, 2012"])
+        self.assertTrue(any(x.startswith(q) for x in self.asked(none)))
+        self.assertFalse(any(x.startswith(q) for x in self.asked(grad)))
+
+    def test_a_degree_given_earlier_in_the_same_session_skips_training(self):
+        store = MemoryStore(Record(header=["# R"], roles=[Role(employer="Acme", title="Operator")]))
+        iv = interview.Interview(store, only="background")
+        iv.step()
+        for answer in ("BS", "Mechanical Engineering", "Purdue", "2012", ""):
+            p = iv.step(answer)
+        p = iv.step("")                     # no more qualifications
+        self.assertTrue(p.text.startswith("Your next licence"), p.text)
+
+    def test_training_is_recorded_and_proves_the_skills_it_taught(self):
+        store = MemoryStore(Record(header=["# R"], roles=[Role(employer="Acme Foods", title="Operator")],
+                                   skills=[Skill("Lean", have="yes")]))
+        iv = interview.Interview(store, only="background:job_training")
+        iv.step()
+        for answer in ("Green Belt programme", "Acme Foods", "2019", "40 hours"):
+            iv.step(answer)
+        p = iv.step("Lean; Root cause analysis")
+        line = "Green Belt programme (Acme Foods, 2019, 40 hours). Skills: Lean; Root cause analysis"
+        self.assertIn(f"recorded: {line}", p.notes)
+        rec = store.load_record()
+        self.assertEqual(rec.extras["training"], [line])
+        self.assertEqual(rec.skill("Lean").evidence, ["training: Green Belt programme"])
+        self.assertEqual(rec.skill("Root cause analysis").evidence, ["training: Green Belt programme"])
+        self.assertIn("## Training and courses", mr.render(rec))
+
+    def test_promotions_are_listed_with_how_long_they_took(self):
+        rec = Record(contact={"Name": "x", "Email": "y"}, education=["e"], roles=[
+            Role(employer="Mercy", title="Charge Nurse", fields={"Dates": "Jul 2020 - Present"}),
+            Role(employer="Mercy", title="Staff RN", fields={"Dates": "Jan 2019 - Jun 2020"}),
+            Role(employer="Clinic", title="LPN", fields={"Dates": "2015 - 2018"})])
+        rep = health.check(rec)
+        self.assertEqual(rep.progression, ["Mercy: Staff RN to Charge Nurse in 18 months"])
+        self.assertIn("Promotions worth showing:", health.render(rep))
+
+    def test_no_degree_changes_the_advice(self):
+        rec = Record(contact={"Name": "x", "Email": "y"}, education=["High school diploma"],
+                     roles=[Role(employer="Acme", title="Operator")])
+        self.assertTrue(any(s.startswith("No degree on your record") for s in health.check(rec).next_steps))
+        rec.education = ["BA Economics"]
+        self.assertFalse(any(s.startswith("No degree") for s in health.check(rec).next_steps))
 
 
 class Promotions(unittest.TestCase):
