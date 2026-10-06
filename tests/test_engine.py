@@ -189,6 +189,9 @@ class InterviewEngine(unittest.TestCase):
             employer="Riverside", title="RN",
             fields={k: "x" for k, _ in interview.CONTEXT_QUESTIONS},
             recorded_bullets=["Precepted new graduate nurses"])]))
+        # Contact, target and story are asked once; these tests are about the jobs.
+        self.store.save_state(interview.ASKED_STATE, {"asked": [
+            q[1] for q in interview.PROFILE_QUESTIONS + interview.STORY_QUESTIONS]})
 
     @staticmethod
     def turn(status="asking", say="?", **draft):
@@ -205,7 +208,8 @@ class InterviewEngine(unittest.TestCase):
                       skills=["Precepting"]),
             self.turn("role_done"))
         iv = interview.Interview(self.store)
-        p = iv.step()
+        self.assertTrue(iv.step().text.startswith("A new job"))
+        p = iv.step("")
         self.assertEqual(p.kind, "choice")                 # open the bullet?
         self.assertEqual(iv.step("").text, "How many?")
         p = iv.step("12 over two years")
@@ -230,6 +234,7 @@ class InterviewEngine(unittest.TestCase):
                    self.turn("role_done"))
         iv = interview.Interview(self.store)
         iv.step()
+        iv.step("")                                        # no new job
         iv.step("")
         acc_ = self.store.load_record().roles[0].accomplishments[0]
         self.assertEqual(acc_.contribution, "I designed the rounding checklist and trained 30 staff")
@@ -243,6 +248,7 @@ class InterviewEngine(unittest.TestCase):
                    self.turn("role_done"))
         iv = interview.Interview(self.store)
         iv.step()
+        iv.step("")                                        # no new job
         iv.step("")
         rec = self.store.load_record()
         a = rec.roles[0].accomplishments[0]
@@ -261,6 +267,7 @@ class InterviewEngine(unittest.TestCase):
             self.turn("role_done"))
         iv = interview.Interview(self.store)
         iv.step()
+        iv.step("")                                        # no new job
         iv.step("")
         self.assertEqual(len(self.store.load_record().roles[0].accomplishments), 1)
 
@@ -273,6 +280,7 @@ class InterviewEngine(unittest.TestCase):
                    self.turn("role_done"))
         iv = interview.Interview(self.store)
         iv.step()
+        iv.step("")                                        # no new job
         iv.step("skip")                                    # leave the bullet
         self.assertEqual(iv.step(None).text, "What was it like before?")
 
@@ -304,7 +312,9 @@ class InterviewEngine(unittest.TestCase):
         interview.run(interview.Interview(store),
                       ask=lambda q: asked.append(q) or "", say=lambda *a: None)
         firsts = tuple(qs[0][1] for _, qs in interview.SECTIONS)
-        context = [q for q in asked if not q.startswith(("One more angle", *firsts))]
+        once = tuple(q[2] for q in interview.PROFILE_QUESTIONS + interview.STORY_QUESTIONS)
+        context = [q for q in asked if not q.startswith(("One more angle", "A new job",
+                                                         *firsts, *once))]
         self.assertEqual(len(context), len(interview.CONTEXT_QUESTIONS) - 1)
 
     def test_education_and_certifications_on_their_own(self):
@@ -347,6 +357,7 @@ class InterviewEngine(unittest.TestCase):
         use(self.turn(say="How many?"))
         iv = interview.Interview(self.store)
         iv.step()
+        iv.step("")                                        # no new job
         self.assertEqual(iv.step("").text, "How many?")
         bg = interview.Interview(self.store, only=interview.BACKGROUND)
         self.assertTrue(bg.step().text.startswith("Your next qualification"))
@@ -431,6 +442,9 @@ class InterviewEngine(unittest.TestCase):
 
     def test_listing_jobs_from_nothing(self):
         store = MemoryStore()
+        store.save_state(interview.ASKED_STATE, {"asked": ["Name", "Email", "Telephone",
+                                                          "Location", "Linkedin", "Titles",
+                                                          "Industries", "Locations"]})
         iv = interview.Interview(store)
         self.assertTrue(iv.step().text.startswith("Employer"))
         iv.step("Lakeside High School")
@@ -884,6 +898,77 @@ class DegreeSubstitutes(unittest.TestCase):
             for answer in (first, "", "", "", ""):
                 p = iv.step(answer)
             self.assertTrue(p.text.startswith("Your next qualification"), (first, p.text))
+
+    def test_a_new_job_is_added_to_an_existing_record_and_asked_first(self):
+        store = MemoryStore(Record(header=["# R"], roles=[Role(
+            employer="Mercy", title="RN", fields={"Dates": "2015 - 2024"},
+            recorded_bullets=["Cut falls", "Precepted"])]))
+        store.save_state(interview.ASKED_STATE, {"asked": [
+            q[1] for q in interview.PROFILE_QUESTIONS]})
+        iv = interview.Interview(store)
+        p = iv.step()
+        self.assertTrue(p.text.startswith("A new job"), p.text)
+        self.assertIn("Mercy — RN (2015 - 2024)", " ".join(p.notes))
+        iv.step("Clinic")
+        iv.step("Nurse Manager")
+        self.assertTrue(iv.step("2024 - Present").text.startswith("A new job"))
+        iv.step("Mercy")
+        iv.step("RN")
+        p = iv.step("2015 - 2024")
+        self.assertIn("already on your record", " ".join(p.notes))
+        p = iv.step("no")
+        self.assertIn("Clinic", " ".join(p.notes), "the new, empty job comes first")
+        self.assertEqual([r.employer for r in store.load_record().roles], ["Mercy", "Clinic"])
+
+    def test_contact_and_target_are_asked_once(self):
+        store = MemoryStore()
+        iv = interview.Interview(store)
+        self.assertTrue(iv.step().text.startswith("Your name"))
+        iv.step("Pat Lee")
+        iv.step("pat@example.com")
+        for _ in range(3):                                 # phone, location, link
+            iv.step("")
+        iv.step("Charge Nurse; Nurse Manager")
+        iv.step("")
+        p = iv.step("")
+        self.assertTrue(p.text.startswith("Employer"), p.text)
+        rec = store.load_record()
+        self.assertEqual(rec.contact, {"Name": "Pat Lee", "Email": "pat@example.com"})
+        self.assertEqual(rec.target["Titles"], "Charge Nurse; Nurse Manager")
+        store.clear_state(interview.STATE)
+        self.assertTrue(interview.Interview(store).step().text.startswith("Employer"),
+                        "skipped questions are not asked again")
+
+    def test_the_career_story_is_asked_after_the_jobs_and_exported(self):
+        store = MemoryStore(Record(header=["# R"], contact={"Name": "Pat"},
+                                   education=["BSN"], roles=[Role(employer="A", title="B")]))
+        store.save_state(interview.ASKED_STATE, {"asked": [
+            q[1] for q in interview.PROFILE_QUESTIONS]})
+        use(InterviewEngine.turn("role_done"))
+        asked = []
+        answers = {"What are you best at": "Calming a chaotic unit",
+                   "What do you want": "A manager role, because I already do the work"}
+        interview.run(interview.Interview(store), say=lambda *a: None,
+                      ask=lambda q: asked.append(q) or next(
+                          (v for k, v in answers.items() if q.startswith(k)), ""))
+        self.assertTrue(any(q.startswith("Looking across your jobs") for q in asked))
+        rec = store.load_record()
+        self.assertEqual(rec.sets_apart, ["Best at: Calming a chaotic unit"])
+        self.assertEqual(interview.fact(rec, "sets_apart", "Best at"), "Calming a chaotic unit")
+        profile = export.Export(rec, {}, {}).build()
+        self.assertEqual(profile["differentiator"], "Best at: Calming a chaotic unit")
+        self.assertEqual(profile["next_move"], "A manager role, because I already do the work")
+
+    def test_duties_and_performance_are_asked_and_exported(self):
+        labels = [q[0] for q in interview.CONTEXT_QUESTIONS]
+        self.assertIn("Responsibilities", labels)
+        self.assertIn("Performance", labels)
+        rec = Record(roles=[Role(employer="Acme", title="Rep", fields={
+            "Responsibilities": "Managed 60 accounts", "Performance": "112% of quota in 2023"})])
+        rec = mr.parse(mr.render(rec))
+        entry = export.Export(rec, {}, {}).build()["work_history"][0]
+        self.assertEqual(entry["responsibilities"], "Managed 60 accounts")
+        self.assertEqual(entry["performance"], "112% of quota in 2023")
 
     def test_promotions_are_listed_with_how_long_they_took(self):
         rec = Record(contact={"Name": "x", "Email": "y"}, education=["e"], roles=[

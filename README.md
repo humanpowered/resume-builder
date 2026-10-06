@@ -68,6 +68,19 @@ the same person says "three days a month became half a day". That is.
 Everything is saved as it's confirmed. Stop with Ctrl-C at any time, and the
 next run offers to pick up the half-finished one.
 
+## The order of a session
+
+1. Contact details and the jobs you're aiming for, each asked once. A skipped
+   one is not asked again.
+2. The job list: all of it on a new record. On every later visit, "a new job,
+   or one missing from that list?", so the record keeps up with a career.
+3. Each job, thinnest first: what the organisation was, the regular duties
+   with their volumes, how performance was measured, then its accomplishments.
+4. Education, certifications and the optional sections.
+5. The career story, asked once: what you're best at, what connects your jobs,
+   and what you want next. It never goes on a resume as written; the pipeline
+   uses it for cover letters (`differentiator`, `next_move` in the export).
+
 ## Skills in context
 
 Each accomplishment keeps a **Skills used** line: the tools, software,

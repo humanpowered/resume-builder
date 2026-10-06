@@ -203,8 +203,9 @@ class Export:
             self._take(entry, "scope", scope, role.employer)
             if clean(role.fields.get("Challenge", "")):
                 self._take(entry, "challenge", role.fields["Challenge"], role.employer)
-            if clean(role.fields.get("Recognition", "")):
-                self._take(entry, "recognition", role.fields["Recognition"], role.employer)
+            for label in ("Recognition", "Responsibilities", "Performance"):
+                if clean(role.fields.get(label, "")):
+                    self._take(entry, label.lower(), role.fields[label], role.employer)
 
             highlights = [self.bullet_for(role, a) for a in role.accomplishments
                           if not a.is_empty()]
@@ -247,6 +248,9 @@ class Export:
             self._take(p, key, self.rec.contact.get(label, ""), "contact")
         if self.rec.sets_apart:
             self._take(p, "differentiator", " ".join(self.rec.sets_apart), "positioning")
+        for label, key in (("Next move", "next_move"),):
+            if self.rec.target.get(label):
+                self._take(p, key, self.rec.target[label], "target")
         titles = self.rec.target.get("Titles", "")
         if titles and not p.get("target_titles"):
             p["target_titles"] = [t.strip() for t in re.split(r"[;,]", titles) if t.strip()]

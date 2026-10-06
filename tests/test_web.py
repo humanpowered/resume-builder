@@ -77,8 +77,12 @@ class Web(unittest.TestCase):
                  actions="Hourly rounding", results="Falls down 30%", evidence="metric"),
             turn("role_done")))
         p = c.post("/api/interview/step", json={"answer": None}).json()
-        self.assertTrue(p["text"].startswith("In a sentence"))       # role context first
-        for _ in range(7):
+        for _ in range(12):                 # contact and target, then any new job
+            if p["text"].startswith("In a sentence"):               # role context
+                break
+            p = c.post("/api/interview/step", json={"answer": ""}).json()
+        self.assertTrue(p["text"].startswith("In a sentence"))
+        for _ in range(12):
             if p["text"].startswith("What was the unit"):
                 break
             p = c.post("/api/interview/step", json={"answer": ""}).json()

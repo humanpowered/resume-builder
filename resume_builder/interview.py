@@ -56,14 +56,74 @@ CONTEXT_QUESTIONS = [
                 "(people, revenue, sites, beds, students -- whatever is natural), and the industry."),
     ("Challenge", "What were you brought in to do, or what problem was waiting for you "
                   "when you started as {title}?"),
+    ("Responsibilities", "What did a normal week involve? The regular duties, with volumes "
+                         "where you know them: calls a day, accounts, patients, orders, reports."),
     ("Authority", "Did you lead or supervise anyone there? How many, and in what roles?"),
     ("Budget", "Were you responsible for a budget, revenue target, or expensive "
                "equipment or inventory? Roughly how much?"),
     ("Reported to", "What was the title of the person you reported to?"),
     ("Territory", "What did your work cover: one site, a region, national, international, "
                   "a set of clients or accounts?"),
+    ("Performance", "How was your performance measured there, and how did you do? e.g. "
+                    "'112% of quota in 2023', 'top 3 of 40 reps', 'caseload of 30'."),
     ("Recognition", "Any awards, promotions, top ratings or formal recognition there?"),
 ]
+
+
+# --------------------------------------------------------------------------
+# Who the person is and what they want next
+#
+# A record started from nothing has no name on it and no target, and the
+# pipeline searches by the target titles. Each is asked once when missing; a
+# skipped one is remembered and not asked again.
+
+# (where, label, question, hint)
+PROFILE_QUESTIONS = [
+    ("contact", "Name", "Your name, as it should appear on a resume?", "Enter to skip"),
+    ("contact", "Email", "The email address employers should use?", "Enter to skip"),
+    ("contact", "Telephone", "Phone number?", "Enter to skip"),
+    ("contact", "Location", "Where are you based? City and state or country is enough.",
+     "Enter to skip"),
+    ("contact", "Linkedin", "A LinkedIn profile, portfolio or personal website?", "Enter to skip"),
+    ("target", "Titles", "What jobs are you aiming for next? Job titles, separated by ';'.",
+     "Enter to skip"),
+    ("target", "Industries", "Which industries or kinds of employer? Separated by ';'.",
+     "Enter to skip"),
+    ("target", "Locations", "Where do you want to work? Cities, regions or 'remote'.",
+     "Enter to skip"),
+]
+# Asked after the jobs, when the person has their whole career in mind. A
+# cover letter needs the thread between the jobs, which no single job holds.
+STORY_QUESTIONS = [
+    ("sets_apart", "Best at", "What are you best at: the thing colleagues and managers "
+                              "come to you for?", "Enter to skip"),
+    ("sets_apart", "Career thread", "Looking across your jobs, what connects them? The "
+                                    "thread a hiring manager should see, especially if "
+                                    "you've changed fields.", "Enter to skip"),
+    ("target", "Next move", "What do you want from your next role, and why now?",
+     "Enter to skip"),
+]
+ASKED_STATE = "interview_asked"     # labels already asked, kept across sessions
+
+
+def fact(rec, where: str, label: str) -> str:
+    """A profile or story answer already on the record, or ''."""
+    if where == "sets_apart":
+        for line in rec.sets_apart:
+            head, sep, value = line.partition(":")
+            if sep and head.strip().lower() == label.lower():
+                return value.strip()
+        return ""
+    return getattr(rec, where).get(label, "")
+
+
+def set_fact(rec, where: str, label: str, value: str) -> None:
+    if where == "sets_apart":
+        rec.sets_apart = [x for x in rec.sets_apart
+                          if x.partition(":")[0].strip().lower() != label.lower()]
+        rec.sets_apart.append(f"{label}: {value}")
+    else:
+        getattr(rec, where)[label] = value
 
 
 # --------------------------------------------------------------------------
@@ -569,15 +629,48 @@ class Interview:
             if one:
                 i = SECTION_KEYS.index(one)
                 s["bg"] = {"section": i, "stop": i + 1, "q": 0, "draft": {}, "intro": False}
-        elif not self.rec.roles:
-            s["phase"] = "roles"
-            s["new_role"] = {"stage": "employer"}
+        elif self.only:
+            s["queue"] = self._queue()
+        else:
+            s["phase"] = "profile"
+        return s
+
+    def _start_roles(self) -> None:
+        """The job list: all of it on a new record, then any job that's new
+        or missing on every later visit, so the record keeps up with a career."""
+        s = self.state
+        s["phase"] = "roles"
+        s["new_role"] = {"stage": "employer", "adding": bool(self.rec.roles)}
+        if self.rec.roles:
+            self.notes.append("Jobs on your record: " + "; ".join(
+                r.label() + (f" ({r.fields['Dates']})" if r.fields.get("Dates") else "")
+                for r in self.rec.roles) + ".")
+        else:
             self.notes.append("List your jobs, newest first. Include part-time, contract, "
                               "volunteer and military roles if they matter. Leave the "
                               "employer blank when you are done.")
-        else:
-            s["queue"] = self._queue()
-        return s
+
+    def _asked(self) -> set:
+        return set((self.store.load_state(ASKED_STATE) or {}).get("asked", []))
+
+    def _fact_prompt(self, questions) -> Prompt | None:
+        """The next missing, never-asked profile or story question."""
+        asked = self._asked()
+        for where, label, question, hint in questions:
+            if not fact(self.rec, where, label) and label not in asked:
+                self.state["fact"] = [where, label]
+                return Prompt(question, hint=hint)
+        return None
+
+    def _take_fact(self, a: str) -> None:
+        where, label = self.state.pop("fact", None) or (None, None)
+        if not label:
+            return
+        if not gave_up(a):
+            set_fact(self.rec, where, label, a)
+            self._save_record()
+        asked = self._asked() | {label}
+        self.store.save_state(ASKED_STATE, {"asked": sorted(asked)})
 
     # -- taking an answer ----------------------------------------------------
 
@@ -586,22 +679,31 @@ class Interview:
         phase = s["phase"]
         a = (answer or "").strip()
 
+        if phase in ("profile", "story"):
+            self._take_fact(a)
+            return
+
         if phase == "roles":
             nr = s["new_role"]
             if nr["stage"] == "employer":
-                if not a:
+                if gave_up(a):                     # "no", "done" or Enter ends the list
                     s["phase"], s["queue"], s["qi"] = "begin_role", self._queue(), 0
                     return
                 nr.update(employer=a, stage="title")
             elif nr["stage"] == "title":
                 nr.update(title=a, stage="dates")
             else:
+                if self.rec.role_by_employer(nr["employer"], nr.get("title", ""), strict=True):
+                    self.notes.append(f"{nr['employer']} — {nr.get('title', '')} is already "
+                                      f"on your record.")
+                    s["new_role"] = {"stage": "employer", "adding": nr.get("adding", False)}
+                    return
                 role = Role(employer=nr["employer"], title=nr.get("title", ""))
                 if a:
                     role.fields["Dates"] = a
                 self.rec.roles.append(role)
                 self._save_record()
-                s["new_role"] = {"stage": "employer"}
+                s["new_role"] = {"stage": "employer", "adding": nr.get("adding", False)}
             return
 
         if phase == BACKGROUND:
@@ -652,9 +754,26 @@ class Interview:
         for _ in range(500):            # each pass either returns or moves forward
             phase = s["phase"]
 
+            if phase == "profile":
+                prompt = self._fact_prompt(PROFILE_QUESTIONS)
+                if prompt is not None:
+                    return prompt
+                self._start_roles()
+                continue
+
+            if phase == "story":
+                prompt = self._fact_prompt(STORY_QUESTIONS)
+                if prompt is not None:
+                    return prompt
+                s["phase"] = "done"
+                continue
+
             if phase == "roles":
                 stage = s["new_role"]["stage"]
                 emp = s["new_role"].get("employer", "")
+                if stage == "employer" and s["new_role"].get("adding"):
+                    return Prompt("A new job, or one missing from that list? Its employer.",
+                                  hint="Enter to carry on")
                 return {"employer": Prompt("Employer (or organisation)?", hint="Enter when done"),
                         "title": Prompt(f"Your job title at {emp}?"),
                         "dates": Prompt("Dates? (anything readable, e.g. 2019 - 2022)")}[stage]
@@ -664,7 +783,7 @@ class Interview:
                 if prompt is not None:
                     return prompt
                 s["background_done"] = True
-                s["phase"] = "done"
+                s["phase"] = "done" if self.background_only else "story"
                 continue
 
             if phase != "done" and s["qi"] >= len(s["queue"]):
