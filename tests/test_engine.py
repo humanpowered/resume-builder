@@ -1062,8 +1062,9 @@ class DegreeSubstitutes(unittest.TestCase):
         self.assertIn(interview.CONFIDENTIAL_NOTE, interview.Interview(store).step().notes)
         bg = interview.Interview(MemoryStore(), only=interview.BACKGROUND)
         self.assertNotIn(interview.CONFIDENTIAL_NOTE, bg.step().notes, "no figures asked there")
-        self.assertIn("Never ask for or record a figure an employer or client would treat "
-                      "as\n   confidential", interview.COACH)
+        self.assertIn("Do not ask for figures an employer or client would treat as "
+                      "confidential", interview.COACH)
+        self.assertIn("record it as given", interview.COACH, "what they give is theirs to share")
 
     def test_promotions_are_listed_with_how_long_they_took(self):
         rec = Record(contact={"Name": "x", "Email": "y"}, education=["e"], roles=[

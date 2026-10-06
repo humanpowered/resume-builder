@@ -470,13 +470,13 @@ Rules:
    what their own part was, and put it in "contribution" in their words: what
    they led, built, decided or did. "I was one of six on it" is a real answer.
    Leave "contribution" "" when the work was theirs alone.
-9. Never ask for or record a figure an employer or client would treat as
-   confidential: exact revenue, profit, margins, budgets, prices, salaries.
-   If a figure sounds like one, or they hesitate, do not press. Offer a form
+9. Do not ask for figures an employer or client would treat as confidential:
+   exact revenue, profit, margins, budgets, prices, salaries. Ask for a form
    that is safe to publish instead (a percentage change, a range or order of
    magnitude such as "an eight-figure P&L", a ranking, a count of people or
-   sites) and record that. If they already gave an exact confidential figure,
-   record the safe form, not the figure.
+   sites). If they hesitate, offer one of those and do not press. A figure
+   they give you is theirs to share: they were told not to enter confidential
+   ones, so record it as given and do not question it.
 
 {mode}
 

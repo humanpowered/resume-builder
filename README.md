@@ -121,9 +121,9 @@ everyone.
   the bullet says what you did and credits the outcome to the effort.
 - **Collect confidential figures.** Each session opens by asking you not to
   enter exact revenue, profit, margins, client budgets, prices or salaries.
-  When a figure sounds confidential the interviewer offers a safe form
-  instead (a percentage, a range, a ranking) and never presses for the exact
-  number.
+  The interviewer asks for safe forms (a percentage, a range, a ranking) and
+  never presses for an exact number. A figure you give anyway is taken as
+  yours to share and recorded as given.
 - **Accept an imported line that isn't in your document.** Every line the
   importer files is matched against the source. Anything it can't find is set
   aside for you to check. Anything it didn't file is kept under "Unplaced".
