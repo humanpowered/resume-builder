@@ -73,7 +73,8 @@ CONTEXT_QUESTIONS = [
                   "when you started as {title}?"),
     ("Authority", "Did you lead or supervise anyone there? How many, and in what roles?"),
     ("Budget", "Were you responsible for a budget, revenue target, or expensive "
-               "equipment or inventory? Roughly how much?"),
+               "equipment or inventory? Roughly what size? A range is fine, e.g. "
+               "'$2-5M', 'a fleet of 40 trucks'."),
     ("Reported to", "What was the title of the person you reported to?"),
     ("Territory", "What did your work cover: one site, a region, national, international, "
                   "a set of clients or accounts?"),
