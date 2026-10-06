@@ -74,6 +74,12 @@ next run offers to pick up the half-finished one.
    one is not asked again.
 2. The job list: all of it on a new record. On every later visit, "a new job,
    or one missing from that list?", so the record keeps up with a career.
+   Each title is its own entry with its own dates. After each job the list
+   asks "Any other title at this employer?", so a promotion is entered as two
+   titles rather than folded into one; an imported job is asked the same
+   question once. Titles at one employer share its company details, and the
+   export marks the later one `promoted_from` ("Staff RN, after 36 months").
+   The health report flags a promotion mentioned only under Recognition.
 3. Each job, thinnest first: its employment type (a choice: full-time,
    part-time, contract and so on), what the organisation was, results against
    targets or rankings, then its accomplishments. A job that ends with fewer

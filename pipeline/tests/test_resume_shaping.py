@@ -9,7 +9,7 @@ import unittest
 
 from helpers import profile
 
-from score_and_tailor import normalize_skills, order_experience
+from score_and_tailor import fit_to_two_pages, normalize_skills, order_experience
 
 
 class OrderExperience(unittest.TestCase):
@@ -66,3 +66,27 @@ class NormalizeSkills(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PromotionsStack(unittest.TestCase):
+    def bullets(self, n):
+        return [f"Did thing {i}" for i in range(n)]
+
+    def test_titles_at_one_employer_share_a_position(self):
+        """A promotion is one employer, not two jobs: the third employer
+        still gets the third cap, and the earlier title is held to the tail."""
+        resume = {"experience": [
+            {"company": "Acme Inc", "title": "Director", "bullets": self.bullets(8)},
+            {"company": "Acme, Inc.", "title": "Manager", "bullets": self.bullets(8)},
+            {"company": "Baker Media", "title": "Analyst", "bullets": self.bullets(8)},
+            {"company": "Cole Labs", "title": "Associate", "bullets": self.bullets(8)},
+        ]}
+        got = [len(e["bullets"]) for e in fit_to_two_pages(resume)["experience"]]
+        self.assertEqual(got, [5, 2, 5, 4])
+
+    def test_a_promotion_keeps_its_place_in_the_order(self):
+        resume = {"experience": [{"company": "Northwind Retail", "title": "Head"},
+                                 {"company": "Baker Media", "title": "Director"},
+                                 {"company": "Northwind Retail", "title": "Manager"}]}
+        got = order_experience(resume, profile())["experience"]
+        self.assertEqual([e["title"] for e in got], ["Head", "Manager", "Director"])

@@ -221,3 +221,11 @@ Resume (General).docx`.
 - This deliberately stops short of form filling, auto-submit, and CAPTCHA
   handling -- both for site ToS reasons and because a human check on the
   final application is genuinely worth keeping.
+
+## Promotions on the resume
+
+Consecutive titles at one company print stacked: the company once, then each
+title with its own dates and bullets. Bullet caps count employers, not titles,
+and an earlier title at the same employer keeps at most `bullets_tail`
+bullets, so a career with three promotions at one company costs little more
+space than one job.

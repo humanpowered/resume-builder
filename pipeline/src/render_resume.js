@@ -52,34 +52,78 @@ function sectionHeading(text) {
   });
 }
 
+// Consecutive entries at one company (a promotion, a change of title) are
+// stacked: the company prints once, then each title with its own dates and
+// bullets, so a promotion reads as progress rather than as two jobs.
+function companyKey(company) {
+  return (company || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+function groupByCompany(experience) {
+  const groups = [];
+  for (const job of experience) {
+    const last = groups[groups.length - 1];
+    const key = companyKey(job.company);
+    if (last && key && last.key === key) last.jobs.push(job);
+    else groups.push({ key, company: job.company, jobs: [job] });
+  }
+  return groups;
+}
+
+function pushBullets(bullets) {
+  bullets.forEach((bullet, i) => {
+    children.push(new Paragraph({
+      text: bullet,
+      bullet: { level: 0 },
+      keepLines: true,     // a bullet never splits across pages
+      // hold the first two bullets with the header block, so a role never
+      // starts with just its title showing at the foot of a page
+      keepNext: i === 0 && bullets.length > 1,
+    }));
+  });
+}
+
+function pushDates(dates) {
+  if (!dates) return;
+  children.push(new Paragraph({
+    children: [new TextRun({ text: dates, italics: true, size: 20, color: "555555" })],
+    keepNext: true,      // dates stay with the first bullet
+  }));
+}
+
 if (resume.experience && resume.experience.length) {
   children.push(sectionHeading("EXPERIENCE"));
-  for (const job of resume.experience) {
+  for (const group of groupByCompany(resume.experience)) {
+    if (group.jobs.length === 1) {
+      const job = group.jobs[0];
+      children.push(new Paragraph({
+        children: [
+          new TextRun({ text: job.title || "", bold: true }),
+          new TextRun({ text: job.company ? `  |  ${job.company}` : "", bold: true }),
+        ],
+        spacing: { before: 150 },
+        keepNext: true,        // title stays with its dates
+        keepLines: true,
+      }));
+      pushDates(job.dates);
+      pushBullets(job.bullets || []);
+      continue;
+    }
     children.push(new Paragraph({
-      children: [
-        new TextRun({ text: job.title || "", bold: true }),
-        new TextRun({ text: job.company ? `  |  ${job.company}` : "", bold: true }),
-      ],
+      children: [new TextRun({ text: group.company || "", bold: true })],
       spacing: { before: 150 },
-      keepNext: true,        // title stays with its dates
+      keepNext: true,          // the company stays with its first title
       keepLines: true,
     }));
-    if (job.dates) {
+    group.jobs.forEach((job, i) => {
       children.push(new Paragraph({
-        children: [new TextRun({ text: job.dates, italics: true, size: 20, color: "555555" })],
-        keepNext: true,      // dates stay with the first bullet
+        children: [new TextRun({ text: job.title || "", bold: true, italics: false })],
+        spacing: { before: i === 0 ? 40 : 100 },
+        keepNext: true,
+        keepLines: true,
       }));
-    }
-    const bullets = job.bullets || [];
-    bullets.forEach((bullet, i) => {
-      children.push(new Paragraph({
-        text: bullet,
-        bullet: { level: 0 },
-        keepLines: true,     // a bullet never splits across pages
-        // hold the first two bullets with the header block, so a role never
-        // starts with just its title showing at the foot of a page
-        keepNext: i === 0 && bullets.length > 1,
-      }));
+      pushDates(job.dates);
+      pushBullets(job.bullets || []);
     });
   }
 }

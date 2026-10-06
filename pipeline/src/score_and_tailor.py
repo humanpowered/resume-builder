@@ -559,6 +559,12 @@ BULLETS_BY_POSITION = _TUNING["bullets_by_position"]
 BULLETS_TAIL = _TUNING["bullets_tail"]        # anything beyond the list above
 
 
+def _company_key(company) -> str:
+    """Company name reduced to letters and digits, so 'Acme, Inc.' and
+    'Acme Inc' count as one employer."""
+    return re.sub(r"[^a-z0-9]", "", (company or "").lower())
+
+
 def fit_to_two_pages(resume: dict) -> dict:
     """
     Trim a tailored resume so it renders on two pages.
@@ -593,8 +599,20 @@ def fit_to_two_pages(resume: dict) -> dict:
             n += len(s.split())
         resume["summary"] = " ".join(kept)
 
-    for i, job in enumerate(resume.get("experience", [])):
-        cap = by_position[i] if i < len(by_position) else tail
+    # positions count employers, not entries: titles held at one company
+    # (a promotion) stack under one heading and share its place. The latest
+    # title takes the employer's cap; earlier titles there are context and
+    # get the tail cap at most.
+    employer, prev = -1, None
+    for job in resume.get("experience", []):
+        key = _company_key(job.get("company"))
+        stacked = bool(key) and key == prev
+        if not stacked:
+            employer += 1
+        prev = key
+        cap = by_position[employer] if employer < len(by_position) else tail
+        if stacked:
+            cap = min(cap, tail)
         job["bullets"] = (job.get("bullets") or [])[:cap]
 
     # still over? drop the weakest remaining bullet from the oldest role that
@@ -744,6 +762,13 @@ Guidelines:
   reordering here only creates a mismatch.
 - Order/emphasize experience bullets WITHIN each role to match what this
   posting cares about most.
+- Promotions and title changes at one employer: give each title its own
+  experience entry with its own dates, newest first, one after another, and
+  the company name spelled identically in each so they print stacked under
+  one heading. Put most bullets under the latest title; earlier titles at
+  that employer get at most {_tune("bullets_tail")} bullets. Where a role has
+  "promoted_from" in the profile, the promotion is itself evidence: let the
+  first bullet of the later title or the summary say so when it helps.
 
 SKILLS SECTION. This is read by both an ATS keyword parser and a human
 skimming for anchors. Format for both:
