@@ -1161,6 +1161,53 @@ class DegreeSubstitutes(unittest.TestCase):
         self.assertIsNone(interview.same_job(rec, "Acme", "Analyst II", "2015 - 2017"),
                           "a title in other years is another title, not a duplicate")
 
+    def _imported(self, title, **fields):
+        store = MemoryStore(Record(header=["# R"], contact={"Name": "x"}, roles=[
+            Role(employer="Fairhaven", title=title, fields={
+                "Dates": "2015 - 2016", "Employment type": "Full-time",
+                "Other titles": "None", **fields})]))
+        store.save_state(interview.ASKED_STATE, {"asked": [
+            q[1] for q in interview.PROFILE_QUESTIONS + interview.STORY_QUESTIONS]})
+        return store
+
+    def test_a_job_the_person_disowns_is_removed_after_asking(self):
+        """Eval 02: a Student Teacher job on the old resume was denied at every
+        question, and the denials were saved as its details."""
+        store = self._imported("Student Teacher")
+        iv = interview.Interview(store)
+        iv.step()
+        iv.step("")                                        # no new job
+        p = iv.step("I don't have a Student Teacher role at Fairhaven.")
+        self.assertIn("Remove it from your record?", p.text)
+        self.assertEqual(p.options, list(interview.DISOWN_OPTIONS))
+        iv.step("Yes, remove it")
+        self.assertEqual(store.load_record().roles, [])
+
+    def test_a_plain_negative_is_an_answer_not_a_denial(self):
+        role = Role(employer="Fairhaven", title="Student Teacher")
+        self.assertFalse(interview.disowns("I didn't have direct reports in that role", role))
+        self.assertFalse(interview.disowns("No, I didn't have a budget", role))
+        self.assertTrue(interview.disowns("I never worked at Fairhaven", role))
+
+    def test_a_story_that_runs_out_of_details_is_still_kept(self):
+        """Eval 05: the curbside pickup launch was told twice and never
+        recorded, because "I don't remember the number" ended the talk."""
+        use(InterviewEngine.turn(say="Tell me about one."),
+            InterviewEngine.turn("role_done", title="Launched curbside pickup",
+                                 actions="Set up the pickup lane and trained 8 associates",
+                                 results=""),
+            InterviewEngine.turn(say="Another one?"))
+        store = self._imported("Store Manager",
+                               **{k: "x" for k, _ in interview.CONTEXT_QUESTIONS})
+        iv = interview.Interview(store)
+        iv.step()
+        iv.step("")                                        # no new job
+        while iv.state["phase"] != "talk":
+            iv.step("skip")
+        iv.step("I don't remember how many orders")
+        accs = [a.title for r in store.load_record().roles for a in r.accomplishments]
+        self.assertIn("Launched curbside pickup", accs)
+
     def test_a_promotion_mentioned_only_in_recognition_is_flagged(self):
         rec = Record(contact={"Name": "x", "Email": "y"}, education=["e"], roles=[Role(
             employer="Mercy", title="Charge Nurse", fields={"Recognition": "Promoted in 2021"})])

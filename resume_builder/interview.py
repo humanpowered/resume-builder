@@ -52,6 +52,25 @@ NON_ANSWER = re.compile(r"^(i\s+)?(don'?t|do not|can'?t|cannot|couldn'?t)\s+(rem
                         r"know|say)|^(not sure|no idea|unknown|n/?a|unsure|not applicable)\b", re.I)
 
 
+# "I don't have a Student Teacher role at Fairhaven": a job imported from an
+# old resume that the person says was never theirs. Plain negatives ("I didn't
+# have direct reports in that role") are answers, so a denial has to name the
+# job, or say outright that it was not theirs.
+DISOWN = re.compile(r"\bnever worked (at|for|there)\b|\bthat wasn'?t me\b|"
+                    r"\bnot (a )?(job|role) i (had|held|did)\b", re.I)
+DENY = re.compile(r"\b(don'?t|do not|didn'?t|did not|never)\s+(have|had|hold|held)\s+"
+                  r"(a|an|the|that|this|any)?\s*(?P<rest>.{0,60})", re.I)
+
+
+def disowns(answer: str, role) -> bool:
+    a = answer or ""
+    if DISOWN.search(a):
+        return True
+    m = DENY.search(a)
+    return bool(m and role is not None and role.title
+                and mr._squash(role.title) in mr._squash(m.group("rest")))
+
+
 def blank(answer: str) -> bool:
     """A skip, or a non-answer to a plain factual question. Not used in the
     conversation with the model, which handles "I don't remember" itself."""
@@ -74,7 +93,7 @@ CONTEXT_QUESTIONS = [
                      "e.g. a promotion. Give each with its dates, e.g. 'Staff RN, 2018 - "
                      "2021'; separate several with ';'."),
     ("Company", "In a sentence, what was {employer}? What it does, roughly how big "
-                "(people, revenue, sites, beds, students -- whatever is natural), and the industry."),
+                "(people, a revenue range, sites, beds, students -- whatever is natural), and the industry."),
     ("Challenge", "What were you brought in to do, or what problem was waiting for you "
                   "when you started as {title}?"),
     ("Authority", "Did you lead or supervise anyone there? How many, and in what roles?"),
@@ -159,6 +178,7 @@ CONFIDENTIAL_NOTE = (
 DUTIES_QUESTION = ("What did a normal week involve there? The regular duties, with volumes "
                    "where you know them: calls a day, accounts, patients, orders, reports.")
 THIN_ROLE = 3
+DISOWN_OPTIONS = ("Yes, remove it", "No, it was mine")
 
 
 # --------------------------------------------------------------------------
@@ -553,8 +573,10 @@ Rules:
      answer. Never invent a number to avoid it.
 3. Never put a number in a field that they did not give or confirm.
 4. Work for any profession. Do not assume office work, marketing or software.
-5. If they cannot remember or want to move on, accept it at once and set status
-   "role_done". Never push twice.
+5. If they cannot remember a detail, accept it at once, never ask for it again,
+   and move down the ladder: a qualitative result is a real answer, so finish
+   the draft and set "complete". Set "role_done" only when they want to move on
+   or cannot recall the accomplishment itself. Never push twice.
 6. Do not ask about anything in already_recorded, or again about anything in
    not_remembered: they have already said they can't recall it. If they start
    describing one of those, say so and ask for a different one.
@@ -934,8 +956,24 @@ class Interview:
             self._take_outside(a)
             return
 
+        if phase == "disown":
+            role = self.role()
+            if pick(a, DISOWN_OPTIONS) == DISOWN_OPTIONS[0] or a.strip().lower() in ("y", "yes"):
+                self.rec.roles.remove(role)
+                self._save_record()
+                self.notes.append(f"removed: {role.label()}")
+                self._next_role()
+            else:
+                s.setdefault("kept", {})[role_key(role)] = True
+                s["phase"] = "context"
+                s["ctx_i"] += 1
+            return
+
         if phase == "context":
             label = CONTEXT_QUESTIONS[s["ctx_i"]][0]
+            if disowns(a, self.role()) and not s.get("kept", {}).get(role_key(self.role())):
+                s["phase"] = "disown"
+                return
             if label == "Other titles":
                 role = self.role()
                 titles = [] if blank(a) else split_titles(a)
@@ -1066,6 +1104,11 @@ class Interview:
                                   f"{mr.coverage_note(role, self.target, prompt=True)}")
                 s.update(phase="context", ctx_i=0, bullet_i=0, lens_used=False, talk=None)
                 continue
+
+            if phase == "disown":
+                return Prompt(f"It sounds like {role.title} at {role.employer} was not your "
+                              f"job. Remove it from your record?", kind="choice",
+                              options=list(DISOWN_OPTIONS))
 
             if phase == "context":
                 while s["ctx_i"] < len(CONTEXT_QUESTIONS) and (
@@ -1261,6 +1304,8 @@ class Interview:
     def _end_talk(self, outcome: str) -> None:
         s = self.state
         title = ((s["talk"] or {}).get("draft") or {}).get("title", "")
+        if outcome != "complete" and self._keep_partial():
+            outcome = "complete"            # told, though the details ran out
         if outcome != "complete" and title and self.role() is not None:
             # not asked again in this job: once they can't recall it, asking
             # a second time only costs them a question
@@ -1279,6 +1324,30 @@ class Interview:
             s["phase"] = "new"
         else:
             s["phase"] = "lens"
+
+    def _keep_partial(self) -> bool:
+        """A conversation that ends before "complete" still told something:
+        what they did, or what came of it. Keep that, as a qualitative record,
+        rather than lose a story they took the time to tell."""
+        t, role = self.state.get("talk") or {}, self.role()
+        d = dict(t.get("draft") or {})
+        if role is None or not d.get("title") or not (d.get("actions") or d.get("results")):
+            return False
+        if near_duplicate(role, d["title"], ignore=t.get("bullet", "")):
+            return False
+        if d.get("evidence") not in mr.EVIDENCE_TIERS:
+            d["evidence"] = "qualitative"
+        draft = Accomplishment(**{k: d.get(k, "") for k in DRAFT_KEYS})
+        for name in t.get("skills", []):
+            draft.add_skill(name)
+        role.accomplishments.append(draft)
+        if t.get("bullet") and t["bullet"] in role.recorded_bullets:
+            role.recorded_bullets.remove(t["bullet"])
+        link_skills(self.rec, draft.skill_names(), draft.title)
+        self._save_record()
+        self.recorded += 1
+        self.notes.append(f"recorded: {draft.title} ({draft.evidence})")
+        return True
 
     def _outside_prompt(self) -> Prompt:
         s = self.state
