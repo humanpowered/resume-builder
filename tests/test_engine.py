@@ -215,6 +215,7 @@ class InterviewEngine(unittest.TestCase):
         p = iv.step("12 over two years")
         self.assertTrue(any("recorded" in n for n in p.notes))
         self.assertTrue(p.text.startswith("One more angle"))
+        self.assertEqual(iv.step("").text, interview.DUTIES_QUESTION, "one accomplishment: thin")
         self.assertTrue(iv.step("").text.startswith("Your next qualification"))
         # no degree recorded, so training on the job is asked next
         self.assertTrue(iv.step("").text.startswith("Did any of your jobs give you formal training"))
@@ -314,6 +315,7 @@ class InterviewEngine(unittest.TestCase):
         firsts = tuple(qs[0][1] for _, qs in interview.SECTIONS)
         once = tuple(q[2] for q in interview.PROFILE_QUESTIONS + interview.STORY_QUESTIONS)
         context = [q for q in asked if not q.startswith(("One more angle", "A new job",
+                                                         interview.DUTIES_QUESTION,
                                                          *firsts, *once))]
         self.assertEqual(len(context), len(interview.CONTEXT_QUESTIONS) - 1)
 
@@ -959,16 +961,37 @@ class DegreeSubstitutes(unittest.TestCase):
         self.assertEqual(profile["differentiator"], "Best at: Calming a chaotic unit")
         self.assertEqual(profile["next_move"], "A manager role, because I already do the work")
 
-    def test_duties_and_performance_are_asked_and_exported(self):
+    def test_results_against_targets_are_asked_and_exported(self):
         labels = [q[0] for q in interview.CONTEXT_QUESTIONS]
-        self.assertIn("Responsibilities", labels)
-        self.assertIn("Performance", labels)
+        self.assertIn("Results against targets", labels)
+        self.assertNotIn("Responsibilities", labels, "duties are asked only for thin jobs")
         rec = Record(roles=[Role(employer="Acme", title="Rep", fields={
-            "Responsibilities": "Managed 60 accounts", "Performance": "112% of quota in 2023"})])
+            "Responsibilities": "Managed 60 accounts",
+            "Results against targets": "112% of quota in 2023"})])
         rec = mr.parse(mr.render(rec))
         entry = export.Export(rec, {}, {}).build()["work_history"][0]
         self.assertEqual(entry["responsibilities"], "Managed 60 accounts")
-        self.assertEqual(entry["performance"], "112% of quota in 2023")
+        self.assertEqual(entry["results_against_targets"], "112% of quota in 2023")
+
+    def test_duties_are_asked_only_for_a_thin_job(self):
+        def run_for(bullets):
+            store = MemoryStore(Record(header=["# R"], contact={"Name": "x"}, roles=[Role(
+                employer="Acme", title="Clerk", recorded_bullets=bullets,
+                fields={k: "x" for k, _ in interview.CONTEXT_QUESTIONS})]))
+            store.save_state(interview.ASKED_STATE, {"asked": [
+                q[1] for q in interview.PROFILE_QUESTIONS + interview.STORY_QUESTIONS]})
+            use(InterviewEngine.turn("role_done"))
+            asked = []
+            interview.run(interview.Interview(store), say=lambda *a: None,
+                          ask=lambda q: asked.append(q) or (
+                              "Filed 200 claims a week" if q.startswith("What did a normal week")
+                              else "skip"))
+            return asked, store.load_record().roles[0]
+        asked, role = run_for(["Filed claims"])
+        self.assertTrue(any(q.startswith("What did a normal week") for q in asked))
+        self.assertEqual(role.fields["Responsibilities"], "Filed 200 claims a week")
+        asked, role = run_for(["a", "b", "c"])
+        self.assertFalse(any(q.startswith("What did a normal week") for q in asked))
 
     def test_promotions_are_listed_with_how_long_they_took(self):
         rec = Record(contact={"Name": "x", "Email": "y"}, education=["e"], roles=[

@@ -74,8 +74,10 @@ next run offers to pick up the half-finished one.
    one is not asked again.
 2. The job list: all of it on a new record. On every later visit, "a new job,
    or one missing from that list?", so the record keeps up with a career.
-3. Each job, thinnest first: what the organisation was, the regular duties
-   with their volumes, how performance was measured, then its accomplishments.
+3. Each job, thinnest first: what the organisation was, results against
+   targets or rankings, then its accomplishments. A job that ends with fewer
+   than three accomplishments and bullets is also asked its regular duties;
+   a strong record never is.
 4. Education, certifications and the optional sections.
 5. The career story, asked once: what you're best at, what connects your jobs,
    and what you want next. It never goes on a resume as written; the pipeline

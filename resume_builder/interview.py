@@ -56,18 +56,28 @@ CONTEXT_QUESTIONS = [
                 "(people, revenue, sites, beds, students -- whatever is natural), and the industry."),
     ("Challenge", "What were you brought in to do, or what problem was waiting for you "
                   "when you started as {title}?"),
-    ("Responsibilities", "What did a normal week involve? The regular duties, with volumes "
-                         "where you know them: calls a day, accounts, patients, orders, reports."),
     ("Authority", "Did you lead or supervise anyone there? How many, and in what roles?"),
     ("Budget", "Were you responsible for a budget, revenue target, or expensive "
                "equipment or inventory? Roughly how much?"),
     ("Reported to", "What was the title of the person you reported to?"),
     ("Territory", "What did your work cover: one site, a region, national, international, "
                   "a set of clients or accounts?"),
-    ("Performance", "How was your performance measured there, and how did you do? e.g. "
-                    "'112% of quota in 2023', 'top 3 of 40 reps', 'caseload of 30'."),
+    # The result, not the process: "how was it measured?" gets "annual review".
+    ("Results against targets", "Did you have targets, KPIs or rankings there? How did "
+                                "you do against them? e.g. '112% of quota in 2023', 'ranked "
+                                "3rd of 40 reps', '99.9% uptime against a 99.5% target', "
+                                "'top review rating two years running'."),
     ("Recognition", "Any awards, promotions, top ratings or formal recognition there?"),
 ]
+
+
+# Asked at the end of a job only when it holds fewer than THIN_ROLE
+# accomplishments and resume bullets. A strong record never needs duties: a
+# result beats a duty on every resume. A thin job (hourly, early career, long
+# ago) has little else, and its duties carry the posting's keywords.
+DUTIES_QUESTION = ("What did a normal week involve there? The regular duties, with volumes "
+                   "where you know them: calls a day, accounts, patients, orders, reports.")
+THIN_ROLE = 3
 
 
 # --------------------------------------------------------------------------
@@ -738,9 +748,16 @@ class Interview:
             s["talk"]["pending"] = True
             return
 
+        if phase == "duties":
+            if not gave_up(a):
+                self.role().fields["Responsibilities"] = a
+                self._save_record()
+            self._next_role()
+            return
+
         if phase == "lens":
             if gave_up(a):
-                self._next_role()
+                self._finish_role()
             else:
                 s["talk"] = self._open_talk(seed=(s["lens_question"], a))
                 s["phase"] = "talk"
@@ -843,9 +860,12 @@ class Interview:
                     return prompt
                 continue
 
+            if phase == "duties":
+                return Prompt(DUTIES_QUESTION, hint="Enter to skip")
+
             if phase == "lens":
                 if s["lens_used"]:
-                    self._next_role()
+                    self._finish_role()
                     continue
                 s["lens_used"] = True
                 name, question = pick_lens(role)
@@ -1006,6 +1026,15 @@ class Interview:
             s["phase"] = "new"
         else:
             s["phase"] = "lens"
+
+    def _finish_role(self) -> None:
+        """Duties for a thin job, then the next job."""
+        role = self.role()
+        if (role is not None and not role.fields.get("Responsibilities")
+                and role.coverage()["total"] < THIN_ROLE):
+            self.state["phase"] = "duties"
+        else:
+            self._next_role()
 
     def _next_role(self) -> None:
         s = self.state

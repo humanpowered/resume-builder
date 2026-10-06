@@ -54,7 +54,7 @@ EVIDENCE_HELP = {
 # heading; everything else is a labelled line underneath.
 ROLE_FIELDS = ("Dates", "Location", "Company", "Challenge", "Authority",
                "Territory", "Budget", "Reported to", "Markets",
-               "Responsibilities", "Performance", "Recognition", "Note on accomplishments")
+               "Responsibilities", "Results against targets", "Recognition", "Note on accomplishments")
 ACC_FIELDS = ("Problem", "Actions", "Contribution", "Results", "Skills used", "Evidence",
               "Bullet")
 # Fields filled only when they apply, so a blank one is never a gap to fill.

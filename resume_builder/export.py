@@ -203,9 +203,9 @@ class Export:
             self._take(entry, "scope", scope, role.employer)
             if clean(role.fields.get("Challenge", "")):
                 self._take(entry, "challenge", role.fields["Challenge"], role.employer)
-            for label in ("Recognition", "Responsibilities", "Performance"):
+            for label in ("Recognition", "Responsibilities", "Results against targets"):
                 if clean(role.fields.get(label, "")):
-                    self._take(entry, label.lower(), role.fields[label], role.employer)
+                    self._take(entry, mr.acc_attr(label), role.fields[label], role.employer)
 
             highlights = [self.bullet_for(role, a) for a in role.accomplishments
                           if not a.is_empty()]
