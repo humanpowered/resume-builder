@@ -113,6 +113,14 @@ OUTSIDE_QUESTIONS = {
 }
 
 
+# Shown at the start of every session about jobs. The coach (rule 9) backs it
+# up mid-conversation, which is where the temptation actually arises.
+CONFIDENTIAL_NOTE = (
+    "Please don't enter confidential figures: exact revenue, profit, margins, client "
+    "budgets, prices or salaries. A percentage, a range or a ranking works just as "
+    "well on a resume, e.g. 'grew revenue 32%' or 'ran an eight-figure P&L'.")
+
+
 # Asked at the end of a job only when it holds fewer than THIN_ROLE
 # accomplishments and resume bullets. A strong record never needs duties: a
 # result beats a duty on every resume. A thin job (hourly, early career, long
@@ -462,6 +470,13 @@ Rules:
    what their own part was, and put it in "contribution" in their words: what
    they led, built, decided or did. "I was one of six on it" is a real answer.
    Leave "contribution" "" when the work was theirs alone.
+9. Never ask for or record a figure an employer or client would treat as
+   confidential: exact revenue, profit, margins, budgets, prices, salaries.
+   If a figure sounds like one, or they hesitate, do not press. Offer a form
+   that is safe to publish instead (a percentage change, a range or order of
+   magnitude such as "an eight-figure P&L", a ranking, a count of people or
+   sites) and record that. If they already gave an exact confidential figure,
+   record the safe form, not the figure.
 
 {mode}
 
@@ -689,6 +704,8 @@ class Interview:
             s["queue"] = self._queue()
         else:
             s["phase"] = "profile"
+        if not self.background_only:
+            self.notes.append(CONFIDENTIAL_NOTE)
         return s
 
     def _start_roles(self) -> None:

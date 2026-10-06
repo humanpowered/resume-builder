@@ -119,6 +119,11 @@ everyone.
 - **File a team's result as yours alone.** When a result belongs to a group,
   the interview asks what your own part was and keeps it beside the result;
   the bullet says what you did and credits the outcome to the effort.
+- **Collect confidential figures.** Each session opens by asking you not to
+  enter exact revenue, profit, margins, client budgets, prices or salaries.
+  When a figure sounds confidential the interviewer offers a safe form
+  instead (a percentage, a range, a ranking) and never presses for the exact
+  number.
 - **Accept an imported line that isn't in your document.** Every line the
   importer files is matched against the source. Anything it can't find is set
   aside for you to check. Anything it didn't file is kept under "Unplaced".

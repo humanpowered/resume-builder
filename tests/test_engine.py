@@ -1057,6 +1057,14 @@ class DegreeSubstitutes(unittest.TestCase):
         self.assertFalse(any("gap" in i for i in rep.record_issues),
                          "volunteering is not a job, so it neither fills nor makes a gap")
 
+    def test_confidential_figures_are_warned_about_and_never_pressed_for(self):
+        store = MemoryStore(Record(header=["# R"], roles=[Role(employer="A", title="B")]))
+        self.assertIn(interview.CONFIDENTIAL_NOTE, interview.Interview(store).step().notes)
+        bg = interview.Interview(MemoryStore(), only=interview.BACKGROUND)
+        self.assertNotIn(interview.CONFIDENTIAL_NOTE, bg.step().notes, "no figures asked there")
+        self.assertIn("Never ask for or record a figure an employer or client would treat "
+                      "as\n   confidential", interview.COACH)
+
     def test_promotions_are_listed_with_how_long_they_took(self):
         rec = Record(contact={"Name": "x", "Email": "y"}, education=["e"], roles=[
             Role(employer="Mercy", title="Charge Nurse", fields={"Dates": "Jul 2020 - Present"}),
