@@ -85,6 +85,7 @@
                 border-bottom: 1px solid var(--line); }
   .card .head strong { flex: 1 1 200px; }
   .card .tick { color: var(--ok); font-weight: 700; }
+  .card .ack { margin: 0; padding: 10px 12px 0; }
   .pill { font-size: 12px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--line);
           color: var(--muted); white-space: nowrap; }
   .pill.num { border-color: var(--ok); color: var(--ok); }
@@ -385,6 +386,10 @@ function accCard(c, { pending = false, onDone = null } = {}) {
     const pill = document.createElement("span");
     pill.className = "pill" + (c.label.startsWith("Has") ? " num" : ""); pill.textContent = c.label;
     head.append(tick, t, pill); card.appendChild(head);
+    if (c.ack) {
+      const ack = document.createElement("p"); ack.className = "ack"; ack.textContent = c.ack;
+      card.appendChild(ack);
+    }
     const dl = document.createElement("dl");
     for (const [k, label] of CARD_FIELDS) {
       if (!c[k]) continue;

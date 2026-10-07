@@ -247,6 +247,34 @@ class InterviewEngine(unittest.TestCase):
         self.assertEqual((p.saved["title"], p.saved["label"]),
                          ("Ran the sepsis huddle", "Described, no number"))
 
+    def test_a_finished_job_says_it_is_a_good_place_to_stop(self):
+        self.store.save_record(Record(header=["# R"], roles=[
+            Role(employer="Riverside", title="RN",
+                 fields={k: "x" for k, _ in interview.CONTEXT_QUESTIONS} | {"Responsibilities": "x"}),
+            Role(employer="Mercy", title="Aide",
+                 fields={k: "x" for k, _ in interview.CONTEXT_QUESTIONS})]))
+        use(self.turn("role_done"), self.turn("role_done"))
+        iv = interview.Interview(self.store)
+        iv.step()
+        iv.step("")                                     # no new job; the coach ends the first
+        p = iv.step("")                                 # no more angles
+        pause = [n for n in p.notes if n.startswith("Good place for a break")]
+        self.assertEqual(len(pause), 1)
+        self.assertIn("Next: Mercy", pause[0])
+        self.assertIn("Come back any time", interview.DONE_NOTE)
+
+    def test_the_coach_may_say_one_specific_thing_when_a_story_is_saved(self):
+        use(self.turn("complete", say="Keeping 10 of 12 new grads is a strong result.",
+                      title="Precepted new grads", problem="p", actions="a",
+                      results="10 of 12 stayed", evidence="metric"), self.turn(say="What else?"))
+        iv = interview.Interview(self.store)
+        iv.step()
+        iv.step("")
+        p = iv.step("")
+        self.assertEqual(p.saved["ack"], "Keeping 10 of 12 new grads is a strong result.")
+        self.assertTrue(interview.card_text(p.saved).startswith("Keeping 10 of 12"))
+        self.assertIn("Never\n  generic praise", interview.COACH)
+
     def test_terminal_shows_the_card_not_the_bare_note(self):
         use(self.turn("complete", title="Precepted new grads", problem="p", actions="a",
                       results="10 of 12 stayed", evidence="metric"), self.turn("role_done"))

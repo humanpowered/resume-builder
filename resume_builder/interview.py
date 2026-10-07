@@ -235,6 +235,9 @@ DUTIES_QUESTION = ("What did a normal week involve there? The regular duties, wi
                    "where you know them: calls a day, accounts, patients, orders, reports.")
 THIN_ROLE = 3
 DISOWN_OPTIONS = ("Yes, remove it", "No, it was mine")
+PAUSE_NOTE = "Good place for a break: {job} is done and saved. You can stop here any time."
+DONE_NOTE = ("Your record is saved. Come back any time to add a new job or tell another "
+             "story; the interview picks up where your record is thinnest.")
 BULLET_OPTIONS = ("Yes", "Skip this one", "Move on to new ones")
 
 
@@ -620,7 +623,8 @@ as you can, and find the numbers they are holding without realising.
 Rules:
 
 1. ONE question per turn. Short. No preamble, no summarising their answer back,
-   no praise.
+   no praise while asking. The one exception is the line you write with
+   "complete" (below).
 2. Walk the evidence ladder for each accomplishment; stop at the first rung that
    holds:
    - metric: a number they already know.
@@ -679,7 +683,12 @@ Return ONLY JSON:
 - "title": a few words, no figures.
 - "evidence": one of metric, derived, scope, qualitative.
 - "complete" only when title, problem, actions, results and evidence are all
-  filled, and, for a team result, contribution too; then "say" is one short line confirming what was recorded.
+  filled, and, for a team result, contribution too. Then "say" is one short,
+  specific line on what makes this one strong, built from their own result or
+  figure: "A 55% drop in falls is a strong line." or "Keeping 10 of 12 new
+  grads past a year is the kind of result hiring managers look for." Never
+  generic praise ("Great job!", "Impressive!"), never a figure they did not give,
+  and no question.
 """
 
 DRAFT_KEYS = ("title", "problem", "actions", "contribution", "results", "evidence")
@@ -1123,7 +1132,7 @@ class Interview:
                 self._save_record()
             else:
                 self._remember_asked(role_key(self.role()), "Responsibilities")
-            self._next_role()
+            self._next_role(pause=True)
             return
 
         if phase == "lens":
@@ -1205,7 +1214,7 @@ class Interview:
                 extra = f" and {added} other entr{'y' if added == 1 else 'ies'}" \
                     if added else ""
                 return Prompt(f"That's everything for now. {self.recorded} accomplishment(s)"
-                              f"{extra} recorded this session.", kind="done")
+                              f"{extra} recorded this session. {DONE_NOTE}", kind="done")
 
             role = self.role()
             if role is None:                # deleted by hand between turns
@@ -1418,6 +1427,7 @@ class Interview:
             self.recorded += 1
             self.notes.append(f"recorded: {draft.title} ({mr.evidence_label(draft.evidence).lower()})")
             self.saved = saved_card(self.rec, role, draft)
+            self.saved["ack"] = t["say"]
             self._end_talk("complete")
             return None
 
@@ -1596,13 +1606,21 @@ class Interview:
                 and role.coverage()["total"] < THIN_ROLE):
             self.state["phase"] = "duties"
         else:
-            self._next_role()
+            self._next_role(pause=True)
 
-    def _next_role(self) -> None:
+    def _next_role(self, pause: bool = False) -> None:
         s = self.state
+        done = self.role() if pause else None
         s["qi"] += 1
         s["phase"] = "begin_role"
         s["talk"] = None
+        if done is not None:
+            # a natural place to stop, said so: a long interview is easier to
+            # come back to than to finish in one sitting
+            nxt = self.role() if s["qi"] < len(s["queue"]) else None
+            then = nxt.label() if nxt is not None else (
+                "a few questions about anything beyond your jobs" if not self.only else "")
+            self.notes.append(PAUSE_NOTE.format(job=done.label()) + (f" Next: {then}." if then else ""))
 
 
 def rename_job(store, old: str, new: str) -> None:
@@ -1645,7 +1663,8 @@ CARD_LINES = (("problem", "The situation"), ("actions", "What you did"),
 
 def card_text(card: dict) -> str:
     """The saved card for a terminal."""
-    out = [f"Saved: {card['title']} ({card['label'].lower()})"]
+    out = ([card["ack"]] if card.get("ack") else []) + \
+        [f"Saved: {card['title']} ({card['label'].lower()})"]
     out += [f"  {label}: {card[k]}" for k, label in CARD_LINES if card.get(k)]
     if card.get("how"):
         out.append(f"    {card['how']}")
