@@ -200,6 +200,50 @@ class InterviewEngine(unittest.TestCase):
         d.update(draft)
         return {"say": say, "draft": d, "status": status}
 
+    def test_a_saved_accomplishment_comes_back_as_a_card(self):
+        """Every field the model wrote is shown, so the person can check it;
+        a story that runs out of details still shows what was kept."""
+        use(self.turn(say="How many?"),
+            self.turn("complete", title="Precepted new grads", problem="High turnover",
+                      actions="Precepted 12", results="10 of 12 stayed", evidence="derived",
+                      skills=["Precepting"]),
+            self.turn(say="What else?", title="Ran the sepsis huddle", actions="Started it"),
+            self.turn(say="Anything else?"))
+        iv = interview.Interview(self.store)
+        iv.step()
+        iv.step("")
+        iv.step("")
+        p = iv.step("12 over two years")
+        self.assertEqual((p.saved["title"], p.saved["label"], p.saved["skills"]),
+                         ("Precepted new grads", "Has a number", ["Precepting"]))
+        self.assertIn("before and after", p.saved["how"])
+        self.assertEqual((p.saved["role"], p.saved["index"]), (0, 0))
+        text = interview.card_text(p.saved)
+        self.assertIn("The result: 10 of 12 stayed", text)
+        self.assertEqual(p.text, "What else?")           # the next story has begun
+        p = iv.step("skip")                              # out of details: kept anyway
+        self.assertEqual((p.saved["title"], p.saved["label"]),
+                         ("Ran the sepsis huddle", "Described, no number"))
+
+    def test_terminal_shows_the_card_not_the_bare_note(self):
+        use(self.turn("complete", title="Precepted new grads", problem="p", actions="a",
+                      results="10 of 12 stayed", evidence="metric"), self.turn("role_done"))
+        out, answers = [], iter(["", "", "", "stop"])
+
+        def ask(text):
+            out.append(text)
+            a = next(answers)
+            if a == "stop":
+                raise interview.Stop
+            return a
+        try:
+            interview.run(interview.Interview(self.store), ask, say=out.append)
+        except interview.Stop:
+            pass
+        said = "\n".join(out)
+        self.assertIn("Saved: Precepted new grads (has a number)", said)
+        self.assertNotIn("recorded: Precepted", said)
+
     def test_no_to_a_derived_figure_goes_back_to_the_coach(self):
         """'Is that right?' answered 'No' is an answer, not a way out: the
         story stays open and the coach hears it."""

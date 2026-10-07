@@ -91,6 +91,43 @@ class Web(unittest.TestCase):
         self.assertTrue(any("recorded: Cut falls" in n for n in p["notes"]))
         self.assertEqual(c.get("/api/health").json()["quantified"], 1)
 
+        # what was saved comes back as a card, in plain words, and can be
+        # changed then and any time after
+        card = p["saved"]
+        self.assertEqual((card["title"], card["results"], card["label"]),
+                         ("Cut falls", "Falls down 30%", "Has a number"))
+        url = f"/api/roles/{card['role']}/accomplishments/{card['index']}"
+        r = c.patch(url, json={"expect_title": "Cut falls", "title": "Cut ICU falls",
+                               "results": "Falls down 30% in a year", "skills": ["Hourly rounding"]})
+        self.assertEqual(r.status_code, 200)
+        r = c.patch(url, json={"expect_title": "Cut ICU falls", "results": "Falls fell sharply"})
+        self.assertEqual(r.json()["label"], "Described, no number", "the label follows the words")
+        self.assertEqual(c.patch(url, json={"expect_title": "Cut falls", "title": "x"}).status_code,
+                         409, "an edit made from a stale page is refused")
+        acc = c.get("/api/record").json()["summary"]["roles"][0]["accomplishments"][0]
+        self.assertEqual((acc["title"], acc["evidence"]), ("Cut ICU falls", "qualitative"))
+        sk = {s["name"]: s["evidence"] for s in c.get("/api/record").json()["summary"]["skills"]}
+        self.assertEqual(sk["Hourly rounding"], ["Cut ICU falls"])
+
+    def test_a_job_can_be_edited_and_keeps_its_place_in_the_interview(self):
+        c = self.client("a@example.com")
+        self.seed(c)
+        llm.use_backend(FakeBackend(turn(say="What changed?")))
+        p = c.post("/api/interview/step", json={"answer": None}).json()
+        while not p["text"].startswith("In a sentence"):
+            p = c.post("/api/interview/step", json={"answer": ""}).json()
+        r = c.patch("/api/roles/0", json={"expect": "Riverside — RN", "title": "ICU Charge Nurse",
+                                          "fields": {"Reported to": "Nurse Manager", "Dates": ""}})
+        self.assertEqual(r.status_code, 200)
+        role = c.get("/api/record").json()["summary"]["roles"][0]
+        self.assertEqual((role["title"], role["fields"]["Reported to"], role["dates"]),
+                         ("ICU Charge Nurse", "Nurse Manager", ""))
+        p = c.post("/api/interview/step", json={"answer": "A 30-bed hospital"}).json()
+        self.assertIn("ICU Charge Nurse", p["text"], "the interview carries on with the renamed job")
+        self.assertEqual(c.patch("/api/roles/0", json={"expect": "Riverside — RN", "title": "x"})
+                         .status_code, 409)
+        self.assertEqual(c.patch("/api/roles/0", json={"fields": {"Other titles": "x"}}).status_code, 400)
+
     def test_education_over_http_needs_no_model(self):
         c = self.client("a@example.com")
         self.seed(c)

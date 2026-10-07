@@ -109,10 +109,9 @@ def summary(rec: mr.Record) -> dict:
         "name": rec.contact.get("Name", ""),
         "roles": [{"employer": r.employer, "title": r.title,
                    "dates": r.fields.get("Dates", ""),
-                   "accomplishments": [{"title": a.title, "results": a.results,
-                                        "contribution": a.contribution,
-                                        "skills_used": a.skill_names(),
-                                        "evidence": a.evidence, "bullet": a.bullet}
+                   "fields": {f: r.fields.get(f, "") for f in JOB_EDITABLE},
+                   "outside": r.outside(),
+                   "accomplishments": [{**interview.accomplishment_view(a), "bullet": a.bullet}
                                        for a in r.accomplishments],
                    "resume_bullets": r.recorded_bullets} for r in rec.roles],
         "skills": [{"name": s.name, "category": s.category, "level": s.level,
@@ -123,6 +122,12 @@ def summary(rec: mr.Record) -> dict:
         "education": rec.education, "certifications": rec.certifications,
         "summary": rec.summary,
     }
+
+
+# The job details a person can change on the page, in the order shown.
+JOB_EDITABLE = ("Dates", "Employment type", "Location", "Company", "Challenge", "Authority",
+                "Budget", "Reported to", "Territory", "Results against targets", "Recognition",
+                "Responsibilities")
 
 
 @app.get("/api/record")
@@ -190,7 +195,7 @@ def interview_step(body: Step, store: SqlStore = Depends(store_for)):
         raise HTTPException(400, str(exc))
     p = iv.step(body.answer)
     return {"text": p.text, "kind": p.kind, "hint": p.hint, "notes": p.notes,
-            "options": p.options}
+            "options": p.options, "saved": p.saved}
 
 
 @app.post("/api/interview/restart")
@@ -200,6 +205,80 @@ def interview_restart(store: SqlStore = Depends(store_for)):
     for key in interview.SECTION_KEYS:
         store.clear_state(f"{interview.BACKGROUND_STATE}:{key}")
     return {"ok": True}
+
+
+# --------------------------------------------------------------------------
+# Jobs and accomplishments, editable any time
+#
+# Addressed by position, with the title the page last showed as a check: if
+# the record changed underneath (another tab, the interview), the edit is
+# refused rather than landing on the wrong entry.
+
+class AccEdit(BaseModel):
+    expect_title: str = Field("", max_length=300)
+    title: str | None = Field(None, max_length=300)
+    problem: str | None = Field(None, max_length=4000)
+    actions: str | None = Field(None, max_length=4000)
+    contribution: str | None = Field(None, max_length=4000)
+    results: str | None = Field(None, max_length=4000)
+    skills: list[str] | None = Field(None, max_length=60)
+
+
+class JobEdit(BaseModel):
+    expect: str = Field("", max_length=600)       # the job's label as the page showed it
+    employer: str | None = Field(None, max_length=300)
+    title: str | None = Field(None, max_length=300)
+    fields: dict[str, str] = Field(default_factory=dict)
+
+
+STALE = "Your record changed since this page loaded. Reload and try again."
+
+
+def _job(rec: mr.Record, i: int, expect: str) -> mr.Role:
+    if not 0 <= i < len(rec.roles):
+        raise HTTPException(404, "No such job")
+    role = rec.roles[i]
+    if expect and expect != role.label():
+        raise HTTPException(409, STALE)
+    return role
+
+
+@app.patch("/api/roles/{ri}/accomplishments/{ai}")
+def accomplishment_edit(ri: int, ai: int, body: AccEdit, store: SqlStore = Depends(store_for)):
+    rec = store.load_record()
+    role = _job(rec, ri, "")
+    if not 0 <= ai < len(role.accomplishments):
+        raise HTTPException(404, "No such accomplishment")
+    acc = role.accomplishments[ai]
+    if body.expect_title and body.expect_title != acc.title:
+        raise HTTPException(409, STALE)
+    if body.title is not None and not body.title.strip():
+        raise HTTPException(400, "Give it a short name")
+    mr.edit_accomplishment(rec, acc, body.model_dump(exclude={"expect_title"}))
+    store.save_record(rec)
+    return {**interview.accomplishment_view(acc), "role": ri, "index": ai, "job": role.label()}
+
+
+@app.patch("/api/roles/{ri}")
+def job_edit(ri: int, body: JobEdit, store: SqlStore = Depends(store_for)):
+    rec = store.load_record()
+    role = _job(rec, ri, body.expect)
+    old_key = interview.role_key(role)
+    for name, value in (("employer", body.employer), ("title", body.title)):
+        if value is not None:
+            if not value.strip():
+                raise HTTPException(400, f"The {name} can't be blank")
+            setattr(role, name, value.strip())
+    for name, value in body.fields.items():
+        if name not in JOB_EDITABLE:
+            raise HTTPException(400, f"Can't edit {name!r} here")
+        if value.strip():
+            role.fields[name] = value.strip()
+        else:
+            role.fields.pop(name, None)
+    store.save_record(rec)
+    interview.rename_job(store, old_key, interview.role_key(role))
+    return {"label": role.label()}
 
 
 # --------------------------------------------------------------------------

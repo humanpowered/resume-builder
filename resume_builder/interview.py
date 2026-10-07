@@ -790,6 +790,9 @@ class Prompt:
     hint: str = ""              # e.g. "Enter to skip"
     options: list = field(default_factory=list)  # choice: pick one; multi: untick any
     notes: list = field(default_factory=list)   # things to show first
+    # What was just saved, shown as a card the person checks and can change
+    # before the next question. Empty unless an accomplishment was recorded.
+    saved: dict = field(default_factory=dict)
 
 
 # Skills an old resume listed are believed: they are the person's own claim.
@@ -835,6 +838,7 @@ class Interview:
                     if self.background_only else STATE)
         self.state = store.load_state(self.key)
         self.notes = []
+        self.saved = {}
         self.recorded = 0
 
     # -- plumbing ------------------------------------------------------------
@@ -865,6 +869,7 @@ class Interview:
 
     def step(self, answer: str | None = None) -> Prompt:
         self.notes = []
+        self.saved = {}
         if self.state is None:
             self.state = self._fresh()
             answer = None
@@ -872,6 +877,7 @@ class Interview:
             self._take(answer)
         prompt = self._advance()
         prompt.notes = self.notes + prompt.notes
+        prompt.saved = self.saved
         self._save_state()
         return prompt
 
@@ -1394,7 +1400,8 @@ class Interview:
             link_skills(self.rec, draft.skill_names(), draft.title)
             self._save_record()
             self.recorded += 1
-            self.notes.append(f"recorded: {draft.title} ({draft.evidence})")
+            self.notes.append(f"recorded: {draft.title} ({mr.evidence_label(draft.evidence).lower()})")
+            self.saved = saved_card(self.rec, role, draft)
             self._end_talk("complete")
             return None
 
@@ -1445,7 +1452,8 @@ class Interview:
         link_skills(self.rec, draft.skill_names(), draft.title)
         self._save_record()
         self.recorded += 1
-        self.notes.append(f"recorded: {draft.title} ({draft.evidence})")
+        self.notes.append(f"recorded: {draft.title} ({mr.evidence_label(draft.evidence).lower()})")
+        self.saved = saved_card(self.rec, role, draft)
         return True
 
     # -- skills from an old resume ---------------------------------------------
@@ -1581,6 +1589,56 @@ class Interview:
         s["talk"] = None
 
 
+def rename_job(store, old: str, new: str) -> None:
+    """A job renamed by hand keeps its place in an interview under way, and
+    the questions it already skipped."""
+    if old == new:
+        return
+    for name in (STATE, BACKGROUND_STATE):
+        st = store.load_state(name)
+        if not st:
+            continue
+        st["queue"] = [new if k == old else k for k in st.get("queue", [])]
+        for key in ("not_remembered", "kept"):
+            if old in (st.get(key) or {}):
+                st[key][new] = st[key].pop(old)
+        store.save_state(name, st)
+    asked = store.load_state(ASKED_STATE)
+    if asked and old in (asked.get("jobs") or {}):
+        asked["jobs"][new] = asked["jobs"].pop(old)
+        store.save_state(ASKED_STATE, asked)
+
+
+def saved_card(rec: mr.Record, role: Role, acc: Accomplishment) -> dict:
+    """What was just recorded, for the person to check: every field the model
+    wrote, in plain labels, and where it lives so a change can be saved."""
+    return {"role": rec.roles.index(role), "index": role.accomplishments.index(acc),
+            "job": role.label(), **accomplishment_view(acc)}
+
+
+def accomplishment_view(acc: Accomplishment) -> dict:
+    return {"title": acc.title, "problem": acc.problem, "actions": acc.actions,
+            "contribution": acc.contribution, "results": acc.results,
+            "skills": acc.skill_names(), "evidence": acc.evidence,
+            "label": mr.evidence_label(acc.evidence), "how": mr.EVIDENCE_HOW.get(acc.evidence, "")}
+
+
+CARD_LINES = (("problem", "The situation"), ("actions", "What you did"),
+              ("contribution", "Your part"), ("results", "The result"))
+
+
+def card_text(card: dict) -> str:
+    """The saved card for a terminal."""
+    out = [f"Saved: {card['title']} ({card['label'].lower()})"]
+    out += [f"  {label}: {card[k]}" for k, label in CARD_LINES if card.get(k)]
+    if card.get("how"):
+        out.append(f"    {card['how']}")
+    if card.get("skills"):
+        out.append(f"  Skills used: {', '.join(card['skills'])}")
+    out.append("  Anything wrong? Change it in your record file any time.")
+    return "\n".join(out)
+
+
 def link_skills(rec: mr.Record, names: list, title: str) -> None:
     """Skills an accomplishment showed become evidence for those skills."""
     for name in names:
@@ -1601,7 +1659,10 @@ def run(interview: Interview, ask, say=print) -> Interview:
     prompt = interview.step()
     while True:
         for n in prompt.notes:
-            say(f"  {n}")
+            if not (prompt.saved and n.startswith("recorded: ")):
+                say(f"  {n}")
+        if prompt.saved:
+            say(card_text(prompt.saved))
         if prompt.kind == "done":
             say(prompt.text)
             return interview

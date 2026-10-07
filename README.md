@@ -65,6 +65,8 @@ The second rung is where most of the value is. "I automated the reporting"
 is not a metric. Asked how long it took before, how long now and how often,
 the same person says "three days a month became half a day". That is.
 
+After each accomplishment the interview shows what it saved: the situation, what you did, your part, the result and the skills used, labelled "Has a number" or "Described, no number". On the web page the card has Looks right and Change; Change opens every field for editing, and stays available. Jobs and accomplishments can also be edited from the record at any time. The record and the export keep the exact evidence tiers.
+
 Everything is saved as it's confirmed. Stop with Ctrl-C at any time, and the
 next run offers to pick up the half-finished one.
 

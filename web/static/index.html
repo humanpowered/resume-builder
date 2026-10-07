@@ -67,6 +67,34 @@
   @media (max-width: 600px) { .item-row { grid-template-columns: 1fr; } }
   .wrap > input, .wrap > select { flex: 1 1 160px; width: auto; }
   .danger { color: var(--warn); background: transparent; border: 1px solid var(--line); }
+  /* the card showing what an accomplishment saved; editable any time */
+  .card { border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel);
+          align-self: stretch; }
+  .card .head { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 10px 12px;
+                border-bottom: 1px solid var(--line); }
+  .card .head strong { flex: 1 1 200px; }
+  .card .tick { color: var(--ok); font-weight: 700; }
+  .pill { font-size: 12px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--line);
+          color: var(--muted); white-space: nowrap; }
+  .pill.num { border-color: var(--ok); color: var(--ok); }
+  .card dl { margin: 0; padding: 2px 12px 6px; }
+  .card .f { display: grid; grid-template-columns: 9rem minmax(0, 1fr); gap: 4px 12px; padding: 8px 0;
+             border-top: 1px solid var(--line); }
+  .card .f:first-child { border-top: 0; }
+  @media (max-width: 520px) { .card .f { grid-template-columns: 1fr; } }
+  .card dt { font-size: 13px; color: var(--muted); }
+  .card dd { margin: 0; min-width: 0; white-space: pre-wrap; }
+  .card .how { display: block; font-size: 13px; color: var(--muted); white-space: normal; }
+  .card .acts { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 10px 12px;
+                border-top: 1px solid var(--line); }
+  .card .acts .muted { flex: 1 1 100%; }
+  .card textarea { resize: vertical; }
+  .link { background: none; border: 0; color: var(--accent); padding: 2px 6px; text-decoration: underline;
+          font-size: 14px; }
+  .jobform { display: grid; gap: 8px; margin: 8px 0; padding: 10px; background: var(--bg); border-radius: 8px; }
+  .jobform label { font-size: 13px; color: var(--muted); display: grid; gap: 3px; }
+  .acc-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .acc-row > span:first-child { flex: 1 1 160px; min-width: 0; }
 </style>
 </head>
 <body>
@@ -260,44 +288,228 @@ async function step(answer) {
     const p = await api("/api/interview/step", { method: "POST",
       body: JSON.stringify({ answer, role: section }) });
     if (p.kind === "done") section = "";
-    (p.notes || []).forEach((n) => say(n, "note"));
-    say(p.text + (p.hint ? `\n(${p.hint})` : ""), "q");
-    if ((p.options || []).length) (p.kind === "multi" ? ticks : choices)(p.options);
+    const saved = p.saved && Object.keys(p.saved).length ? p.saved : null;
+    (p.notes || []).filter((n) => !(saved && n.startsWith("recorded: "))).forEach((n) => say(n, "note"));
+    if (saved) {
+      // the person checks what was saved before the next question; the card
+      // stays editable after that, here and in the record
+      const card = accCard(saved, { pending: true, onDone: () => { busy(false); ask(p); } });
+      $("chat").appendChild(card); $("chat").scrollTop = $("chat").scrollHeight;
+      refresh();
+      card.querySelector("button").focus();
+      return;
+    }
+    ask(p);
     if (p.kind === "done") refresh();
     else if ((p.notes || []).some((n) => n.startsWith("recorded"))) refresh();
   } catch (e) { say("Something went wrong: " + e.message, "note"); }
   busy(false); $("answer").focus();
 }
 
+function ask(p) {
+  say(p.text + (p.hint ? `\n(${p.hint})` : ""), "q");
+  if ((p.options || []).length) (p.kind === "multi" ? ticks : choices)(p.options);
+  $("answer").focus();
+}
+
+// ---- the saved card -----------------------------------------------------
+
+const CARD_FIELDS = [["problem", "The situation"], ["actions", "What you did"],
+                     ["contribution", "Your part"], ["results", "The result"]];
+
+function accCard(c, { pending = false, onDone = null } = {}) {
+  const card = document.createElement("article");
+  card.className = "card"; card.setAttribute("aria-label", "What was saved");
+  let decided = !pending;
+  const inChat = pending;
+  const finish = (msg) => {
+    if (!decided) { decided = true; if (msg) say(msg, "note"); if (onDone) onDone(); }
+  };
+  function view() {
+    card.innerHTML = "";
+    const head = document.createElement("div"); head.className = "head";
+    const tick = document.createElement("span"); tick.className = "tick"; tick.textContent = "✓";
+    tick.setAttribute("aria-hidden", "true");
+    const t = document.createElement("strong"); t.textContent = c.title;
+    const pill = document.createElement("span");
+    pill.className = "pill" + (c.label.startsWith("Has") ? " num" : ""); pill.textContent = c.label;
+    head.append(tick, t, pill); card.appendChild(head);
+    const dl = document.createElement("dl");
+    for (const [k, label] of CARD_FIELDS) {
+      if (!c[k]) continue;
+      const f = document.createElement("div"); f.className = "f";
+      const dt = document.createElement("dt"); dt.textContent = label;
+      const dd = document.createElement("dd"); dd.textContent = c[k];
+      if (k === "results" && c.how) {
+        const how = document.createElement("span"); how.className = "how"; how.textContent = c.how;
+        dd.appendChild(how);
+      }
+      f.append(dt, dd); dl.appendChild(f);
+    }
+    if (c.skills.length) {
+      const f = document.createElement("div"); f.className = "f";
+      const dt = document.createElement("dt"); dt.textContent = "Skills used";
+      const dd = document.createElement("dd"); dd.textContent = c.skills.join(", ");
+      f.append(dt, dd); dl.appendChild(f);
+    }
+    card.appendChild(dl);
+    const acts = document.createElement("div"); acts.className = "acts";
+    if (!decided) {
+      const ok = document.createElement("button"); ok.type = "button"; ok.textContent = "Looks right";
+      ok.onclick = () => { finish(""); view(); card.querySelector("button").focus(); };
+      acts.appendChild(ok);
+    }
+    const ch = document.createElement("button"); ch.type = "button"; ch.className = "ghost";
+    ch.textContent = decided ? "Change" : "Change something";
+    ch.onclick = edit;
+    const m = document.createElement("span"); m.className = "muted";
+    m.textContent = "Already saved. You can change it here or in your record at any time.";
+    acts.appendChild(ch);
+    if (inChat) acts.appendChild(m);
+    card.appendChild(acts);
+  }
+  function edit() {
+    card.innerHTML = "";
+    const form = document.createElement("form");
+    const dl = document.createElement("dl");
+    const inputs = {};
+    const row = (key, label, value, multi) => {
+      const f = document.createElement("div"); f.className = "f";
+      const id = `acc-${c.role}-${c.index}-${key}`;
+      const dt = document.createElement("dt");
+      const l = document.createElement("label"); l.htmlFor = id; l.textContent = label; dt.appendChild(l);
+      const dd = document.createElement("dd");
+      const el = document.createElement(multi ? "textarea" : "input");
+      if (multi) el.rows = 2; else el.type = "text";
+      el.id = id; el.value = value; el.maxLength = multi ? 4000 : 300;
+      dd.appendChild(el); f.append(dt, dd); dl.appendChild(f); inputs[key] = el;
+    };
+    row("title", "Name it", c.title, false);
+    for (const [k, label] of CARD_FIELDS) row(k, label, c[k] || "", true);
+    row("skills", "Skills used", c.skills.join("; "), false);
+    const hint = document.createElement("span"); hint.className = "how"; hint.textContent = "Separate skills with ;";
+    inputs.skills.parentNode.appendChild(hint);
+    const acts = document.createElement("div"); acts.className = "acts";
+    const save = document.createElement("button"); save.textContent = "Save changes";
+    const cancel = document.createElement("button"); cancel.type = "button"; cancel.className = "ghost";
+    cancel.textContent = "Cancel";
+    const err = document.createElement("span"); err.className = "muted"; err.setAttribute("role", "status");
+    acts.append(save, cancel, err);
+    form.append(dl, acts); card.appendChild(form);
+    cancel.onclick = () => { finish(""); view(); };
+    form.onsubmit = async (e) => {
+      e.preventDefault(); save.disabled = true; err.textContent = "Saving…";
+      const body = { expect_title: c.title, skills: inputs.skills.value.split(";").map((x) => x.trim()).filter(Boolean) };
+      for (const k of ["title", ...CARD_FIELDS.map((x) => x[0])]) body[k] = inputs[k].value;
+      try {
+        c = await api(`/api/roles/${c.role}/accomplishments/${c.index}`,
+                      { method: "PATCH", body: JSON.stringify(body) });
+        finish("Saved your changes."); view(); refresh();
+      } catch (ex) { err.textContent = ex.message; save.disabled = false; }
+    };
+    inputs.title.focus();
+  }
+  view();
+  return card;
+}
+
 async function refresh() {
   const [{ summary }, h] = await Promise.all([api("/api/record"), api("/api/health")]);
   $("healthText").textContent = `${h.total} accomplishments, ${h.quantified} with a figure.`;
   const roles = $("roles"); roles.innerHTML = "";
-  for (const r of summary.roles) {
+  summary.roles.forEach((r, ri) => {
     const li = document.createElement("li");
-    li.innerHTML = `<strong></strong> <span class="muted"></span><ul class="clean"></ul>`;
-    li.querySelector("strong").textContent = `${r.employer} · ${r.title}`;
-    li.querySelector(".muted").textContent = r.dates;
-    const ul = li.querySelector("ul");
-    for (const a of r.accomplishments) {
+    const head = document.createElement("div"); head.className = "acc-row";
+    const name = document.createElement("span");
+    const strong = document.createElement("strong"); strong.textContent = `${r.employer} · ${r.title}`;
+    const dates = document.createElement("span"); dates.className = "muted";
+    dates.textContent = " " + [r.dates, r.fields["Employment type"]].filter(Boolean).join(" · ");
+    name.append(strong, dates);
+    const editJob = document.createElement("button"); editJob.type = "button"; editJob.className = "link";
+    editJob.textContent = r.outside ? "Edit" : "Edit job";
+    head.append(name, editJob); li.appendChild(head);
+    const formBox = document.createElement("div"); li.appendChild(formBox);
+    editJob.onclick = () => { formBox.innerHTML = ""; formBox.appendChild(jobForm(r, ri, formBox)); };
+    const ul = document.createElement("ul"); ul.className = "clean";
+    r.accomplishments.forEach((a, ai) => {
       const i = document.createElement("li");
-      i.textContent = a.title;
-      const t = document.createElement("span"); t.className = "tag " + a.evidence; t.textContent = a.evidence || "recorded";
-      i.appendChild(t); ul.appendChild(i);
-    }
+      const line = document.createElement("div"); line.className = "acc-row";
+      const t = document.createElement("span"); t.textContent = a.title;
+      const tag = document.createElement("span");
+      tag.className = "pill" + (a.label.startsWith("Has") ? " num" : ""); tag.textContent = a.label;
+      const ed = document.createElement("button"); ed.type = "button"; ed.className = "link"; ed.textContent = "Edit";
+      line.append(t, tag, ed); i.appendChild(line);
+      ed.onclick = () => {
+        const open = i.querySelector(".card");
+        if (open) { open.remove(); return; }
+        i.appendChild(accCard({ ...a, role: ri, index: ai }));
+      };
+      ul.appendChild(i);
+    });
     if (r.resume_bullets.length) {
       const i = document.createElement("li"); i.className = "muted";
-      i.textContent = `${r.resume_bullets.length} resume bullet(s) not yet opened up`;
+      const n = r.resume_bullets.length;
+      i.textContent = `${n} line${n === 1 ? "" : "s"} from your old resume to go through`;
       ul.appendChild(i);
     }
+    li.appendChild(ul);
     roles.appendChild(li);
-  }
+  });
   const sk = summary.skills;
   const n = (st) => sk.filter((x) => x.have === st).length;
   $("skillsShort").textContent = sk.length
     ? `${n("yes")} you have, ${n("verify")} to answer, ${n("no")} you don't have.`
     : "No skills list yet.";
   loadSkills(); loadSummary(); loadSections();
+}
+
+// ---- editing a job -------------------------------------------------------
+
+const JOB_LABELS = {
+  "Dates": "Dates", "Employment type": "Kind of job", "Location": "Location",
+  "Company": "What the organisation was", "Challenge": "What you were brought in to do",
+  "Authority": "People you led", "Budget": "Budget or revenue you were responsible for",
+  "Reported to": "Who you reported to", "Territory": "What your work covered",
+  "Results against targets": "Results against targets", "Recognition": "Awards and recognition",
+  "Responsibilities": "Regular duties" };
+
+function jobForm(r, ri, box) {
+  const form = document.createElement("form"); form.className = "jobform";
+  const inputs = {};
+  const add = (key, label, value) => {
+    const l = document.createElement("label"); l.textContent = label;
+    const long = ["Company", "Challenge", "Results against targets", "Responsibilities"].includes(key);
+    const el = document.createElement(long ? "textarea" : "input");
+    if (long) el.rows = 2; else el.type = "text";
+    el.id = `job-${ri}-${key.replace(/\W+/g, "-")}`; el.value = value || ""; el.maxLength = 2000;
+    l.appendChild(el); form.appendChild(l); inputs[key] = el;
+  };
+  add("employer", r.outside ? "Organisation or project" : "Employer", r.employer);
+  add("title", r.outside ? "Your role" : "Job title", r.title);
+  for (const [k, label] of Object.entries(JOB_LABELS)) {
+    if (r.outside && !["Dates", "Location"].includes(k)) continue;
+    add(k, label, r.fields[k]);
+  }
+  const row = document.createElement("div"); row.className = "row wrap";
+  const save = document.createElement("button"); save.textContent = "Save";
+  const cancel = document.createElement("button"); cancel.type = "button"; cancel.className = "ghost";
+  cancel.textContent = "Cancel";
+  const err = document.createElement("span"); err.className = "muted"; err.setAttribute("role", "status");
+  row.append(save, cancel, err); form.appendChild(row);
+  cancel.onclick = () => { box.innerHTML = ""; };
+  form.onsubmit = async (e) => {
+    e.preventDefault(); save.disabled = true;
+    const fields = {};
+    for (const k of Object.keys(JOB_LABELS)) if (inputs[k]) fields[k] = inputs[k].value;
+    try {
+      await api(`/api/roles/${ri}`, { method: "PATCH", body: JSON.stringify({
+        expect: `${r.employer || "[employer]"} — ${r.title || "[title]"}`,
+        employer: inputs.employer.value, title: inputs.title.value, fields }) });
+      box.innerHTML = ""; refresh();
+    } catch (ex) { err.textContent = ex.message; save.disabled = false; }
+  };
+  setTimeout(() => inputs.employer.focus(), 0);
+  return form;
 }
 
 // ---- summary and other sections ----------------------------------------

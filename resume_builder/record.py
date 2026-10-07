@@ -50,6 +50,18 @@ EVIDENCE_HELP = {
     "qualitative": "a contribution with no number attached",
 }
 
+# What a person sees instead of the tier names: plain words, and how a number
+# was arrived at when it matters. The record and the export keep the tiers.
+EVIDENCE_LABEL = {"metric": "Has a number", "derived": "Has a number",
+                  "scope": "Has a number", "qualitative": "Described, no number"}
+EVIDENCE_HOW = {"derived": "Worked out together from your before and after numbers.",
+                "scope": "The number gives the size of the work."}
+
+
+def evidence_label(tier: str) -> str:
+    return EVIDENCE_LABEL.get(tier, "Described, no number")
+
+
 # Role fields, in the order they render. Only `employer` and `title` live in the
 # heading; everything else is a labelled line underneath.
 ROLE_FIELDS = ("Dates", "Employment type", "Other titles", "Location", "Company", "Challenge", "Authority",
@@ -672,3 +684,41 @@ def coverage_note(role: Role, target: int = 10, prompt: bool = False) -> str:
     if prompt and c["total"] < target:
         note += f" — most people reach about {target} for a role once they look"
     return note
+
+
+# --------------------------------------------------------------------------
+# Editing one accomplishment by hand
+
+ACC_EDITABLE = ("title", "problem", "actions", "contribution", "results")
+
+
+def edit_accomplishment(rec: "Record", acc: Accomplishment, changes: dict) -> None:
+    """Apply a person's own edits to an accomplishment, keeping the skills
+    list pointing at it: a renamed accomplishment is renamed in each skill's
+    evidence, a dropped skill no longer cites it, an added one does."""
+    old_title, old_skills = acc.title, acc.skill_names()
+    for key in ACC_EDITABLE:
+        if key in changes and changes[key] is not None:
+            setattr(acc, key, str(changes[key]).strip())
+    if changes.get("skills") is not None:
+        acc.skills_used = ""
+        for name in changes["skills"]:
+            acc.add_skill(name)
+    # The tier follows the words: a result with its number taken out is no
+    # longer a number, and one a person wrote a number into is.
+    if acc.evidence in ("metric", "derived", "scope") and not acc.has_number():
+        acc.evidence = "qualitative"
+    elif acc.evidence in ("qualitative", "") and acc.has_number():
+        acc.evidence = "metric"
+    kept = {_squash(n) for n in acc.skill_names()}
+    for sk in rec.skills:
+        sk.evidence = [acc.title if e == old_title else e for e in sk.evidence]
+        if _squash(sk.name) in {_squash(n) for n in old_skills} - kept:
+            sk.evidence = [e for e in sk.evidence if e != acc.title]
+    for name in acc.skill_names():
+        sk = rec.skill(name)
+        if sk is None:
+            sk = Skill(name=name, category="From the interview", source="interview")
+            rec.skills.append(sk)
+        if acc.title not in sk.evidence:
+            sk.evidence.append(acc.title)
