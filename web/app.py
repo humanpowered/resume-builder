@@ -34,6 +34,10 @@ from resume_builder.store import SqlStore  # noqa: E402
 
 DB_PATH = os.environ.get("RB_DB", str(ROOT / "web" / "dev.sqlite3"))
 DEV = os.environ.get("RB_DEV") == "1"
+# Invite codes for a test round on a public address: with RB_INVITE_CODES set
+# (comma-separated), the dev sign-in also needs one of them, so only invited
+# testers get in. Unset, local development works as before.
+INVITES = {c.strip() for c in os.environ.get("RB_INVITE_CODES", "").split(",") if c.strip()}
 MAX_UPLOAD = 5 * 1024 * 1024
 
 app = FastAPI(title="Resume Builder")
@@ -87,6 +91,7 @@ def store_for(user: str = Depends(current_user), conn=Depends(db)) -> SqlStore:
 
 class DevLogin(BaseModel):
     email: str
+    code: str = ""
 
 
 @app.post("/dev/login")
@@ -96,6 +101,8 @@ def dev_login(body: DevLogin, response: Response):
     email = body.email.strip().lower()
     if "@" not in email:
         raise HTTPException(400, "Enter an email address")
+    if INVITES and body.code.strip() not in INVITES:
+        raise HTTPException(403, "That invite code isn't right. Check the message it came in.")
     response.set_cookie("rb_user", email, httponly=True, samesite="lax")
     return {"user": email}
 

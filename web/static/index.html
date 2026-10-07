@@ -120,9 +120,16 @@
 <div id="signin" class="hidden" style="max-width:420px;margin:48px auto;padding:0 16px">
   <section>
     <h2>Sign in</h2>
-    <p class="muted">Development sign-in. The hosted product will use a real sign-in provider.</p>
+    <p class="muted">Test version. Use any email address you like; it only keeps your record
+      separate. If you were sent an invite code, enter it too.</p>
+    <label for="email" class="sr-only">Email</label>
     <input id="email" type="email" placeholder="you@example.com" autocomplete="email">
+    <div class="row">
+      <label for="code" class="sr-only">Invite code</label>
+      <input id="code" type="text" placeholder="Invite code (if you have one)" autocomplete="off">
+    </div>
     <div class="row"><button id="login">Continue</button></div>
+    <p id="loginErr" class="muted" role="status"></p>
   </section>
 </div>
 
@@ -776,8 +783,12 @@ $("addSkill").onsubmit = async (e) => {
 };
 
 $("login").onclick = async () => {
-  await api("/dev/login", { method: "POST", body: JSON.stringify({ email: $("email").value }) });
-  boot();
+  $("loginErr").textContent = "";
+  try {
+    await api("/dev/login", { method: "POST",
+      body: JSON.stringify({ email: $("email").value, code: $("code").value }) });
+    boot();
+  } catch (e) { $("loginErr").textContent = e.message; }
 };
 $("upload").onclick = async () => {
   const f = $("file").files[0]; if (!f) return;

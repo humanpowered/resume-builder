@@ -60,6 +60,20 @@ class Web(unittest.TestCase):
         self.assertIn("15 to 20 minutes a job", r["intro"])
         self.assertIn("microphone", r["phone_tip"])
 
+    def test_with_invite_codes_set_only_invited_testers_get_in(self):
+        os.environ["RB_INVITE_CODES"] = "maple-42, cedar-7"
+        try:
+            self.appmod = importlib.reload(self.appmod)
+            c = TestClient(self.appmod.app)
+            self.assertEqual(c.post("/dev/login", json={"email": "a@example.com"}).status_code, 403)
+            self.assertEqual(c.post("/dev/login", json={"email": "a@example.com",
+                                                        "code": "oak-1"}).status_code, 403)
+            self.assertEqual(c.post("/dev/login", json={"email": "a@example.com",
+                                                        "code": " cedar-7 "}).status_code, 200)
+            self.assertEqual(c.get("/api/record").status_code, 200)
+        finally:
+            os.environ.pop("RB_INVITE_CODES")
+
     def test_signed_out_requests_are_refused(self):
         c = TestClient(self.appmod.app)
         self.assertEqual(c.get("/api/record").status_code, 401)
