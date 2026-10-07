@@ -966,9 +966,9 @@ class Interview:
         s["phase"] = "roles"
         s["new_role"] = {"stage": "employer", "adding": bool(self.rec.roles)}
         if self.rec.roles:
-            self.notes.append("Jobs on your record: " + "; ".join(
-                r.label() + (f" ({r.fields['Dates']})" if r.fields.get("Dates") else "")
-                for r in self.rec.roles) + ".")
+            self.notes.append("The jobs on your record so far:\n" + "\n".join(
+                "- " + r.label() + (f" ({r.fields['Dates']})" if r.fields.get("Dates") else "")
+                for r in self.rec.roles))
         else:
             self.notes.append("List your jobs, newest first. Include part-time, contract "
                               "and military roles. Promoted, or changed title, at one "
@@ -1209,7 +1209,7 @@ class Interview:
                 stage = s["new_role"]["stage"]
                 emp = s["new_role"].get("employer", "")
                 if stage == "employer" and s["new_role"].get("adding"):
-                    return Prompt("A new job, or one missing from that list? Its employer.",
+                    return Prompt("A new job to add, or one missing from that list? If so, enter its employer.",
                                   hint="Enter to carry on")
                 return {"employer": Prompt("Employer (or organisation)?", hint="Enter when done"),
                         "title": Prompt(f"Your job title at {emp}? One title; if you had "

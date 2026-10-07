@@ -201,7 +201,7 @@
       <div id="chat" aria-live="polite"></div>
       <form id="answerForm" class="row">
         <label for="answer" class="sr-only">Your answer</label>
-        <input id="answer" type="text" autocomplete="off" placeholder="Your answer">
+        <input id="answer" type="text" autocomplete="off" placeholder="Type your answer here">
         <button id="send">Send</button>
       </form>
       <div class="row wrap" id="restartRow">
@@ -455,7 +455,7 @@ function skipLabel(p) {
   const h = p.hint || "";
   if (!h) return "Skip this one";                        // a story with the coach
   if (/when done|no more|if none|if there's none/i.test(h)) return "No more";
-  if (/carry on/i.test(h)) return "Carry on";
+  if (/carry on/i.test(h)) return /missing from that list/.test(p.text) ? "None missing, carry on" : "Carry on";
   return "Skip";
 }
 function ask(p) {
