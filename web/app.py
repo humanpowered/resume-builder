@@ -196,7 +196,7 @@ def interview_step(body: Step, store: SqlStore = Depends(store_for)):
         raise HTTPException(400, str(exc))
     p = iv.step(body.answer)
     return {"text": p.text, "kind": p.kind, "hint": p.hint, "notes": p.notes,
-            "options": p.options, "saved": p.saved}
+            "options": p.options, "saved": p.saved, "why": p.why}
 
 
 @app.post("/api/interview/restart")

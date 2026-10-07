@@ -275,6 +275,23 @@ class InterviewEngine(unittest.TestCase):
         self.assertTrue(interview.card_text(p.saved).startswith("Keeping 10 of 12"))
         self.assertIn("Never\n  generic praise", interview.COACH)
 
+    def test_personal_questions_say_why_they_are_asked(self):
+        store = MemoryStore(Record(header=["# R"], roles=[Role(employer="Acme", title="Clerk",
+                                                               fields={"Other titles": "None"})]))
+        iv = interview.Interview(store)
+        p = iv.step()
+        whys = {}
+        for _ in range(25):
+            if p.why:
+                whys[p.text[:30]] = p.why
+            if p.text.startswith("Did you have targets"):
+                break
+            p = iv.step("Full-time" if p.text.startswith("What kind of job") else "")
+        self.assertEqual(len(whys), 8, "phone, location, LinkedIn and five job questions")
+        self.assertTrue(any(q.startswith("Where are you based") and "street address" in w
+                            for q, w in whys.items()))
+        self.assertFalse(iv.step("").why, "a plain question has no reason attached")
+
     def test_terminal_shows_the_card_not_the_bare_note(self):
         use(self.turn("complete", title="Precepted new grads", problem="p", actions="a",
                       results="10 of 12 stayed", evidence="metric"), self.turn("role_done"))

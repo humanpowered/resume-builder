@@ -274,6 +274,26 @@ STORY_QUESTIONS = [
     ("target", "Next move", "What do you want from your next role, and why now?",
      "Enter to skip"),
 ]
+# Why a question that can feel personal is asked, shown behind a "Why?" link
+# (wording approved by Craig, 2026-10-07).
+WHY = {
+    "Telephone": "Employers often call to set up interviews. It goes on your resume only "
+                 "if you want it there.",
+    "Location": "Recruiters filter by location. A city and state is enough; never give "
+                "your street address.",
+    "Linkedin": "Many recruiters check LinkedIn before they call. A link lets them see "
+                "more of your work.",
+    "Employment type": "It explains short stints and overlapping dates, so contract work "
+                       "doesn't look like job-hopping.",
+    "Authority": "Team size is one of the first things a hiring manager looks for, even "
+                 "for informal leadership like training new staff.",
+    "Budget": "It shows the scale you worked at. A range is fine, and never give a figure "
+              "your employer would treat as confidential.",
+    "Reported to": "It tells a reader your level in the organisation. A title is enough, "
+                   "no names.",
+    "Results against targets": "Rankings and targets hit are some of the strongest lines "
+                               "on a resume, and they're easy to forget.",
+}
 ASKED_STATE = "interview_asked"     # labels already asked, kept across sessions
 
 
@@ -816,6 +836,7 @@ class Prompt:
     # What was just saved, shown as a card the person checks and can change
     # before the next question. Empty unless an accomplishment was recorded.
     saved: dict = field(default_factory=dict)
+    why: str = ""               # why this question is asked, when it can feel personal
 
 
 # Skills an old resume listed are believed: they are the person's own claim.
@@ -996,7 +1017,7 @@ class Interview:
         for where, label, question, hint in questions:
             if not fact(self.rec, where, label) and label not in asked:
                 self.state["fact"] = [where, label]
-                return Prompt(question, hint=hint)
+                return Prompt(question, hint=hint, why=WHY.get(label, "") if where == "contact" else "")
         return None
 
     def _take_fact(self, a: str) -> None:
@@ -1250,7 +1271,7 @@ class Interview:
                     return Prompt(q.format(employer=role.employer, title=role.title),
                                   hint="Pick one, or Enter to skip" if label in OPTIONS
                                   else "Enter to skip",
-                                  options=list(OPTIONS.get(label, ())))
+                                  options=list(OPTIONS.get(label, ())), why=WHY.get(label, ""))
                 s["phase"] = "offer_bullet"
                 continue
 
@@ -1703,4 +1724,5 @@ def run(interview: Interview, ask, say=print) -> Interview:
             return interview
         text = prompt.text + "".join(f"\n    {i}. {o}" for i, o in enumerate(prompt.options, 1))
         text += f"\n  ({prompt.hint})" if prompt.hint else ""
+        text += f"\n  Why we ask: {prompt.why}" if prompt.why else ""
         prompt = interview.step(ask(text))
