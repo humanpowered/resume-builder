@@ -84,7 +84,10 @@ next run offers to pick up the half-finished one.
    part-time, contract and so on), what the organisation was, results against
    targets or rankings, then its accomplishments. A job that ends with fewer
    than three accomplishments and bullets is also asked its regular duties;
-   a strong record never is.
+   a strong record never is. A job question skipped or answered "no" is not
+   asked again on a later visit. Inside the conversation about an
+   accomplishment, "no" is an answer the coach hears; only "skip", "done" or
+   "move on" leaves it.
 4. Skills from an old resume, once. They are believed: the list is shown with
    every box ticked and a one-line reminder that interviewers can ask about
    anything on a resume. Only what the person unticks is dropped (recorded as

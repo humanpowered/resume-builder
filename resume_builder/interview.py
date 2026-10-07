@@ -47,6 +47,18 @@ def gave_up(answer: str) -> bool:
     return not answer or answer.strip().lower().rstrip(".!") in GIVE_UP
 
 
+# Leaving a conversation about one accomplishment takes an explicit word. "No"
+# is an answer there: the coach asks "is that figure right?", and "no" to that
+# must go back to the coach, not throw the story away. "I don't know" is the
+# coach's to handle too (it moves down the evidence ladder).
+LEAVE_TALK = {"done", "stop", "next", "skip", "move on", "no more", "that's all",
+              "thats all", "skip this", "skip this one", "let's move on", "lets move on"}
+
+
+def left_talk(answer: str) -> bool:
+    return not answer or answer.strip().lower().rstrip(".!") in LEAVE_TALK
+
+
 # "I don't remember that detail" answers a plain question with nothing. Short
 # and without a figure, so "I don't recall exactly, about 30%" still counts.
 NON_ANSWER = re.compile(r"^(i\s+)?(don'?t|do not|can'?t|cannot|couldn'?t)\s+(remember|recall|"
@@ -932,6 +944,23 @@ class Interview:
     def _asked(self) -> set:
         return set((self.store.load_state(ASKED_STATE) or {}).get("asked", []))
 
+    def _remember_asked(self, key: str, label: str) -> None:
+        """Note a question as asked. Read-modify-write: the same state keeps
+        the profile labels, each job's labels and the skills already shown."""
+        st = self.store.load_state(ASKED_STATE) or {}
+        if key == "asked":
+            st["asked"] = sorted(set(st.get("asked", [])) | {label})
+        else:
+            jobs = st.setdefault("jobs", {})
+            jobs[key] = sorted(set(jobs.get(key, [])) | {label})
+        self.store.save_state(ASKED_STATE, st)
+
+    def _job_asked(self, role) -> set:
+        """Job questions this person skipped or answered "no" to: never asked
+        again, as the profile questions aren't."""
+        return set(((self.store.load_state(ASKED_STATE) or {}).get("jobs") or {})
+                   .get(role_key(role), []))
+
     def _fact_prompt(self, questions) -> Prompt | None:
         """The next missing, never-asked profile or story question."""
         asked = self._asked()
@@ -948,8 +977,7 @@ class Interview:
         if not blank(a):
             set_fact(self.rec, where, label, a)
             self._save_record()
-        asked = self._asked() | {label}
-        self.store.save_state(ASKED_STATE, {"asked": sorted(asked)})
+        self._remember_asked("asked", label)
 
     # -- taking an answer ----------------------------------------------------
 
@@ -1043,6 +1071,8 @@ class Interview:
             if not blank(a):
                 self.role().fields[label] = a
                 self._save_record()
+            else:
+                self._remember_asked(role_key(self.role()), label)
             s["ctx_i"] += 1
             return
 
@@ -1059,7 +1089,7 @@ class Interview:
             return
 
         if phase == "talk":
-            if gave_up(a):
+            if left_talk(a):
                 self._end_talk("skipped")
                 return
             s["talk"]["messages"].append({"role": "user", "content": a})
@@ -1070,6 +1100,8 @@ class Interview:
             if not blank(a):
                 self.role().fields["Responsibilities"] = a
                 self._save_record()
+            else:
+                self._remember_asked(role_key(self.role()), "Responsibilities")
             self._next_role()
             return
 
@@ -1176,8 +1208,10 @@ class Interview:
                               options=list(DISOWN_OPTIONS))
 
             if phase == "context":
+                skipped = self._job_asked(role)
                 while s["ctx_i"] < len(CONTEXT_QUESTIONS) and (
                         role.outside() or role.fields.get(CONTEXT_QUESTIONS[s["ctx_i"]][0])
+                        or CONTEXT_QUESTIONS[s["ctx_i"]][0] in skipped
                         or (CONTEXT_QUESTIONS[s["ctx_i"]][0] == "Other titles"
                             and siblings(self.rec, role))):
                     s["ctx_i"] += 1
@@ -1534,6 +1568,7 @@ class Interview:
         """Duties for a thin job, then the next job."""
         role = self.role()
         if (role is not None and not role.outside() and not role.fields.get("Responsibilities")
+                and "Responsibilities" not in self._job_asked(role)
                 and role.coverage()["total"] < THIN_ROLE):
             self.state["phase"] = "duties"
         else:

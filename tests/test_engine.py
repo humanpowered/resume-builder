@@ -200,6 +200,60 @@ class InterviewEngine(unittest.TestCase):
         d.update(draft)
         return {"say": say, "draft": d, "status": status}
 
+    def test_no_to_a_derived_figure_goes_back_to_the_coach(self):
+        """'Is that right?' answered 'No' is an answer, not a way out: the
+        story stays open and the coach hears it."""
+        fake = use(self.turn(say="So about 12 hours a week saved. Is that right?"),
+                   self.turn(say="What was it, then?"))
+        iv = interview.Interview(self.store)
+        iv.step()
+        iv.step("")                                        # open the bullet
+        self.assertIn("Is that right?", iv.step("").text)
+        p = iv.step("No")
+        self.assertEqual(p.text, "What was it, then?")
+        self.assertEqual(iv.state["phase"], "talk")
+        self.assertEqual(fake.requests[-1]["messages"][-1]["content"], "No")
+
+    def test_skip_still_leaves_a_story(self):
+        use(self.turn(say="How many?"), self.turn(say="Something new?"))
+        iv = interview.Interview(self.store)
+        iv.step()
+        iv.step("")
+        iv.step("")
+        p = iv.step("skip")
+        self.assertEqual(p.text, "Something new?", "a fresh conversation, not the old one")
+        self.assertEqual(iv.state["talk"]["bullet"], "")
+
+    def test_a_skipped_job_question_is_not_asked_next_session(self):
+        store = MemoryStore(Record(header=["# R"], roles=[Role(
+            employer="Acme", title="Clerk",
+            fields={"Dates": "2019 - 2022", "Other titles": "None"})]))
+        store.save_state(interview.ASKED_STATE, {"asked": [
+            q[1] for q in interview.PROFILE_QUESTIONS + interview.STORY_QUESTIONS],
+            "skills_checked": ["sql"]})
+
+        def questions():
+            use(*[self.turn("role_done")] * 4)
+            iv = interview.Interview(store)
+            p, seen = iv.step(), []
+            while p.kind != "done":
+                seen.append(p.text)
+                p = iv.step("Full-time" if p.text.startswith("What kind of job") else "no")
+            return seen
+
+        job_questions = [q.format(employer="Acme", title="Clerk").split("?")[0]
+                         for label, q in interview.CONTEXT_QUESTIONS
+                         if label not in ("Employment type", "Other titles")]
+        job_questions.append(interview.DUTIES_QUESTION.split("?")[0])
+
+        def asked(seen):
+            return [q for q in job_questions if any(t.startswith(q) for t in seen)]
+
+        self.assertEqual(asked(questions()), job_questions)
+        self.assertEqual(asked(questions()), [], "skipped or 'no' is not asked again")
+        self.assertEqual(store.load_state(interview.ASKED_STATE)["skills_checked"], ["sql"],
+                         "remembering a skip keeps the rest of that state")
+
     def test_expanding_a_bullet_replaces_it_and_links_skills(self):
         use(self.turn(say="How many?"),
             self.turn("complete", title="Precepted new graduate nurses",
