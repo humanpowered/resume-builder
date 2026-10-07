@@ -60,6 +60,33 @@ class Web(unittest.TestCase):
         self.assertIn("15 to 20 minutes a job", r["intro"])
         self.assertIn("microphone", r["phone_tip"])
 
+    def test_the_web_interview_leaves_job_targets_to_their_own_card(self):
+        c = self.client("a@example.com")
+        self.seed(c)
+        p = c.post("/api/interview/step", json={"answer": None}).json()
+        seen = [p["text"]]
+        for _ in range(8):
+            if p["text"].startswith("In a sentence"):
+                break
+            p = c.post("/api/interview/step", json={"answer": ""}).json()
+            seen.append(p["text"])
+        self.assertFalse([t for t in seen if "aiming for" in t or "industries" in t.lower()])
+
+    def test_the_targets_card_suggests_the_persons_own_titles_and_saves(self):
+        c = self.client("a@example.com")
+        md = ("# R\n\n## Roles\n\n### Riverside — Charge Nurse\n\n- **Dates:** 2021 - Present\n\n"
+              "### Mercy — RN\n\n- **Dates:** 2015 - 2021\n\n### Parkview — rn\n\n- **Dates:** 2012 - 2015\n")
+        c.put("/api/record", json={"markdown": md})
+        t = c.get("/api/target").json()
+        self.assertEqual(t["Titles"], "")
+        self.assertEqual(t["suggested_titles"], ["Charge Nurse", "RN"])
+        t = c.put("/api/target", json={"Titles": " Nurse Manager;  Charge Nurse ;",
+                                       "Locations": "Denver; remote"}).json()
+        self.assertEqual(t["Titles"], "Nurse Manager; Charge Nurse")
+        self.assertIn("**Locations:** Denver; remote", c.get("/api/record").json()["markdown"])
+        c.put("/api/target", json={"Titles": ""})
+        self.assertNotIn("Titles", c.get("/api/record").json()["markdown"])
+
     def test_the_page_knows_a_returning_person_from_a_new_one(self):
         # a new person sees the welcome page; anyone with an interview under way
         # goes straight back to their next question

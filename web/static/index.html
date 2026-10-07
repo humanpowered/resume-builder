@@ -256,6 +256,25 @@
       </div>
       <p id="summaryNote" class="muted"></p>
     </section>
+
+    <section id="targetPanel">
+      <h2>Jobs you're aiming for</h2>
+      <p class="muted">The job search uses these to find postings for you. Separate entries
+        with a semicolon, and change them whenever your plans change.</p>
+      <div class="jobform">
+        <label>Job titles
+          <input id="tTitles" type="text" maxlength="1000"
+                 placeholder="e.g. ICU nurse manager; clinical nurse educator"></label>
+        <label>Industries or kinds of employer (optional)
+          <input id="tIndustries" type="text" maxlength="1000"
+                 placeholder="e.g. hospitals; health insurers"></label>
+        <label>Where you want to work (optional)
+          <input id="tLocations" type="text" maxlength="1000"
+                 placeholder="e.g. Denver; remote"></label>
+      </div>
+      <div class="row"><button id="saveTargets">Save</button></div>
+      <p id="targetNote" class="muted" role="status"></p>
+    </section>
   </div>
 
   <div class="stack">
@@ -620,7 +639,7 @@ async function refresh() {
   $("skillsShort").textContent = sk.length
     ? `${n("yes")} you have, ${n("verify")} to answer, ${n("no")} you don't have.`
     : "No skills list yet.";
-  loadSkills(); loadSummary(); loadSections();
+  loadSkills(); loadSummary(); loadSections(); loadTargets();
 }
 
 // ---- editing a job -------------------------------------------------------
@@ -673,6 +692,30 @@ function jobForm(r, ri, box) {
 }
 
 // ---- summary and other sections ----------------------------------------
+
+const TARGET_KEYS = ["Titles", "Industries", "Locations"];
+let targetPrefilled = false;     // suggest once a visit, so a cleared box stays clear
+const targetEdited = new Set();   // boxes the person has typed in since the last save
+TARGET_KEYS.forEach((k) => { $("t" + k).oninput = () => targetEdited.add(k); });
+async function loadTargets() {
+  const t = await api("/api/target");
+  TARGET_KEYS.forEach((k) => { if (!targetEdited.has(k)) $("t" + k).value = t[k]; });
+  // nothing saved yet: start from their own recent titles, unsaved until Save
+  if (!t.Titles && !targetEdited.has("Titles") && t.suggested_titles.length && !targetPrefilled) {
+    targetPrefilled = true;
+    $("tTitles").value = t.suggested_titles.join("; ");
+    $("targetNote").textContent = "Filled in from your recent jobs. Change them to the jobs "
+      + "you want next, then Save.";
+  }
+}
+$("saveTargets").onclick = async () => {
+  const body = {}; TARGET_KEYS.forEach((k) => { body[k] = $("t" + k).value; });
+  try {
+    await api("/api/target", { method: "PUT", body: JSON.stringify(body) });
+    targetEdited.clear(); $("targetNote").textContent = "Saved.";
+    loadTargets();
+  } catch (e) { $("targetNote").textContent = e.message; }
+};
 
 async function loadSummary() {
   const s = await api("/api/summary");

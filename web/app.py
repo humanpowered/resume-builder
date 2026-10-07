@@ -199,7 +199,7 @@ class Step(BaseModel):
 @app.post("/api/interview/step")
 def interview_step(body: Step, store: SqlStore = Depends(store_for)):
     try:
-        iv = interview.Interview(store, only=body.role)
+        iv = interview.Interview(store, only=body.role, ask_targets=False)
     except ValueError as exc:
         raise HTTPException(400, str(exc))
     p = iv.step(body.answer)
@@ -309,6 +309,35 @@ def summary_put(body: SummaryText, store: SqlStore = Depends(store_for)):
     rec.summary = " ".join(body.text.split())
     store.save_record(rec)
     return {"text": rec.summary, "issues": summary_mod.check(rec.summary)}
+
+
+class Targets(BaseModel):
+    Titles: str = Field("", max_length=1000)
+    Industries: str = Field("", max_length=1000)
+    Locations: str = Field("", max_length=1000)
+
+
+def targets_view(rec: mr.Record) -> dict:
+    return {**{k: rec.target.get(k, "") for k in interview.CARD_TARGETS},
+            "suggested_titles": interview.suggested_titles(rec)}
+
+
+@app.get("/api/target")
+def target_get(store: SqlStore = Depends(store_for)):
+    return targets_view(store.load_record())
+
+
+@app.put("/api/target")
+def target_put(body: Targets, store: SqlStore = Depends(store_for)):
+    rec = store.load_record()
+    for k in interview.CARD_TARGETS:
+        v = " ".join(getattr(body, k).split()).strip(" ;")
+        if v:
+            rec.target[k] = v
+        else:
+            rec.target.pop(k, None)
+    store.save_record(rec)
+    return targets_view(rec)
 
 
 class DraftAsk(BaseModel):

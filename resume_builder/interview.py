@@ -263,6 +263,21 @@ PROFILE_QUESTIONS = [
     ("target", "Locations", "Where do you want to work? Cities, regions or 'remote'.",
      "Enter to skip"),
 ]
+# The job-search targets the web page collects on a card of their own.
+CARD_TARGETS = ("Titles", "Industries", "Locations")
+
+
+def suggested_titles(rec, limit: int = 4) -> list[str]:
+    """The person's own most recent job titles, a starting point for what
+    they're aiming for next. Taken from the record, never invented."""
+    out = []
+    for r in rec.roles:
+        t = " ".join((r.title or "").split())
+        if t and not r.outside() and t.lower() not in (x.lower() for x in out):
+            out.append(t)
+    return out[:limit]
+
+
 # Asked after the jobs, when the person has their whole career in mind. A
 # cover letter needs the thread between the jobs, which no single job holds.
 STORY_QUESTIONS = [
@@ -868,8 +883,10 @@ class Interview:
     once. Thinnest role first.
     """
 
-    def __init__(self, store, only: str = "", target: int = 10):
+    def __init__(self, store, only: str = "", target: int = 10, ask_targets: bool = True):
         self.store = store
+        # the web page has its own card for these, so it doesn't ask them here
+        self.ask_targets = ask_targets
         self.only = only
         self.background_only = only == BACKGROUND or only.startswith(BACKGROUND + ":")
         if only.startswith(BACKGROUND + ":") and only.partition(":")[2] not in SECTION_KEYS:
@@ -1015,6 +1032,8 @@ class Interview:
         """The next missing, never-asked profile or story question."""
         asked = self._asked()
         for where, label, question, hint in questions:
+            if where == "target" and label in CARD_TARGETS and not self.ask_targets:
+                continue
             if not fact(self.rec, where, label) and label not in asked:
                 self.state["fact"] = [where, label]
                 return Prompt(question, hint=hint, why=WHY.get(label, "") if where == "contact" else "")
