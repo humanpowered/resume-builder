@@ -24,6 +24,7 @@ import argparse
 import json
 import os
 import sys
+import textwrap
 from datetime import datetime
 from pathlib import Path
 
@@ -272,9 +273,7 @@ def cmd_export(args, path: Path) -> int:
 
 
 def cmd_start(args, path: Path) -> int:
-    print("\nThis builds a master record of your career: every job, what you achieved\n"
-          "in it, and what you can do. It has no page limit. Later, each job\n"
-          "application picks the parts that fit that posting.\n")
+    print("\n" + textwrap.fill(interview.INTRO, 76) + "\n")
     print(f"  record: {path}")
     if path.exists():
         print("  You already have a record. Here is where it stands:")

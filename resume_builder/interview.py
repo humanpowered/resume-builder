@@ -206,12 +206,25 @@ OUTSIDE_QUESTIONS = {
 }
 
 
+# What the person is in for, said once before the first question: what they
+# get, roughly how long, and that nothing is lost or final.
+INTRO = ("This interview builds a full record of your career: every job, what you "
+         "achieved in it with the numbers behind it, and the skills that work shows. It "
+         "has no page limit; each job application later picks the parts that fit. "
+         "Allow 15 to 20 minutes a job, over as many visits as you like. Everything saves "
+         "as you go, and you can change any of it later.")
+PHONE_TIP = ("Long answers are easier with a keyboard, but a phone works fine. Your "
+             "phone's microphone button lets you speak your answers, and everything saves, "
+             "so you can start here and finish on a computer.")
+
+
 # Shown at the start of every session about jobs. The coach (rule 9) backs it
 # up mid-conversation, which is where the temptation actually arises.
 CONFIDENTIAL_NOTE = (
     "Please don't enter confidential figures: exact revenue, profit, margins, client "
     "budgets, prices or salaries. A percentage, a range or a ranking works just as "
-    "well on a resume, e.g. 'grew revenue 32%' or 'ran an eight-figure P&L'.")
+    "well on a resume, e.g. 'grew revenue 32%' or 'ran an eight-figure P&L'. Leave out "
+    "the names and details of patients, students and clients.")
 
 
 # Asked at the end of a job only when it holds fewer than THIN_ROLE
@@ -222,6 +235,7 @@ DUTIES_QUESTION = ("What did a normal week involve there? The regular duties, wi
                    "where you know them: calls a day, accounts, patients, orders, reports.")
 THIN_ROLE = 3
 DISOWN_OPTIONS = ("Yes, remove it", "No, it was mine")
+BULLET_OPTIONS = ("Yes", "Skip this one", "Move on to new ones")
 
 
 # --------------------------------------------------------------------------
@@ -1083,7 +1097,8 @@ class Interview:
             return
 
         if phase == "offer_bullet":
-            low = a.lower()
+            low = {BULLET_OPTIONS[1]: "skip", BULLET_OPTIONS[2]: "done"}.get(
+                pick(a, BULLET_OPTIONS), a.lower())
             if low in ("done", "next", "stop", "move on"):
                 s["phase"] = "new"
             elif low in ("skip", "s", "no", "n"):
@@ -1233,8 +1248,9 @@ class Interview:
             if phase == "offer_bullet":
                 if s["bullet_i"] < len(role.recorded_bullets):
                     return Prompt(f"From your resume: \"{role.recorded_bullets[s['bullet_i']]}\"\n"
-                                  f"Open this one up to find what is behind it?",
-                                  kind="choice", hint="Enter = yes, 'skip', or 'done' to move on")
+                                  f"Tell me the story behind this one? That's usually where "
+                                  f"the numbers are.", kind="choice", options=list(BULLET_OPTIONS),
+                                  hint="Enter = yes, 'skip' this one, or 'done' to move on")
                 s["phase"] = "new"
                 continue
 

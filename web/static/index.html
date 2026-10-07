@@ -67,6 +67,17 @@
   @media (max-width: 600px) { .item-row { grid-template-columns: 1fr; } }
   .wrap > input, .wrap > select { flex: 1 1 160px; width: auto; }
   .danger { color: var(--warn); background: transparent; border: 1px solid var(--line); }
+  .intro { background: var(--bg); border: 1px solid var(--line); border-radius: var(--radius);
+           padding: 12px 14px; margin-bottom: 12px; }
+  .intro p { margin: 0; }
+  .intro p + p { margin-top: 8px; }
+  .thinking { color: var(--muted); font-size: 14px; align-self: flex-start; }
+  @media (prefers-reduced-motion: no-preference) {
+    .thinking::after { content: ""; animation: dots 1.2s steps(4) infinite; }
+    @keyframes dots { 0% { content: ""; } 25% { content: "."; } 50% { content: ".."; } 75% { content: "..."; } }
+  }
+  .err { color: var(--warn); font-size: 14px; align-self: flex-start; }
+  .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
   /* the card showing what an accomplishment saved; editable any time */
   .card { border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel);
           align-self: stretch; }
@@ -143,10 +154,15 @@
 
     <section>
       <h2>Interview</h2>
-      <p class="muted">One question at a time. Answer briefly; say “skip” or “done” any time.
-        Everything is saved as you go, so you can close this page and come back.</p>
+      <div id="intro" class="intro">
+        <p id="introText"></p>
+        <p id="phoneTip" class="muted" hidden></p>
+      </div>
+      <p class="muted">One question at a time. Answer in your own words, or use the buttons
+        under a question to skip it.</p>
       <div id="chat" aria-live="polite"></div>
       <form id="answerForm" class="row">
+        <label for="answer" class="sr-only">Your answer</label>
         <input id="answer" type="text" autocomplete="off" placeholder="Your answer">
         <button id="send">Send</button>
       </form>
@@ -170,12 +186,12 @@
       <div class="row"><a class="btn ghost" href="#skillsPanel">Go to your skills list</a></div>
     </section>
     <section>
-      <h2>Export</h2>
-      <p class="muted">The files the job-application pipeline reads.</p>
-      <div class="row">
-        <a class="btn ghost" href="/api/export/master_profile.json">Profile (JSON)</a>
-        <a class="btn ghost" href="/api/export/skills_inventory.csv">Skills (CSV)</a>
-        <a class="btn ghost" href="/api/me/download">Everything (Markdown)</a>
+      <h2>Download or delete</h2>
+      <p class="muted">Download a copy of your record any time.</p>
+      <div class="row wrap">
+        <a class="btn ghost" href="/api/me/download">Your whole record</a>
+        <a class="btn ghost" href="/api/export/skills_inventory.csv">Your skills list</a>
+        <a class="btn ghost" href="/api/export/master_profile.json">Profile for the job search</a>
       </div>
       <div class="row"><button id="deleteMe" class="danger">Delete all my data</button></div>
     </section>
@@ -228,7 +244,11 @@ async function api(path, opts = {}) {
     ...opts });
   if (r.status === 401) { show("signin"); throw new Error("signed out"); }
   const data = r.headers.get("content-type")?.includes("json") ? await r.json() : await r.text();
-  if (!r.ok) throw new Error(data.detail || r.statusText);
+  if (!r.ok) {
+    const e = new Error(typeof data.detail === "string" ? data.detail : r.statusText);
+    e.fromServer = typeof data.detail === "string";
+    throw e;
+  }
   return data;
 }
 function show(which) {
@@ -240,16 +260,19 @@ function say(text, cls) {
   d.className = "msg " + cls; d.textContent = text;
   $("chat").appendChild(d); $("chat").scrollTop = $("chat").scrollHeight;
 }
-function choices(options) {
-  // one button per option; typing an answer still works
+function choices(options, skip = "", unsure = false) {
+  // one button per option, plus Skip and Not sure; typing an answer still works
   const row = document.createElement("div");
   row.className = "choices";
-  options.forEach((o) => {
+  const add = (label, send) => {
     const b = document.createElement("button");
-    b.className = "ghost"; b.type = "button"; b.textContent = o;
-    b.onclick = () => { row.remove(); say(o, "a"); step(o); };
+    b.className = "ghost"; b.type = "button"; b.textContent = label;
+    b.onclick = () => { row.remove(); say(label, "a"); step(send); };
     row.appendChild(b);
-  });
+  };
+  options.forEach((o) => add(o, o));
+  if (unsure) add("Not sure", "not sure");
+  if (skip) add(skip, skip === "Skip this one" ? "skip" : "");
   $("chat").appendChild(row); $("chat").scrollTop = $("chat").scrollHeight;
 }
 function ticks(options) {
@@ -283,10 +306,15 @@ let section = "";      // "background" while answering education questions
 
 async function step(answer) {
   document.querySelectorAll(".choices").forEach((r) => r.remove());
+  $("intro").hidden = true;
   busy(true);
+  const wait = document.createElement("div");
+  wait.className = "thinking"; wait.setAttribute("role", "status"); wait.textContent = "Thinking";
+  $("chat").appendChild(wait); $("chat").scrollTop = $("chat").scrollHeight;
   try {
     const p = await api("/api/interview/step", { method: "POST",
       body: JSON.stringify({ answer, role: section }) });
+    wait.remove();
     if (p.kind === "done") section = "";
     const saved = p.saved && Object.keys(p.saved).length ? p.saved : null;
     (p.notes || []).filter((n) => !(saved && n.startsWith("recorded: "))).forEach((n) => say(n, "note"));
@@ -302,13 +330,36 @@ async function step(answer) {
     ask(p);
     if (p.kind === "done") refresh();
     else if ((p.notes || []).some((n) => n.startsWith("recorded"))) refresh();
-  } catch (e) { say("Something went wrong: " + e.message, "note"); }
+  } catch (e) {
+    wait.remove();
+    say((e.fromServer ? e.message + " " : "That didn't go through. ")
+        + "Nothing you saved was lost; your answer is back in the box to send again.", "err");
+    if (answer) $("answer").value = answer;
+  }
   busy(false); $("answer").focus();
 }
 
+// The engine's hints are written for a keyboard ("Enter to skip"); on the
+// page, buttons do that, so only the rest of a hint is shown.
+function webHint(hint) {
+  return (hint || "").split(/;\s*|,\s*or\s+|\.\s+/)
+    .filter((h) => h && !/\bEnter\b|^'?done'?\b/i.test(h)).join("; ");
+}
+function skipLabel(p) {
+  const h = p.hint || "";
+  if (!h) return "Skip this one";                        // a story with the coach
+  if (/when done|no more|if none|if there's none/i.test(h)) return "No more";
+  if (/carry on/i.test(h)) return "Carry on";
+  return "Skip";
+}
 function ask(p) {
-  say(p.text + (p.hint ? `\n(${p.hint})` : ""), "q");
-  if ((p.options || []).length) (p.kind === "multi" ? ticks : choices)(p.options);
+  const hint = p.kind === "multi" ? "" : webHint(p.hint);
+  say(p.text + (hint ? `\n(${hint})` : ""), "q");
+  if (p.kind === "multi") ticks(p.options);
+  else if ((p.options || []).length) choices(p.options, p.kind === "question" ? skipLabel(p) : "");
+  // "Not sure" only in a story, where the coach takes it as an answer and
+  // moves on; a plain question has Skip
+  else if (p.kind !== "done") choices([], skipLabel(p), !p.hint);
   $("answer").focus();
 }
 
@@ -414,8 +465,12 @@ function accCard(c, { pending = false, onDone = null } = {}) {
 }
 
 async function refresh() {
-  const [{ summary }, h] = await Promise.all([api("/api/record"), api("/api/health")]);
-  $("healthText").textContent = `${h.total} accomplishments, ${h.quantified} with a figure.`;
+  const [{ summary, intro, phone_tip }, h] = await Promise.all([api("/api/record"), api("/api/health")]);
+  $("introText").textContent = intro;
+  $("phoneTip").textContent = phone_tip;
+  $("phoneTip").hidden = !matchMedia("(max-width: 700px), (pointer: coarse)").matches;
+  $("healthText").textContent = `${h.total} accomplishment${h.total === 1 ? "" : "s"}, `
+    + `${h.quantified} with a number.`;
   const roles = $("roles"); roles.innerHTML = "";
   summary.roles.forEach((r, ri) => {
     const li = document.createElement("li");
@@ -711,8 +766,12 @@ $("upload").onclick = async () => {
   $("importResult").textContent = "Reading your file…";
   try {
     const r = await api("/api/import", { method: "POST", body: fd });
-    $("importResult").textContent = `Imported. ${r.set_aside.length} line(s) set aside to check, `
-      + `${r.unplaced.length} not filed. Next: start the interview.`;
+    const left = [];
+    if (r.set_aside.length) left.push(`${r.set_aside.length} line(s) couldn't be matched to your `
+      + "file, so they were left out");
+    if (r.unplaced.length) left.push(`${r.unplaced.length} line(s) didn't fit under a job`);
+    $("importResult").textContent = "Imported." + (left.length ? " " + left.join("; ") + "." : "")
+      + " Next: start the interview below.";
     refresh();
   } catch (e) { $("importResult").textContent = e.message; }
 };

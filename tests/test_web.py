@@ -55,6 +55,11 @@ class Web(unittest.TestCase):
         self.assertNotIn("Riverside", b.get("/api/record").json()["markdown"])
         self.assertFalse(b.get("/api/record").json()["exists"])
 
+    def test_the_page_gets_the_opening_card_and_phone_tip(self):
+        r = self.client("a@example.com").get("/api/record").json()
+        self.assertIn("15 to 20 minutes a job", r["intro"])
+        self.assertIn("microphone", r["phone_tip"])
+
     def test_signed_out_requests_are_refused(self):
         c = TestClient(self.appmod.app)
         self.assertEqual(c.get("/api/record").status_code, 401)

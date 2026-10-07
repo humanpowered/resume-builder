@@ -133,7 +133,8 @@ JOB_EDITABLE = ("Dates", "Employment type", "Location", "Company", "Challenge", 
 @app.get("/api/record")
 def get_record(store: SqlStore = Depends(store_for)):
     rec = store.load_record()
-    return {"exists": store.exists(), "markdown": mr.render(rec), "summary": summary(rec)}
+    return {"exists": store.exists(), "markdown": mr.render(rec), "summary": summary(rec),
+            "intro": interview.INTRO, "phone_tip": interview.PHONE_TIP}
 
 
 class RecordText(BaseModel):

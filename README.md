@@ -72,6 +72,7 @@ next run offers to pick up the half-finished one.
 
 ## The order of a session
 
+0. A short opening: what the record is, roughly 15 to 20 minutes a job over as many visits as you like, and that everything saves and can be changed. On a phone the page adds a tip: a keyboard is easier, the microphone button works for answers, and you can finish on a computer. Every question has buttons to skip it (and, inside a story, "Not sure"), so nobody needs to know that an empty answer skips.
 1. Contact details and the jobs you're aiming for, each asked once. A skipped
    one is not asked again.
 2. The job list: all of it on a new record. On every later visit, "a new job,

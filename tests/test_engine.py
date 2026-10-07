@@ -200,6 +200,28 @@ class InterviewEngine(unittest.TestCase):
         d.update(draft)
         return {"say": say, "draft": d, "status": status}
 
+    def test_resume_lines_offer_buttons_that_mean_what_they_say(self):
+        """'Skip this one' passes one line; 'Move on to new ones' passes them
+        all; the number from a terminal menu works the same."""
+        self.store.load_record()
+        rec = self.store.load_record()
+        rec.roles[0].recorded_bullets.append("Ran the sepsis huddle")
+        self.store.save_record(rec)
+        use(self.turn(say="What were you trying to fix?"))
+        iv = interview.Interview(self.store)
+        iv.step()
+        p = iv.step("")
+        self.assertEqual(p.options, list(interview.BULLET_OPTIONS))
+        p = iv.step("Skip this one")
+        self.assertIn("Ran the sepsis huddle", p.text, "the next line is offered")
+        p = iv.step("3")                                    # Move on to new ones
+        self.assertEqual(p.text, "What were you trying to fix?")
+        self.assertEqual(iv.state["talk"]["bullet"], "", "a new story, not a resume line")
+
+    def test_the_first_note_asks_for_no_confidential_figures_or_peoples_details(self):
+        p = interview.Interview(self.store).step()
+        self.assertIn("patients, students and clients", p.notes[0])
+
     def test_a_saved_accomplishment_comes_back_as_a_card(self):
         """Every field the model wrote is shown, so the person can check it;
         a story that runs out of details still shows what was kept."""
