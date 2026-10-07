@@ -214,8 +214,12 @@
       </div>
     </section>
 
+    <!-- The first upload happens before the builder opens, so here the card stays
+         folded to one line until someone wants to add another file. -->
     <section id="start">
-      <h2>Add from a resume</h2>
+      <div class="acc-row"><h2 id="startHead" style="flex:1;margin:0">Add a resume or LinkedIn file</h2>
+        <button id="startOpen" type="button" class="link" aria-expanded="false">Add a file</button></div>
+      <div id="startBody" hidden>
       <p class="muted">Upload a resume or a LinkedIn profile saved as PDF. Nothing is rewritten:
         every line is copied into your record and checked against your file.</p>
       <div class="row">
@@ -233,6 +237,7 @@
         <p>A profile link can't be used: LinkedIn shows profiles only to signed-in members and
           doesn't let other apps read them.</p>
       </details>
+      </div>
       <p id="importResult" class="muted"></p>
     </section>
 
@@ -886,10 +891,18 @@ async function importFile(f, out, btn) {
   } catch (e) { out.textContent = e.message; return null; }
   finally { clearTimeout(slow); out.className = "muted"; btn.disabled = false; btn.textContent = label; }
 }
+$("startOpen").onclick = () => {
+  const open = $("startBody").hidden;
+  $("startBody").hidden = !open; $("startOpen").setAttribute("aria-expanded", String(open));
+  $("startOpen").textContent = open ? "Close" : "Add a file";
+};
 $("upload").onclick = async () => {
   const f = $("file").files[0]; if (!f) return;
   const msg = await importFile(f, $("importResult"), $("upload"));
-  if (msg) { $("importResult").textContent = msg; refresh(); }
+  if (msg) {
+    $("importResult").textContent = msg; $("file").value = "";
+    $("startBody").hidden = true; $("startOpen").textContent = "Add a file"; refresh();
+  }
 };
 function begin(note) {
   // into the builder with the next question already on screen
