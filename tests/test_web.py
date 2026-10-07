@@ -60,6 +60,14 @@ class Web(unittest.TestCase):
         self.assertIn("15 to 20 minutes a job", r["intro"])
         self.assertIn("microphone", r["phone_tip"])
 
+    def test_the_page_knows_a_returning_person_from_a_new_one(self):
+        # a new person sees the welcome page; anyone with an interview under way
+        # goes straight back to their next question
+        c = self.client("a@example.com")
+        self.assertFalse(c.get("/api/record").json()["interview_started"])
+        c.post("/api/interview/step", json={"answer": None})
+        self.assertTrue(c.get("/api/record").json()["interview_started"])
+
     def test_with_invite_codes_set_only_invited_testers_get_in(self):
         os.environ["RB_INVITE_CODES"] = "maple-42, cedar-7"
         try:

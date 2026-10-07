@@ -141,7 +141,8 @@ JOB_EDITABLE = ("Dates", "Employment type", "Location", "Company", "Challenge", 
 def get_record(store: SqlStore = Depends(store_for)):
     rec = store.load_record()
     return {"exists": store.exists(), "markdown": mr.render(rec), "summary": summary(rec),
-            "intro": interview.INTRO, "phone_tip": interview.PHONE_TIP}
+            "intro": interview.INTRO, "phone_tip": interview.PHONE_TIP,
+            "interview_started": store.load_state(interview.STATE) is not None}
 
 
 class RecordText(BaseModel):
