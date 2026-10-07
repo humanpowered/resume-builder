@@ -1325,3 +1325,65 @@ class Health(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ImportedSkills(unittest.TestCase):
+    """Skills from an old resume are believed; the person is shown them once
+    and only what they untick is dropped."""
+
+    def interview(self):
+        rec = Record(header=["# R"], contact={"Name": "x"}, skills=[
+            Skill(name="Python", source="resume"),
+            Skill(name="Kubernetes", source="resume"),
+            Skill(name="Java", source="resume"),
+            Skill(name="SQL", source="resume", evidence=["Built the reporting mart"]),
+            Skill(name="Excel", source="you")])
+        store = MemoryStore(rec)
+        iv = interview.Interview(store)
+        iv.state = iv._fresh()
+        iv.state.update(phase="skills", queue=[], qi=0, outside_done=True,
+                        background_done=True)
+        return store, iv
+
+    def test_only_unproven_resume_skills_are_shown_all_ticked(self):
+        store, iv = self.interview()
+        p = iv.step(None)
+        self.assertEqual(p.kind, "multi")
+        self.assertEqual(p.options, ["Python", "Kubernetes", "Java"],
+                         "work already shows SQL; Excel the person added themselves")
+        self.assertIn("Interviewers can ask", p.text)
+
+    def test_unticked_skills_become_no_and_kept_ones_get_last_used(self):
+        store, iv = self.interview()
+        iv.step(None)
+        p = iv.step("drop: Kubernetes; Java")
+        self.assertIn("dropped: Kubernetes; Java", p.notes)
+        self.assertEqual(p.text, "When did you last use Python?")
+        p = iv.step("current")
+        rec = store.load_record()
+        self.assertEqual({s.name: s.have for s in rec.skills}["Kubernetes"], "no")
+        self.assertEqual(rec.skill("Python").have, "yes")
+        self.assertEqual(rec.skill("Python").last_used, "current")
+        self.assertEqual(p.kind, "done")
+
+    def test_enter_keeps_everything_and_done_skips_the_rest(self):
+        store, iv = self.interview()
+        iv.step(None)
+        p = iv.step("")
+        self.assertEqual(p.text, "When did you last use Python?")
+        p = iv.step("done")
+        self.assertEqual(p.kind, "done")
+        self.assertTrue(all(s.have == "yes" for s in store.load_record().skills))
+
+    def test_the_list_is_shown_once_across_sessions(self):
+        store, iv = self.interview()
+        iv.step(None)
+        iv.step("")
+        again = interview.Interview(store)
+        self.assertEqual(again._unchecked_skills(), [])
+
+    def test_drops_in_a_sentence_or_by_number(self):
+        names = ["Java", "C++", "Kubernetes"]
+        self.assertEqual(interview.dropped("1, 3", names), ["Java", "Kubernetes"])
+        self.assertEqual(interview.dropped("I haven't used C++ in years", names), ["C++"])
+        self.assertEqual(interview.dropped("Keep them all", names), [])

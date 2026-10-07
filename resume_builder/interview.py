@@ -31,6 +31,7 @@ from dataclasses import dataclass, field
 
 from . import llm
 from . import record as mr
+from . import skills as sk
 from .record import Accomplishment, Role
 
 
@@ -114,6 +115,36 @@ CONTEXT_QUESTIONS = [
 
 # Questions answered by picking one of these; a typed answer is kept as typed.
 OPTIONS = {"Employment type": mr.PAID_TYPES}
+
+
+def dropped(answer: str, options) -> list:
+    """The options a person unticked: numbers or names, separated by commas
+    or semicolons. The web page sends "drop: A; B". Enter, or "none", keeps
+    every one."""
+    a = re.sub(r"^\s*drop\s*:", "", answer or "", flags=re.I).strip()
+    if gave_up(a):
+        return []
+    out = []
+    for part in re.split(r"[,;\n]", a):
+        part = part.strip().strip(".")
+        if not part:
+            continue
+        if part.isdigit() and 1 <= int(part) <= len(options):
+            name = options[int(part) - 1]
+        else:
+            name = next((o for o in options if mr._squash(o) == mr._squash(part)), None)
+        if name and name not in out:
+            out.append(name)
+    if not out and DROP_WORDS.search(a):
+        # "I haven't used Java or Kubernetes in years": names in a sentence
+        low = f" {a.lower()} "
+        out = [o for o in options
+               if re.search(r"(?<![\w+#])" + re.escape(o.lower()) + r"(?![\w+#])", low)]
+    return out
+
+
+DROP_WORDS = re.compile(r"\b(drop|remove|untick|delete|except|not|never|don'?t|haven'?t|"
+                        r"didn'?t|no longer)\b", re.I)
 
 
 def pick(answer: str, options) -> str:
@@ -739,10 +770,22 @@ def by_need(rec: mr.Record) -> list:
 @dataclass
 class Prompt:
     text: str
-    kind: str = "question"      # question | choice | done
+    kind: str = "question"      # question | choice | multi | done
     hint: str = ""              # e.g. "Enter to skip"
-    options: list = field(default_factory=list)  # pick one: buttons on a page
+    options: list = field(default_factory=list)  # choice: pick one; multi: untick any
     notes: list = field(default_factory=list)   # things to show first
+
+
+# Skills an old resume listed are believed: they are the person's own claim.
+# They are shown once, all ticked, with the one risk worth naming, and only
+# what the person unticks is dropped.
+SKILLS_CHECK = ("Your old resume lists these skills, and they stay on your record. "
+                "Interviewers can ask about anything on your resume, so untick any "
+                "you couldn't discuss today.")
+SKILLS_HINT = "Enter keeps them all; or type the numbers or names to drop, e.g. '2, 5'"
+LAST_USED = "When did you last use {name}?"
+LAST_USED_HINT = "e.g. 'current' or '2021'. Enter to skip; 'done' skips the rest"
+STOP_ASKING = {"done", "stop", "move on", "skip all", "skip the rest", "no more"}
 
 
 STATE = "interview"
@@ -956,6 +999,10 @@ class Interview:
             self._take_outside(a)
             return
 
+        if phase == "skills":
+            self._take_skills(a)
+            return
+
         if phase == "disown":
             role = self.role()
             if pick(a, DISOWN_OPTIONS) == DISOWN_OPTIONS[0] or a.strip().lower() in ("y", "yes"):
@@ -1072,10 +1119,18 @@ class Interview:
             if phase == "outside":
                 return self._outside_prompt()
 
+            if phase == "skills":
+                prompt = self._skills_prompt()
+                if prompt is not None:
+                    return prompt
+                continue
+
             if phase != "done" and s["qi"] >= len(s["queue"]):
                 # jobs finished: work outside them, then education and the rest, once
                 if self.only or s.get("background_done"):
                     s["phase"] = "done"
+                elif not s.get("skills_done") and self._unchecked_skills():
+                    s["phase"] = "skills"
                 elif not s.get("outside_done"):
                     s["phase"] = "outside"
                 else:
@@ -1348,6 +1403,68 @@ class Interview:
         self.recorded += 1
         self.notes.append(f"recorded: {draft.title} ({draft.evidence})")
         return True
+
+    # -- skills from an old resume ---------------------------------------------
+
+    def _unchecked_skills(self) -> list:
+        """Skills an imported resume listed that no accomplishment has shown
+        and the person hasn't been shown yet. Ones the interview confirmed
+        through their work need no question."""
+        shown = set((self.store.load_state(ASKED_STATE) or {}).get("skills_checked", []))
+        return [k.name for k in self.rec.skills
+                if k.have == sk.YES and k.source == sk.FROM_RESUME and not k.evidence
+                and mr._squash(k.name) not in shown]
+
+    def _mark_checked(self, names) -> None:
+        st = self.store.load_state(ASKED_STATE) or {}
+        st["skills_checked"] = sorted(set(st.get("skills_checked", []))
+                                      | {mr._squash(n) for n in names})
+        self.store.save_state(ASKED_STATE, st)
+
+    def _skills_prompt(self) -> Prompt | None:
+        s = self.state
+        k = s.get("skills_check")
+        if k is None:
+            names = self._unchecked_skills()
+            if not names:
+                self._skills_finished()
+                return None
+            k = s["skills_check"] = {"names": names, "later": [], "i": 0, "listed": False}
+        if not k["listed"]:
+            return Prompt(SKILLS_CHECK, kind="multi", hint=SKILLS_HINT, options=list(k["names"]))
+        if k["i"] < len(k["later"]):
+            return Prompt(LAST_USED.format(name=k["later"][k["i"]]), hint=LAST_USED_HINT)
+        self._skills_finished()
+        return None
+
+    def _take_skills(self, a: str) -> None:
+        k = self.state["skills_check"]
+        if not k["listed"]:
+            drop = dropped(a, k["names"])
+            for name in drop:
+                sk.set_skill(self.rec, name, have=sk.NO)
+            self._save_record()
+            self._mark_checked(k["names"])
+            if drop:
+                self.notes.append("dropped: " + "; ".join(drop))
+            kept = [n for n in k["names"] if n not in drop]
+            k["later"] = [n for n in kept if not (self.rec.skill(n) and self.rec.skill(n).last_used)]
+            k["listed"] = True
+            return
+        low = a.strip().lower().rstrip(".!")
+        if low in STOP_ASKING:
+            k["i"] = len(k["later"])
+            return
+        if a.strip() and not blank(a):
+            sk.set_skill(self.rec, k["later"][k["i"]], last_used=a.strip())
+            self._save_record()
+        k["i"] += 1
+
+    def _skills_finished(self) -> None:
+        s = self.state
+        s.pop("skills_check", None)
+        s["skills_done"] = True
+        s["phase"] = "begin_role"           # the end of the job queue routes on from here
 
     def _outside_prompt(self) -> Prompt:
         s = self.state

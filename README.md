@@ -85,13 +85,19 @@ next run offers to pick up the half-finished one.
    targets or rankings, then its accomplishments. A job that ends with fewer
    than three accomplishments and bullets is also asked its regular duties;
    a strong record never is.
-4. Work outside paid jobs: volunteering, a board seat, a project, a capstone,
+4. Skills from an old resume, once. They are believed: the list is shown with
+   every box ticked and a one-line reminder that interviewers can ask about
+   anything on a resume. Only what the person unticks is dropped (recorded as
+   a no, so it is never suggested again); each kept one gets an optional "when
+   did you last use it?". Skills their accomplishments already showed are not
+   on the list.
+5. Work outside paid jobs: volunteering, a board seat, a project, a capstone,
    caring for family. It opens with a short explanation of what counts and how
    to answer, then each one gets the same coached conversation as a job. It is
    stored with the jobs, marked by its type, but exported as `outside_work`,
    never as a job, and never counted in employment gaps.
-5. Education, certifications and the optional sections.
-6. The career story, asked once: what you're best at, what connects your jobs,
+6. Education, certifications and the optional sections.
+7. The career story, asked once: what you're best at, what connects your jobs,
    and what you want next. It never goes on a resume as written; the pipeline
    uses it for cover letters (`differentiator`, `next_move` in the export).
 

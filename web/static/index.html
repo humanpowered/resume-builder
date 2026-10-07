@@ -38,6 +38,9 @@
           padding-bottom: 8px; }
   .msg { padding: 10px 12px; border-radius: 10px; max-width: 90%; white-space: pre-wrap; }
   .choices { display: flex; flex-wrap: wrap; gap: 6px; }
+  .ticks { flex-direction: column; align-items: flex-start; }
+  .ticks label { display: flex; gap: 6px; align-items: center; }
+  .ticks button { margin-top: 4px; }
   .q { background: var(--bg); border: 1px solid var(--line); align-self: flex-start; }
   .a { background: var(--accent); color: var(--accent-ink); align-self: flex-end; }
   .note { color: var(--ok); font-size: 14px; align-self: flex-start; }
@@ -221,6 +224,31 @@ function choices(options) {
   });
   $("chat").appendChild(row); $("chat").scrollTop = $("chat").scrollHeight;
 }
+function ticks(options) {
+  // every box starts ticked: the list is believed, and only what the person
+  // unticks is dropped
+  const row = document.createElement("div");
+  row.className = "choices ticks";
+  const boxes = options.map((o) => {
+    const l = document.createElement("label");
+    const c = document.createElement("input");
+    c.type = "checkbox"; c.checked = true; c.value = o;
+    l.appendChild(c); l.appendChild(document.createTextNode(" " + o));
+    row.appendChild(l);
+    return c;
+  });
+  const b = document.createElement("button");
+  b.type = "button"; b.textContent = "Keep the ticked ones";
+  b.onclick = () => {
+    const off = boxes.filter((c) => !c.checked).map((c) => c.value);
+    const answer = off.length ? "drop: " + off.join("; ") : "";
+    row.remove();
+    say(off.length ? "Dropped: " + off.join(", ") : "Kept them all", "a");
+    step(answer);
+  };
+  row.appendChild(b);
+  $("chat").appendChild(row); $("chat").scrollTop = $("chat").scrollHeight;
+}
 function busy(on) { $("send").disabled = on; $("answer").disabled = on; }
 
 let section = "";      // "background" while answering education questions
@@ -234,7 +262,7 @@ async function step(answer) {
     if (p.kind === "done") section = "";
     (p.notes || []).forEach((n) => say(n, "note"));
     say(p.text + (p.hint ? `\n(${p.hint})` : ""), "q");
-    if ((p.options || []).length) choices(p.options);
+    if ((p.options || []).length) (p.kind === "multi" ? ticks : choices)(p.options);
     if (p.kind === "done") refresh();
     else if ((p.notes || []).some((n) => n.startsWith("recorded"))) refresh();
   } catch (e) { say("Something went wrong: " + e.message, "note"); }
