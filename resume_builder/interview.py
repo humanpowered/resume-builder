@@ -291,9 +291,13 @@ def same_job(rec, employer: str, title: str, dates: str = ""):
     return None
 
 
-DATES_AT_END = re.compile(
-    r"^(?P<title>.+?)[\s,(]+(?P<dates>(?:[A-Za-z]{3,9}\.?\s+)?\d{4}\s*(?:-|–|—|to)\s*"
-    r"(?:(?:[A-Za-z]{3,9}\.?\s+)?\d{4}|present|now|current|today))\)?\.?\s*$", re.I)
+TITLE_DATES = (r"^(?P<title>.+?)[\s,(]+(?P<dates>(?:[A-Za-z]{3,9}\.?\s+)?\d{4}\s*(?:-|–|—|to)\s*"
+               r"(?:(?:[A-Za-z]{3,9}\.?\s+)?\d{4}|present|now|current|today))\)?")
+DATES_AT_END = re.compile(TITLE_DATES + r"\.?\s*$", re.I)
+# "Relief Charge Nurse, March 2021 - present. I still work as a staff RN":
+# people explain. The title ends at its dates; the sentence after is not part
+# of it.
+DATES_THEN_MORE = re.compile(TITLE_DATES + r"[.,:]\s+\S", re.I)
 
 
 def split_titles(answer: str) -> list:
@@ -304,7 +308,7 @@ def split_titles(answer: str) -> list:
         part = part.strip().strip(".")
         if not part:
             continue
-        m = DATES_AT_END.match(part)
+        m = DATES_AT_END.match(part) or DATES_THEN_MORE.match(part)
         out.append((m.group("title").strip(" ,"), m.group("dates").strip()) if m
                    else (part, ""))
     return out
@@ -1030,8 +1034,14 @@ class Interview:
                 self._save_record()
                 s["ctx_i"] += 1
                 return
+            if label in OPTIONS:
+                # "I don't remember, so I can't pick one" names no option and
+                # is no answer, however long; it must not be kept as the type.
+                a = pick(a, OPTIONS[label])
+                if a not in OPTIONS[label] and NON_ANSWER.search(a.strip()):
+                    a = ""
             if not blank(a):
-                self.role().fields[label] = pick(a, OPTIONS[label]) if label in OPTIONS else a
+                self.role().fields[label] = a
                 self._save_record()
             s["ctx_i"] += 1
             return

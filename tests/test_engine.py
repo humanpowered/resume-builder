@@ -1098,6 +1098,17 @@ class DegreeSubstitutes(unittest.TestCase):
         iv.step("")
         iv.step("I don't remember that detail.")           # employment type
         self.assertNotIn("Employment type", store.load_record().roles[0].fields)
+        # Long, and with a figure, so it is not a plain skip; still no type.
+        store = MemoryStore(Record(header=["# R"], contact={"Name": "x"},
+                                   roles=[Role(employer="Acme", title="Analyst")]))
+        store.save_state(interview.ASKED_STATE, {"asked": [
+            q[1] for q in interview.PROFILE_QUESTIONS + interview.STORY_QUESTIONS]})
+        iv = interview.Interview(store)
+        iv.step()
+        iv.step("")
+        iv.step("I don't remember that detail, so I can't pick one of those. "
+                "I've worked 12-hour shifts there since June 2017.")
+        self.assertNotIn("Employment type", store.load_record().roles[0].fields)
 
     def test_what_they_could_not_recall_is_not_asked_again_in_that_job(self):
         fake = use(InterviewEngine.turn(say="Tell me about the DAISY award patient?",
@@ -1158,6 +1169,10 @@ class DegreeSubstitutes(unittest.TestCase):
                          "the employer isn't described twice")
         self.assertEqual(interview.split_titles("Staff RN, 2018 - 2021; Intern (2017 - 2018)"),
                          [("Staff RN", "2018 - 2021"), ("Intern", "2017 - 2018")])
+        self.assertEqual(interview.split_titles(
+            "Relief Charge Nurse, March 2021 - present. I still work as a staff RN."),
+            [("Relief Charge Nurse", "March 2021 - present")],
+            "an explanation after the dates is not part of the title")
         self.assertIsNone(interview.same_job(rec, "Acme", "Analyst II", "2015 - 2017"),
                           "a title in other years is another title, not a duplicate")
 
