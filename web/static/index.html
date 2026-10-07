@@ -110,6 +110,14 @@
   .welcome p { margin: 0 0 12px; }
   .welcome ol { margin: 0 0 16px; padding-left: 22px; display: grid; gap: 6px; }
   .welcome .big { font-size: 17px; padding: 10px 22px; }
+  /* shown while a file is being read: a spinning ring beside plain words */
+  .working { display: flex; gap: 10px; align-items: center; color: var(--ink); font-size: 15px; }
+  .working::before { content: ""; flex: none; width: 18px; height: 18px; border-radius: 50%;
+                     border: 3px solid var(--line); border-top-color: var(--accent); }
+  @media (prefers-reduced-motion: no-preference) {
+    .working::before { animation: spin .9s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  }
   details.muted { margin-top: 10px; }
   details.muted summary { cursor: pointer; color: var(--accent); }
   details.muted ol { margin: 6px 0; padding-left: 22px; display: grid; gap: 4px; }
@@ -166,6 +174,7 @@
       <input id="firstFile" type="file" style="flex:0 1 auto" accept=".pdf,.docx,.txt">
       <button id="firstUpload">Upload and start</button>
     </div>
+    <p id="firstResult" class="muted" role="status"></p>
     <details class="muted">
       <summary>Using LinkedIn? How to save your profile as a PDF</summary>
       <ol>
@@ -177,7 +186,6 @@
       <p>A profile link can't be used: LinkedIn shows profiles only to signed-in members and
         doesn't let other apps read them.</p>
     </details>
-    <p id="firstResult" class="muted" role="status"></p>
     <div class="row"><button id="noResume" class="ghost">No resume, start from scratch</button></div>
   </section>
 </div>
@@ -856,10 +864,17 @@ $("login").onclick = async () => {
     boot();
   } catch (e) { $("loginErr").textContent = e.message; }
 };
-async function importFile(f, out) {
-  // returns a one-line result, or null when the file couldn't be read
+async function importFile(f, out, btn) {
+  // returns a one-line result, or null when the file couldn't be read.
+  // Reading takes a while, so the button and the line under it say so.
   const fd = new FormData(); fd.append("file", f);
-  out.textContent = "Reading your file…";
+  const label = btn.textContent;
+  btn.disabled = true; btn.textContent = "Reading…";
+  out.className = "working";
+  out.textContent = `Reading ${f.name} and checking every line against your file. `
+    + "This can take a little while; keep this page open.";
+  const slow = setTimeout(() => { out.textContent = "Still working. A longer resume takes more "
+    + "time; keep this page open."; }, 30000);
   try {
     const r = await api("/api/import", { method: "POST", body: fd });
     const left = [];
@@ -869,10 +884,11 @@ async function importFile(f, out) {
     out.textContent = "";
     return "Your resume is in your record." + (left.length ? " " + left.join("; ") + "." : "");
   } catch (e) { out.textContent = e.message; return null; }
+  finally { clearTimeout(slow); out.className = "muted"; btn.disabled = false; btn.textContent = label; }
 }
 $("upload").onclick = async () => {
   const f = $("file").files[0]; if (!f) return;
-  const msg = await importFile(f, $("importResult"));
+  const msg = await importFile(f, $("importResult"), $("upload"));
   if (msg) { $("importResult").textContent = msg; refresh(); }
 };
 function begin(note) {
@@ -889,9 +905,9 @@ $("welcomeGo").onclick = () => {
 $("firstUpload").onclick = async () => {
   const f = $("firstFile").files[0];
   if (!f) { $("firstResult").textContent = "Choose a file first, or start from scratch below."; return; }
-  $("firstUpload").disabled = true;
-  const msg = await importFile(f, $("firstResult"));
-  $("firstUpload").disabled = false;
+  $("noResume").disabled = true;
+  const msg = await importFile(f, $("firstResult"), $("firstUpload"));
+  $("noResume").disabled = false;
   if (msg) { await refresh(); begin(msg); }
 };
 $("noResume").onclick = () => begin("");
