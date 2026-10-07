@@ -110,6 +110,10 @@
   .welcome p { margin: 0 0 12px; }
   .welcome ol { margin: 0 0 16px; padding-left: 22px; display: grid; gap: 6px; }
   .welcome .big { font-size: 17px; padding: 10px 22px; }
+  details.muted { margin-top: 10px; }
+  details.muted summary { cursor: pointer; color: var(--accent); }
+  details.muted ol { margin: 6px 0; padding-left: 22px; display: grid; gap: 4px; }
+  details.muted p { margin: 0; }
   .acc-row > span:first-child { flex: 1 1 160px; min-width: 0; }
 </style>
 </head>
@@ -162,6 +166,17 @@
       <input id="firstFile" type="file" style="flex:0 1 auto" accept=".pdf,.docx,.txt">
       <button id="firstUpload">Upload and start</button>
     </div>
+    <details class="muted">
+      <summary>Using LinkedIn? How to save your profile as a PDF</summary>
+      <ol>
+        <li>Open your own profile on linkedin.com, on a computer.</li>
+        <li>Under your name and headline, click Resources (on some accounts it is More).</li>
+        <li>Choose Save to PDF. LinkedIn downloads a file, usually named Profile.pdf.</li>
+        <li>Choose that file here.</li>
+      </ol>
+      <p>A profile link can't be used: LinkedIn shows profiles only to signed-in members and
+        doesn't let other apps read them.</p>
+    </details>
     <p id="firstResult" class="muted" role="status"></p>
     <div class="row"><button id="noResume" class="ghost">No resume, start from scratch</button></div>
   </section>
@@ -199,6 +214,17 @@
         <input id="file" type="file" accept=".pdf,.docx,.txt">
         <button id="upload">Import</button>
       </div>
+      <details class="muted">
+        <summary>Using LinkedIn? How to save your profile as a PDF</summary>
+        <ol>
+          <li>Open your own profile on linkedin.com, on a computer.</li>
+          <li>Under your name and headline, click Resources (on some accounts it is More).</li>
+          <li>Choose Save to PDF. LinkedIn downloads a file, usually named Profile.pdf.</li>
+          <li>Choose that file here.</li>
+        </ol>
+        <p>A profile link can't be used: LinkedIn shows profiles only to signed-in members and
+          doesn't let other apps read them.</p>
+      </details>
       <p id="importResult" class="muted"></p>
     </section>
 
