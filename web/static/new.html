@@ -93,6 +93,20 @@
           border-top-color: var(--accent); border-radius: 50%; animation: s 1s linear infinite;
           vertical-align: -2px; margin-right: 6px; }
   @keyframes s { to { transform: rotate(360deg); } }
+  .chip { font: 500 15px/1.2 'IBM Plex Sans', system-ui, sans-serif; min-height: 40px; padding: 8px 14px;
+          border-radius: 20px; border: 1px solid var(--field); background: var(--panel); color: var(--ink);
+          cursor: pointer; }
+  .chip.add { border-style: dashed; border-color: var(--accent); color: var(--accent-dark); }
+  .chip[aria-pressed=true] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+  .stages { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; }
+  .stage { display: flex; flex-direction: column; gap: 6px; min-width: 0; font-size: 12px; color: var(--muted); }
+  .stage.on { color: var(--ink); font-weight: 600; }
+  .bar { height: 8px; border-radius: 4px; background: var(--line); overflow: hidden; }
+  .bar > div { height: 100%; background: var(--accent); }
+  .count { font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 15px; }
+  .ex { display: flex; flex-direction: column; gap: 4px; font-size: 14px; color: var(--muted); }
+  .bgline { display: flex; flex-direction: column; gap: 2px; padding: 8px 0; border-bottom: 1px solid var(--soft-line); }
+  .bgline .q { font-size: 13px; color: var(--muted); }
   [hidden] { display: none !important; }
 </style>
 </head>
@@ -110,10 +124,15 @@ const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) =>
   ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const plural = (n, one, many) => `${n} ${n === 1 ? one : (many || one + "s")}`;
 
-const SCREENS = ["welcome", "upload", "check", "record"];
+const SCREENS = ["welcome", "upload", "check", "targets", "bg", "bgdone", "record"];
 // Where the on-screen Back goes from each screen when there is no browser
-// history to go back through (for example, straight after a refresh).
-const BACK = { upload: "welcome", check: "upload", record: "check" };
+// history to go back through (for example, straight after a refresh). The
+// background questions step back one question at a time instead.
+const BACK = { upload: "welcome", check: "upload", targets: "check", record: "check" };
+const STAGES = ["Your jobs", "Education", "Skills", "Beyond work", "Summary"];
+let Q = null;              // the background questions' wording, from the server
+let at = "";               // which background question is showing
+let draft = null;          // an answer being typed, saved shortly after typing stops
 
 let S = null;              // what the server says: jobs, contact, step
 let screen = "welcome";
@@ -148,29 +167,70 @@ async function act(fn) {
 
 // ---------------------------------------------------------------- moving
 
-function go(next, { push = true } = {}) {
-  screen = next; ui = {};
-  if (push) history.pushState({ screen: next, depth: (history.state?.depth || 0) + 1 }, "", "#" + next);
-  send("PUT", "/api/j/step", { screen: next }).catch(() => {});
+function go(next, { push = true, to = "", promo = false } = {}) {
+  flush();
+  screen = next; ui = { promo }; at = next === "bg" ? to : "";
+  const st = { screen: next, at, promo, depth: (history.state?.depth || 0) + (push ? 1 : 0) };
+  if (push) history.pushState(st, "", "#" + next);
+  else history.replaceState(st, "", "#" + next);
+  send("PUT", "/api/j/step", { screen: next, at }).catch(() => {});
   render();
   window.scrollTo(0, 0);
 }
 function back() {
-  if ((history.state?.depth || 0) > 0) history.back();
-  else go(BACK[screen] || "welcome", { push: false }),
-       history.replaceState({ screen, depth: 0 }, "", "#" + screen);
+  if ((history.state?.depth || 0) > 0) return history.back();
+  if (screen === "bg") return stepBack();
+  if (screen === "bgdone") { const all = S.steps || []; return all.length ? go("bg", { to: all[all.length - 1].id, push: false }) : go("targets", { push: false }); }
+  go(BACK[screen] || "welcome", { push: false });
 }
 window.addEventListener("popstate", (e) => {
   const to = e.state?.screen;
-  if (SCREENS.includes(to)) go(to, { push: false });
+  if (SCREENS.includes(to)) go(to, { push: false, to: e.state.at, promo: e.state.promo });
 });
+
+// The background questions, in order. Next goes to the next one not yet
+// answered or skipped; Back goes to the one before, whatever its state.
+const stepIndex = () => (S.steps || []).findIndex((x) => x.id === at);
+function nextPending(from) {
+  const all = S.steps || [];
+  for (let n = from + 1; n < all.length; n++) if (all[n].status === "todo") return all[n];
+  return null;
+}
+function goNext(from) {
+  const n = nextPending(from);
+  n ? go("bg", { to: n.id }) : go("bgdone");
+}
+function stepBack() {
+  const k = stepIndex();
+  if (k > 0) go("bg", { to: S.steps[k - 1].id, push: false });
+  else go("targets", { push: false });
+}
+function startQuestions() {
+  const n = nextPending(-1);
+  n ? go("bg", { to: n.id }) : go("bgdone");
+}
+
+// An answer is saved a moment after typing stops, and before leaving the
+// screen, so Back (on screen or in the browser) never loses it.
+function typed(id, text) {
+  clearTimeout(draft?.timer);
+  draft = { id, text, timer: setTimeout(flush, 800) };
+}
+function flush() {
+  if (!draft) return;
+  clearTimeout(draft.timer);
+  const d = draft; draft = null;
+  if (!d.text.trim()) return;
+  send("POST", "/api/j/answer", { id: d.id, status: "answered", text: d.text })
+    .then((r) => { S = { ...S, ...r }; }).catch(() => {});
+}
 
 // ---------------------------------------------------------------- screens
 
 function render() {
   const m = $("main");
   if (screen === "signin") return;
-  m.innerHTML = ({ welcome, upload, check: () => recordScreen(true),
+  m.innerHTML = ({ welcome, upload, check: () => recordScreen(true), targets, bg, bgdone,
                    record: () => recordScreen(false) }[screen] || welcome)();
   wire();
 }
@@ -230,8 +290,7 @@ function recordScreen(isCheck) {
          <p class="muted">List your jobs, newest first: the employer, your title and the dates. Include part-time, contract and military work. The detail comes later, one job at a time.</p>`
        : `<h1>Check what we read</h1>
          <p class="muted">Fix anything that's wrong before we start. You can change all of it later too.</p>`)
-    : `<h1>Your record</h1>
-       <div class="note">The questions for each job come in the next update. For now you can see and change everything here.</div>`;
+    : `<h1>Your record</h1>${continueNote()}${targetsCard()}`;
   const counts = none ? "" : `<p class="small muted">${plural(jobs.length, "job")} · ${plural(S.line_count, "line")}</p>`;
   return `
   <div class="stack">
@@ -242,7 +301,7 @@ function recordScreen(isCheck) {
     ${addJobBlock(none)}
     ${undoBar()}
     <div class="row" style="padding-top:4px">
-      ${isCheck ? `<button class="btn" data-go="record" ${none ? "disabled" : ""}>Looks right. Next</button>`
+      ${isCheck ? `<button class="btn" data-go="targets" ${none ? "disabled" : ""}>Looks right. Next</button>`
                 : `<button class="btn2" data-go="upload">Bring in another file</button>`}
       <button class="link" data-back>Back</button>
     </div>
@@ -312,8 +371,152 @@ function jobCard(j) {
       <button class="link danger" data-askdel="${i}">Delete job</button>
     </div>
     ${confirm}
+    ${open ? backgroundBlock(j) : ""}
     ${open ? `<div class="lines">${lines || `<div class="muted small" style="padding:8px 0">No lines yet.</div>`}${adding}</div>` : ""}
   </div>${titlePrompt(j)}`;
+}
+
+function backgroundBlock(j) {
+  const bg = j.background || [];
+  const first = (S.steps || []).find((x) => x.job === j.index && x.kind === "q");
+  if (!bg.length && !first) return "";
+  return `<div class="stack-s" style="gap:0">
+    ${bg.map((b) => `<div class="bgline"><div class="q">${esc(b.question)}</div><div>${esc(b.answer)}</div></div>`).join("")}
+    ${first ? `<div><button class="link tight" data-answers="${esc(first.id)}">${bg.length ? "Change these answers" : "Answer the background questions"}</button></div>` : ""}
+  </div>`;
+}
+
+function targetsCard() {
+  const t = S.targets;
+  return `<div class="card" style="gap:4px"><div class="label">Jobs you're aiming for</div>
+    <div>${t.titles.length ? t.titles.map(esc).join(" · ") : `<span class="muted">${t.status === "not_sure" ? "Not sure yet" : "None yet"}</span>`}</div>
+    ${t.where || t.modes.length ? `<div class="muted" style="font-size:15px">${[t.where, ...t.modes].filter(Boolean).map(esc).join(" · ")}</div>` : ""}
+    <div><button class="link" data-go="targets">Change</button></div></div>`;
+}
+
+function continueNote() {
+  const left = (S.steps || []).filter((x) => x.status === "todo");
+  const jobs = new Set(left.map((x) => x.job)).size;
+  return `<div class="done stack-s">
+    ${left.length ? `<div>${plural(jobs, "job")} still ${jobs === 1 ? "has" : "have"} background questions to answer.</div>
+      <div><button class="btn" id="continueQs">Continue the questions</button></div>`
+      : `<div>Every job's background questions are answered or skipped. Making your resume lines stronger comes in the next update.</div>`}
+  </div>`;
+}
+
+function progress(caption, frac = 0) {
+  return `<div class="stack-s" aria-label="Progress">
+    <div class="stages">${STAGES.map((st, n) => `<div class="stage ${n === 0 ? "on" : ""}">
+      <div class="bar"><div style="width:${n === 0 ? Math.round(frac * 100) : 0}%"></div></div>${st}</div>`).join("")}</div>
+    ${caption ? `<div class="count">${esc(caption)}</div>` : ""}
+  </div>`;
+}
+
+function targets() {
+  const t = S.targets, full = t.titles.length >= S.max_targets;
+  return `${progress("")}
+  <div class="stack">
+    <h1>What jobs are you aiming for?</h1>
+    <p>Up to three job titles. This tells us which skills to suggest and what your sample resume should aim at. You can change it any time, and changing it never removes anything you've entered.</p>
+    ${t.suggest.length ? `<div class="stack-s"><div style="font-size:14px;font-weight:600">Titles from your record, tap to add</div>
+      <div class="row" style="gap:8px">${t.suggest.map((x) => `<button class="chip add" data-addtarget="${esc(x)}" ${full ? "disabled" : ""}>Add: ${esc(x)}</button>`).join("")}</div></div>` : ""}
+    <div class="stack-s"><label for="targetTitle">${t.suggest.length ? "Or type a title" : "Type a title"}</label>
+      <div class="row" style="gap:8px;flex-wrap:nowrap"><input type="text" id="targetTitle" placeholder="e.g. Director of Distribution" style="flex:1;min-width:0" ${full ? "disabled" : ""}>
+      <button class="btn2" id="addTarget" ${full ? "disabled" : ""}>Add</button></div>
+      ${full ? `<div class="small muted">That's three. Remove one to add another.</div>` : ""}</div>
+    <div class="card">
+      <div class="label">Your targets (${t.titles.length} of ${S.max_targets})</div>
+      ${t.titles.length ? t.titles.map((x, n) => `<div class="card-head" style="align-items:center"><div style="font-size:17px">${esc(x)}</div>
+        <button class="link tight" data-rmtarget="${n}">Remove</button></div>`).join("") : `<div class="muted">None yet.</div>`}
+    </div>
+    <div class="stack-s"><label for="targetWhere">Where do you want to work? (optional)</label>
+      <input type="text" id="targetWhere" placeholder="e.g. Columbus, Ohio" value="${esc(t.where)}">
+      <div class="row" style="gap:8px">${S.work_modes.map((m) => `<button class="chip" data-mode="${esc(m)}" aria-pressed="${t.modes.includes(m)}">${esc(m)}</button>`).join("")}</div></div>
+    <div class="row" style="border-top:1px solid var(--line);padding-top:14px">
+      <button class="btn" id="saveTargets">${t.titles.length ? "Save. Start with my newest job" : "Start with my newest job"}</button>
+      ${t.titles.length ? "" : `<button class="btn2" id="notSure">Not sure yet</button>`}
+      <button class="link" data-back>Back</button>
+    </div>
+    ${t.titles.length ? "" : `<p class="small muted">Not sure yet? We'll work from your current title and ask again when you reach your skills.</p>`}
+  </div>`;
+}
+
+function bg() {
+  let k = stepIndex();
+  if (k < 0) {   // the job was deleted or renamed since: start from the next open question
+    const n = nextPending(-1);
+    if (!n) { setTimeout(() => go("bgdone", { push: false })); return ""; }
+    at = n.id; k = stepIndex();
+    history.replaceState({ ...history.state, at }, "", "#bg");
+  }
+  const x = S.steps[k];
+  const where = `${esc(x.title)}, ${esc(x.employer)}${x.dates ? ` · ${esc(x.dates)}` : ""}`;
+  const caption = `Job ${x.job_number} of ${x.job_total}`;
+  const frac = (x.job_number - 1) / x.job_total;
+  const examples = (list) => `<div class="ex"><div style="font-weight:600">For example</div>
+    ${list.map((e) => `<div>“${esc(e)}”</div>`).join("")}</div>`;
+  const box = `<label for="answer">Your answer</label><textarea id="answer" data-step="${esc(x.id)}">${esc(x.answer)}</textarea>`;
+  if (x.kind === "company") {
+    return `${progress(caption, frac)}<div class="stack">
+      <div class="small muted">${esc(x.employer)}</div>
+      <h1>First, in one line: what did ${esc(x.employer)} do?</h1>
+      <p class="muted">${esc(Q.company.help)}</p>
+      ${examples(Q.company.examples)}
+      ${box}
+      <div class="row"><button class="btn" data-answer="answered">Next</button>
+      <button class="btn2" data-answer="skipped">Skip</button>
+      <button class="link" data-back>Back</button></div></div>`;
+  }
+  if (x.kind === "titles") {
+    const one = x.titles.length === 1;
+    const form = ui.promo || ui.titleForm;
+    return `${progress(caption, frac)}<div class="stack">
+      <div class="small muted">${esc(x.employer)}</div>
+      <h1>${ui.promo ? `You mentioned a promotion. What was your title at ${esc(x.employer)} before that?`
+                     : `Did your title change while you were at ${esc(x.employer)}, for example a promotion?`}</h1>
+      <p class="muted">Promotions are some of the strongest evidence on a resume. Listing each title with its dates shows them.</p>
+      <div class="card">
+        <div class="label">Your ${one ? "title" : "titles"} at ${esc(x.employer)}</div>
+        ${x.titles.map((t) => `<div class="card-head"><div>${esc(t.title)}</div><div class="dates">${esc(t.dates) || "no dates"}</div></div>`).join("")}
+        <div class="small muted">Your resume will show ${one ? "each title" : "these"} stacked under one ${esc(x.employer)} heading, newest first.</div>
+      </div>
+      ${form ? `<div class="card">
+        <div class="stack-s"><label for="t_title">Title</label><input type="text" id="t_title" placeholder="e.g. Warehouse Associate"></div>
+        <div class="stack-s"><label for="t_dates">Dates</label><input type="text" id="t_dates" placeholder="e.g. 2017 to 2018"></div>
+        <div class="row"><button class="btn2" id="addTitle">Add this title</button>
+        <button class="link" id="cancelTitle">Cancel</button></div></div>` : ""}
+      <div class="row"><button class="btn" data-answer="done">${ui.promo && one ? "Skip this" : one ? "No, one title" : "That's all of them"}</button>
+      ${form ? "" : `<button class="btn2" id="openTitle">Add a title</button>`}
+      <button class="link" data-back>Back</button></div>
+      <p class="small muted">Each title gets its own background questions, all optional.</p>
+    </div>`;
+  }
+  const q = Q.questions[x.field];
+  return `${progress(caption, frac)}<div class="stack">
+    <div class="small muted">${where}</div>
+    <h1>${esc(q.q)}</h1>
+    <p class="muted">${esc(q.help)}</p>
+    ${examples(q.examples)}
+    ${box}
+    <div class="row"><button class="btn" data-answer="answered">Next</button>
+    <button class="btn2" data-answer="na">Doesn't apply to this job</button>
+    <button class="link" data-back>Back</button></div></div>`;
+}
+
+function bgdone() {
+  const all = S.steps || [];
+  const jobs = new Set(all.map((x) => x.job)).size;
+  const answered = all.filter((x) => x.kind !== "titles" && x.status === "answered").length;
+  const left = all.filter((x) => x.status === "todo");
+  return `${progress(`${plural(jobs, "job")} · ${plural(answered, "answer")}`, left.length ? 0.9 : 1)}<div class="stack">
+    <h1>${left.length ? "Nearly there" : "That's the background for every job"}</h1>
+    ${left.length ? `<p>${plural(left.length, "question")} ${left.length === 1 ? "is" : "are"} still open, from a job added along the way.</p>` : ""}
+    <p>Your answers are on your record now, under each job. Next comes making your resume lines stronger, one line at a time. That part arrives in the next update.</p>
+    <div class="row">
+      ${left.length ? `<button class="btn" id="continueQs">Answer ${left.length === 1 ? "it" : "them"}</button>` : ""}
+      <button class="${left.length ? "btn2" : "btn"}" data-go="record">See your record</button>
+      <button class="link" data-back>Back</button>
+    </div></div>`;
 }
 
 function titlePrompt(j) {
@@ -368,6 +571,46 @@ function wire() {
   on("[data-back]", back);
   if (screen === "upload") wireUpload();
   if (screen === "check" || screen === "record") wireRecord();
+  if (screen === "targets") wireTargets();
+  if (screen === "bg") wireBg();
+  if ($("continueQs")) $("continueQs").onclick = startQuestions;
+  on("[data-answers]", (el) => go("bg", { to: el.dataset.answers }));
+}
+
+function wireTargets() {
+  const t = () => S.targets;
+  const save = (patch) => act(() => send("PUT", "/api/j/targets",
+    { titles: t().titles, where: val("targetWhere"), modes: t().modes, ...patch }));
+  const add = (title) => { if (title) save({ titles: [...t().titles, title] }); };
+  on("[data-addtarget]", (el) => add(el.dataset.addtarget));
+  $("addTarget").onclick = () => add(val("targetTitle"));
+  $("targetTitle").onkeydown = (e) => { if (e.key === "Enter") add(val("targetTitle")); };
+  on("[data-rmtarget]", (el) => save({ titles: t().titles.filter((_, n) => n !== +el.dataset.rmtarget) }));
+  on("[data-mode]", (el) => { const m = el.dataset.mode;
+    save({ modes: t().modes.includes(m) ? t().modes.filter((x) => x !== m) : [...t().modes, m] }); });
+  $("saveTargets").onclick = async () => { if (await save({})) startQuestions(); };
+  if ($("notSure")) $("notSure").onclick = async () => { if (await save({ not_sure: true })) startQuestions(); };
+}
+
+function wireBg() {
+  const box = $("answer");
+  if (box) box.oninput = () => typed(box.dataset.step, box.value);
+  on("[data-answer]", (el) => act(async () => {
+    clearTimeout(draft?.timer); draft = null;
+    const from = stepIndex();
+    const r = await send("POST", "/api/j/answer", { id: at, status: el.dataset.answer,
+      text: box ? box.value : "" });
+    S = { ...S, ...r };
+    if (r.ask_earlier_title) go("bg", { to: r.ask_earlier_title, promo: true });
+    else goNext(from);
+  }));
+  if ($("openTitle")) $("openTitle").onclick = () => { ui.titleForm = true; render(); $("t_title")?.focus(); };
+  if ($("cancelTitle")) $("cancelTitle").onclick = () => { ui.titleForm = ui.promo = false; render(); };
+  if ($("addTitle")) $("addTitle").onclick = () => act(async () => {
+    const x = S.steps[stepIndex()];
+    const r = await send("POST", "/api/j/jobs", { employer: x.employer, title: val("t_title"), dates: val("t_dates") });
+    ui.titleForm = ui.promo = false; return r;
+  });
 }
 
 function wireUpload() {
@@ -510,11 +753,15 @@ function signIn() {
 
 async function boot() {
   try {
-    S = await api("/api/j/state");
+    [S, Q] = await Promise.all([api("/api/j/state"), api("/api/j/questions")]);
   } catch (e) { if (e.message !== "signed out") say(e.message); return; }
   const fromHash = location.hash.slice(1);
-  screen = SCREENS.includes(fromHash) && history.state?.screen === fromHash ? fromHash : S.screen;
-  history.replaceState({ screen, depth: history.state?.depth || 0 }, "", "#" + screen);
+  const h = history.state || {};
+  const kept = SCREENS.includes(fromHash) && h.screen === fromHash;
+  screen = kept ? fromHash : S.screen;
+  at = screen === "bg" ? (kept ? h.at : S.step.at) || "" : "";
+  ui = { promo: kept && !!h.promo };
+  history.replaceState({ screen, at, promo: ui.promo, depth: h.depth || 0 }, "", "#" + screen);
   render();
 }
 boot();

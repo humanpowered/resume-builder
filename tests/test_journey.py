@@ -22,7 +22,7 @@ SOURCE = ("PAT LEE\nColumbus, OH | pat@example.com\nEXPERIENCE\n"
           "Riverside Hospital\nCharge Nurse   2021 - Present\n"
           "• Led a team of 8 nurses on nights\n• Cut handoff errors on the unit\n"
           "Registered Nurse   2018 - 2021\n• Precepted new graduate nurses\n"
-          "Mercy Clinic\nNurse Intern   2017 - 2018\n• Took vitals for 20 patients a day\n")
+          "Mercy Clinic\nWalk-in clinic\nNurse Intern   2017 - 2018\n• Took vitals for 20 patients a day\n")
 
 
 def extract_reply(roles=None):
@@ -218,6 +218,124 @@ class RecordPage(unittest.TestCase):
         self.assertEqual(s["contact"]["Telephone"], "614-555-0100")
         self.assertEqual(self.c.patch("/api/j/contact",
                                       json={"fields": {"Salary": "x"}}).status_code, 400)
+
+    # -- jobs you're aiming for
+
+    def test_targets_offer_titles_from_the_record_and_hold_up_to_three(self):
+        s = self.upload()
+        t = s["targets"]
+        self.assertEqual(t["titles"], [])
+        self.assertEqual(t["suggest"], ["Charge Nurse", "Registered Nurse", "Nurse Intern"])
+        s = self.c.put("/api/j/targets", json={"titles": ["Nurse Manager", "Charge Nurse"],
+                                               "where": "Columbus, OH",
+                                               "modes": ["Hybrid", "On site"]}).json()
+        t = s["targets"]
+        self.assertEqual(t["titles"], ["Nurse Manager", "Charge Nurse"])
+        self.assertEqual((t["where"], t["modes"], t["status"]),
+                         ("Columbus, OH", ["Hybrid", "On site"], "saved"))
+        self.assertNotIn("Charge Nurse", t["suggest"])
+        r = self.c.put("/api/j/targets", json={"titles": ["A", "B", "C", "D"]})
+        self.assertEqual(r.status_code, 400)
+
+    def test_targets_go_where_the_pipeline_reads_them(self):
+        self.upload()
+        self.c.put("/api/j/targets", json={"titles": ["Nurse Manager", "Charge Nurse"]})
+        md = self.c.get("/api/record").json()["markdown"]
+        self.assertIn("Nurse Manager; Charge Nurse", md)
+
+    def test_not_sure_yet_is_remembered(self):
+        self.upload()
+        s = self.c.put("/api/j/targets", json={"not_sure": True}).json()
+        self.assertEqual(s["targets"]["status"], "not_sure")
+
+    # -- the background questions
+
+    def steps(self, s=None):
+        return (s or self.state())["steps"]
+
+    def test_questions_run_by_employer_newest_first(self):
+        steps = self.steps(self.upload())
+        self.assertEqual([(x["kind"], x["title"], x["field"]) for x in steps[:7]], [
+            ("company", "Charge Nurse", "Company"), ("titles", "Charge Nurse", "titles"),
+            ("q", "Charge Nurse", "Challenge"), ("q", "Charge Nurse", "Authority"),
+            ("q", "Charge Nurse", "Results against targets"), ("q", "Charge Nurse", "Recognition"),
+            ("q", "Registered Nurse", "Challenge")])
+        self.assertEqual(steps[0]["titles"] if "titles" in steps[0] else None, None)
+        self.assertEqual([t["title"] for t in steps[1]["titles"]],
+                         ["Charge Nurse", "Registered Nurse"])
+        self.assertEqual((steps[6]["job_number"], steps[6]["job_total"]), (2, 3))
+        self.assertEqual(len(steps), 2 + 4 + 4 + 2 + 4)
+
+    def test_an_answer_lands_on_the_record_and_once_per_employer(self):
+        steps = self.steps(self.upload())
+        s = self.c.post("/api/j/answer", json={"id": steps[0]["id"], "status": "answered",
+                                               "text": "Regional hospital, 300 beds"}).json()
+        self.assertEqual(s["jobs"][0]["background"][0]["answer"], "Regional hospital, 300 beds")
+        self.assertEqual(s["jobs"][1]["background"][0]["answer"], "Regional hospital, 300 beds")
+        self.assertEqual(s["steps"][0]["status"], "answered")
+        s = self.c.post("/api/j/answer", json={"id": steps[2]["id"], "status": "answered",
+                                               "text": "Run the night shift"}).json()
+        self.assertEqual(s["jobs"][0]["background"][1],
+                         {"field": "Challenge", "question": "What were you brought in to do?",
+                          "answer": "Run the night shift"})
+
+    def test_skip_and_doesnt_apply_never_fill_anything_in(self):
+        steps = self.steps(self.upload())
+        self.c.post("/api/j/answer", json={"id": steps[0]["id"], "status": "skipped"})
+        s = self.c.post("/api/j/answer", json={"id": steps[3]["id"], "status": "na",
+                                               "text": "typed then changed my mind"}).json()
+        self.assertEqual(s["jobs"][0]["background"], [])
+        self.assertEqual([x["status"] for x in s["steps"][:4]], ["skipped", "todo", "todo", "na"])
+
+    def test_an_empty_next_counts_as_skipped(self):
+        steps = self.steps(self.upload())
+        s = self.c.post("/api/j/answer", json={"id": steps[2]["id"], "status": "answered",
+                                               "text": "  "}).json()
+        self.assertEqual(s["steps"][2]["status"], "na")
+
+    def test_what_the_upload_gave_us_is_not_asked(self):
+        roles = extract_reply()["roles"]
+        roles[2]["company_description"] = "Walk-in clinic"
+        steps = self.steps(self.upload(extract_reply(roles)))
+        self.assertNotIn(("company", "Nurse Intern"),
+                         [(x["kind"], x["title"]) for x in steps])
+
+    def test_going_back_to_an_answer_shows_it(self):
+        steps = self.steps(self.upload())
+        self.c.post("/api/j/answer", json={"id": steps[2]["id"], "status": "answered",
+                                           "text": "Run the night shift"})
+        self.assertEqual(self.steps()[2]["answer"], "Run the night shift")
+
+    def test_a_promotion_with_one_title_on_file_asks_for_the_earlier_title(self):
+        steps = self.steps(self.upload())
+        rec = [x for x in steps if x["title"] == "Nurse Intern" and x["field"] == "Recognition"][0]
+        r = self.c.post("/api/j/answer", json={"id": rec["id"], "status": "answered",
+                                               "text": "Promoted to lead intern after 6 months"}).json()
+        self.assertEqual(r["ask_earlier_title"], "titles|mercyclinic")
+        rec = [x for x in steps if x["title"] == "Charge Nurse" and x["field"] == "Recognition"][0]
+        r = self.c.post("/api/j/answer", json={"id": rec["id"], "status": "answered",
+                                               "text": "Promoted from RN"}).json()
+        self.assertNotIn("ask_earlier_title", r)
+
+    def test_a_title_added_at_an_employer_gets_its_own_questions(self):
+        self.upload()
+        s = self.c.post("/api/j/jobs", json={"employer": "Mercy Clinic", "title": "Medical Assistant",
+                                             "dates": "2016 - 2017"}).json()
+        titles = [x["title"] for x in s["steps"] if x["kind"] == "q" and x["field"] == "Challenge"]
+        self.assertEqual(titles, ["Charge Nurse", "Registered Nurse", "Nurse Intern",
+                                  "Medical Assistant"])
+        self.assertEqual(s["steps"][-1]["job_total"], 4)
+
+    def test_the_question_step_survives_a_refresh(self):
+        steps = self.steps(self.upload())
+        self.c.put("/api/j/step", json={"screen": "bg", "at": steps[3]["id"]})
+        s = self.state()
+        self.assertEqual((s["screen"], s["step"]["at"]), ("bg", steps[3]["id"]))
+
+    def test_an_answer_to_a_question_that_is_gone_is_refused(self):
+        self.upload()
+        r = self.c.post("/api/j/answer", json={"id": "q|nowhere|x|Challenge", "status": "na"})
+        self.assertEqual(r.status_code, 404)
 
     def test_the_new_page_is_served_beside_the_old_one(self):
         self.assertIn("Career record", self.c.get("/new").text)

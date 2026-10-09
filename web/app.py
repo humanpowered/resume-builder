@@ -595,8 +595,13 @@ def _j(fn, *args, **kw):
 
 def _jstate(store: SqlStore, rec: mr.Record | None = None) -> dict:
     rec = rec if rec is not None else store.load_record()
+    view = journey.view(rec)
+    for job, bg in zip(view["jobs"], journey.background_view(rec)):
+        job["background"] = bg
     return {"exists": store.exists(), "screen": journey.start_screen(store),
-            "step": journey.load_step(store), **journey.view(rec)}
+            "step": journey.load_step(store), "targets": journey.targets_view(store, rec),
+            "steps": journey.steps(store, rec), "work_modes": list(journey.WORK_MODES),
+            "max_targets": journey.MAX_TARGETS, **view}
 
 
 @app.get("/api/j/state")
@@ -606,11 +611,48 @@ def j_state(store: SqlStore = Depends(store_for)):
 
 class JStep(BaseModel):
     screen: str = Field(..., max_length=40)
+    at: str = Field("", max_length=400)
 
 
 @app.put("/api/j/step")
 def j_step(body: JStep, store: SqlStore = Depends(store_for)):
-    return _j(journey.save_step, store, body.screen)
+    return _j(journey.save_step, store, body.screen, body.at)
+
+
+class JTargets(BaseModel):
+    titles: list[str] = Field(default_factory=list, max_length=10)
+    where: str = Field("", max_length=200)
+    modes: list[str] = Field(default_factory=list, max_length=3)
+    not_sure: bool = False
+
+
+@app.put("/api/j/targets")
+def j_targets(body: JTargets, store: SqlStore = Depends(store_for)):
+    rec = store.load_record()
+    _j(journey.save_targets, store, rec, [t[:120] for t in body.titles], body.where,
+       body.modes, body.not_sure)
+    store.save_record(rec)
+    return _jstate(store, rec)
+
+
+class JAnswer(BaseModel):
+    id: str = Field(..., max_length=400)
+    status: str = Field(..., max_length=20)
+    text: str = Field("", max_length=4000)
+
+
+@app.post("/api/j/answer")
+def j_answer(body: JAnswer, store: SqlStore = Depends(store_for)):
+    rec = store.load_record()
+    out = _j(journey.answer, store, rec, body.id, body.status, body.text)
+    store.save_record(rec)
+    return {**out, **_jstate(store, rec)}
+
+
+@app.get("/api/j/questions")
+def j_questions():
+    return {"questions": {f: journey.question(f) for f in journey.QUESTION_FIELDS},
+            "company": {"help": journey.COMPANY_HELP[0], "examples": journey.COMPANY_HELP[1]}}
 
 
 @app.post("/api/j/import")
