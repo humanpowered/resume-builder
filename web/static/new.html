@@ -1,0 +1,770 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Career record</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
+<style>
+  :root {
+    --bg: #F3F5F4; --panel: #FFFFFF; --ink: #16201E; --muted: #4A5754; --line: #D3DAD8;
+    --soft-line: #E4E9E7; --field: #B9C4C1; --accent: #0E6658; --accent-dark: #0A4A40;
+    --accent-ink: #FFFFFF; --tint: #E3F0ED; --warn-bg: #FBF1E2; --warn-ink: #5C3A08;
+    --danger: #9B2C2C; --toast: #16201E; --toast-ink: #FFFFFF; --toast-link: #9FE0D3;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #121816; --panel: #1A2220; --ink: #E6ECEA; --muted: #A3B0AD; --line: #2E3936;
+      --soft-line: #26302D; --field: #46534F; --accent: #5BC2AE; --accent-dark: #7FD3C2;
+      --accent-ink: #0B1F1B; --tint: #193630; --warn-bg: #3A2C14; --warn-ink: #F0D6A8;
+      --danger: #F08A8A; --toast: #E6ECEA; --toast-ink: #121816; --toast-link: #0E6658;
+      color-scheme: dark;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 16px/1.55 'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', sans-serif; }
+  .wrap { max-width: 600px; margin: 0 auto; padding: 0 16px 64px; display: flex;
+          flex-direction: column; gap: 20px; }
+  .top { display: flex; justify-content: space-between; align-items: center; padding: 18px 0 6px;
+         border-bottom: 1px solid var(--line); }
+  .brand { font-weight: 700; font-size: 15px; letter-spacing: .04em; text-transform: uppercase; }
+  .muted { color: var(--muted); }
+  .small { font-size: 14px; }
+  h1 { margin: 0; font-size: 28px; line-height: 1.2; font-weight: 700; text-wrap: balance; }
+  h1.big { font-size: 34px; line-height: 1.15; }
+  p { margin: 0; }
+  .stack { display: flex; flex-direction: column; gap: 16px; }
+  .stack-s { display: flex; flex-direction: column; gap: 8px; }
+  .row { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+  .label { font-size: 13px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase;
+           color: var(--muted); }
+  .card { display: flex; flex-direction: column; gap: 8px; padding: 16px 18px; background: var(--panel);
+          border: 1px solid var(--line); border-radius: 12px; }
+  .card-head { display: flex; justify-content: space-between; gap: 12px; align-items: baseline;
+               flex-wrap: wrap; }
+  .card-head > :first-child { min-width: 0; font-weight: 600; }
+  .dates { font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 14px; color: var(--muted); }
+  .note { padding: 14px 16px; border-radius: 10px; background: var(--warn-bg); color: var(--warn-ink);
+          font-size: 15px; }
+  .done { padding: 16px 18px; border-radius: 12px; background: var(--tint); }
+  .btn { font: 600 16px/1 'IBM Plex Sans', system-ui, sans-serif; min-height: 48px; padding: 0 22px;
+         border-radius: 10px; border: 1px solid var(--accent); background: var(--accent);
+         color: var(--accent-ink); cursor: pointer; }
+  .btn:hover { background: var(--accent-dark); border-color: var(--accent-dark); }
+  .btn2 { font: 600 15px/1 'IBM Plex Sans', system-ui, sans-serif; min-height: 44px; padding: 0 18px;
+          border-radius: 10px; border: 1px solid var(--field); background: var(--panel); color: var(--ink);
+          cursor: pointer; }
+  .btn2:hover { border-color: var(--ink); }
+  .link { font: 500 15px/1.4 'IBM Plex Sans', system-ui, sans-serif; background: none; border: 0;
+          padding: 10px 0; min-height: 44px; color: var(--accent); text-decoration: underline;
+          cursor: pointer; text-align: left; }
+  .link.danger { color: var(--danger); }
+  .link.tight { padding: 4px 0; min-height: 32px; }
+  button:disabled { opacity: .55; cursor: default; }
+  input[type=text], input[type=email], textarea {
+    font: 400 16px/1.5 'IBM Plex Sans', system-ui, sans-serif; width: 100%; min-height: 44px;
+    padding: 8px 12px; border: 1px solid var(--field); border-radius: 10px; background: var(--panel);
+    color: var(--ink); }
+  textarea { min-height: 88px; resize: vertical; }
+  input:focus, textarea:focus, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  label { font-size: 14px; font-weight: 600; }
+  .lines { display: flex; flex-direction: column; border-top: 1px solid var(--soft-line); }
+  .line { display: flex; gap: 12px; justify-content: space-between; align-items: flex-start;
+          padding: 8px 0; border-bottom: 1px solid var(--soft-line); }
+  .line > :first-child { min-width: 0; font-size: 15px; padding-top: 4px; }
+  .line .acts { display: flex; gap: 14px; flex-shrink: 0; }
+  .drop { display: flex; flex-direction: column; gap: 12px; padding: 24px; border: 2px dashed var(--field);
+          border-radius: 12px; background: var(--panel); align-items: flex-start; }
+  .drop.over { border-color: var(--accent); background: var(--tint); }
+  .file { display: flex; flex-direction: column; gap: 4px; padding: 14px 16px; border-radius: 12px;
+          background: var(--panel); border: 1px solid var(--line); }
+  .file.ok { background: var(--tint); border-color: transparent; }
+  .file.err { background: var(--warn-bg); color: var(--warn-ink); border-color: transparent; }
+  .toast { position: sticky; bottom: calc(12px + env(safe-area-inset-bottom, 0px)); display: flex;
+           gap: 12px; justify-content: space-between; align-items: center; padding: 10px 16px;
+           border-radius: 10px; background: var(--toast); color: var(--toast-ink); font-size: 15px; }
+  .toast .link { color: var(--toast-link); flex-shrink: 0; }
+  .alert { padding: 12px 16px; border-radius: 10px; background: var(--warn-bg); color: var(--warn-ink); }
+  .confirm { padding: 12px 14px; border-radius: 10px; background: var(--warn-bg); color: var(--warn-ink);
+             display: flex; flex-direction: column; gap: 8px; }
+  .spin { display: inline-block; width: 14px; height: 14px; border: 2px solid var(--field);
+          border-top-color: var(--accent); border-radius: 50%; animation: s 1s linear infinite;
+          vertical-align: -2px; margin-right: 6px; }
+  @keyframes s { to { transform: rotate(360deg); } }
+  .chip { font: 500 15px/1.2 'IBM Plex Sans', system-ui, sans-serif; min-height: 40px; padding: 8px 14px;
+          border-radius: 20px; border: 1px solid var(--field); background: var(--panel); color: var(--ink);
+          cursor: pointer; }
+  .chip.add { border-style: dashed; border-color: var(--accent); color: var(--accent-dark); }
+  .chip[aria-pressed=true] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+  .stages { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; }
+  .stage { display: flex; flex-direction: column; gap: 6px; min-width: 0; font-size: 12px; color: var(--muted); }
+  .stage.on { color: var(--ink); font-weight: 600; }
+  .bar { height: 8px; border-radius: 4px; background: var(--line); overflow: hidden; }
+  .bar > div { height: 100%; background: var(--accent); }
+  .count { font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 15px; }
+  .ex { display: flex; flex-direction: column; gap: 4px; font-size: 14px; color: var(--muted); }
+  .bgline { display: flex; flex-direction: column; gap: 2px; padding: 8px 0; border-bottom: 1px solid var(--soft-line); }
+  .bgline .q { font-size: 13px; color: var(--muted); }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top"><div class="brand">Career record</div><div class="small muted" id="saved">Saved as you go</div></div>
+  <div id="alert" class="alert" role="alert" hidden></div>
+  <main id="main" class="stack" aria-live="polite"></main>
+</div>
+
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) =>
+  ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const plural = (n, one, many) => `${n} ${n === 1 ? one : (many || one + "s")}`;
+
+const SCREENS = ["welcome", "upload", "check", "targets", "bg", "bgdone", "record"];
+// Where the on-screen Back goes from each screen when there is no browser
+// history to go back through (for example, straight after a refresh). The
+// background questions step back one question at a time instead.
+const BACK = { upload: "welcome", check: "upload", targets: "check", record: "check" };
+const STAGES = ["Your jobs", "Education", "Skills", "Beyond work", "Summary"];
+let Q = null;              // the background questions' wording, from the server
+let at = "";               // which background question is showing
+let draft = null;          // an answer being typed, saved shortly after typing stops
+
+let S = null;              // what the server says: jobs, contact, step
+let screen = "welcome";
+let ui = {};               // what's open on the page right now
+let uploads = [];          // files read on the upload screen this visit
+
+async function api(path, opts = {}) {
+  const r = await fetch(path, { credentials: "same-origin",
+    headers: opts.body && !(opts.body instanceof FormData) ? { "Content-Type": "application/json" } : {},
+    ...opts });
+  if (r.status === 401) { signIn(); throw new Error("signed out"); }
+  const data = r.headers.get("content-type")?.includes("json") ? await r.json() : await r.text();
+  if (!r.ok) throw new Error(typeof data.detail === "string" ? data.detail
+    : "Something went wrong. Nothing was changed; try again.");
+  return data;
+}
+const send = (method, path, body) => api(path, { method, body: JSON.stringify(body || {}) });
+
+function say(msg) { const a = $("alert"); a.textContent = msg || ""; a.hidden = !msg; }
+
+async function act(fn) {
+  say("");
+  try {
+    const out = await fn();
+    if (out && out.jobs) S = { ...S, ...out };
+    render();
+    return out;
+  } catch (e) {
+    if (e.message !== "signed out") say(e.message);
+  }
+}
+
+// ---------------------------------------------------------------- moving
+
+function go(next, { push = true, to = "", promo = false } = {}) {
+  flush();
+  screen = next; ui = { promo }; at = next === "bg" ? to : "";
+  const st = { screen: next, at, promo, depth: (history.state?.depth || 0) + (push ? 1 : 0) };
+  if (push) history.pushState(st, "", "#" + next);
+  else history.replaceState(st, "", "#" + next);
+  send("PUT", "/api/j/step", { screen: next, at }).catch(() => {});
+  render();
+  window.scrollTo(0, 0);
+}
+function back() {
+  if ((history.state?.depth || 0) > 0) return history.back();
+  if (screen === "bg") return stepBack();
+  if (screen === "bgdone") { const all = S.steps || []; return all.length ? go("bg", { to: all[all.length - 1].id, push: false }) : go("targets", { push: false }); }
+  go(BACK[screen] || "welcome", { push: false });
+}
+window.addEventListener("popstate", (e) => {
+  const to = e.state?.screen;
+  if (SCREENS.includes(to)) go(to, { push: false, to: e.state.at, promo: e.state.promo });
+});
+
+// The background questions, in order. Next goes to the next one not yet
+// answered or skipped; Back goes to the one before, whatever its state.
+const stepIndex = () => (S.steps || []).findIndex((x) => x.id === at);
+function nextPending(from) {
+  const all = S.steps || [];
+  for (let n = from + 1; n < all.length; n++) if (all[n].status === "todo") return all[n];
+  return null;
+}
+function goNext(from) {
+  const n = nextPending(from);
+  n ? go("bg", { to: n.id }) : go("bgdone");
+}
+function stepBack() {
+  const k = stepIndex();
+  if (k > 0) go("bg", { to: S.steps[k - 1].id, push: false });
+  else go("targets", { push: false });
+}
+function startQuestions() {
+  const n = nextPending(-1);
+  n ? go("bg", { to: n.id }) : go("bgdone");
+}
+
+// An answer is saved a moment after typing stops, and before leaving the
+// screen, so Back (on screen or in the browser) never loses it.
+function typed(id, text) {
+  clearTimeout(draft?.timer);
+  draft = { id, text, timer: setTimeout(flush, 800) };
+}
+function flush() {
+  if (!draft) return;
+  clearTimeout(draft.timer);
+  const d = draft; draft = null;
+  if (!d.text.trim()) return;
+  send("POST", "/api/j/answer", { id: d.id, status: "answered", text: d.text })
+    .then((r) => { S = { ...S, ...r }; }).catch(() => {});
+}
+
+// ---------------------------------------------------------------- screens
+
+function render() {
+  const m = $("main");
+  if (screen === "signin") return;
+  m.innerHTML = ({ welcome, upload, check: () => recordScreen(true), targets, bg, bgdone,
+                   record: () => recordScreen(false) }[screen] || welcome)();
+  wire();
+}
+
+function welcome() {
+  return `
+  <div class="stack" style="padding-top:12px">
+    <h1 class="big">Build your master career record</h1>
+    <p>This tool builds your master career record: every job, accomplishment, skill and credential you have, in one place. You build it once. Every resume and cover letter after that is tailored from it.</p>
+    <p>Bring in a resume or LinkedIn file if you have one. Then we go through your jobs one at a time and ask what a good recruiter would ask: what you were brought in to do, what changed because you were there, and how you'd measure it. Education, skills and a short summary come after.</p>
+    <p>Why go to the trouble? Most resumes leave out much of what a person has done, because nobody remembers it all while staring at a blank page. The project that saved money and the people you trained win interviews, and they're easy to miss. The right questions bring them back.</p>
+    <p>Plan on 15 to 20 minutes a job, over as many sittings as you like. Everything is saved as you go.</p>
+    <div style="padding-top:8px"><button class="btn" data-go="upload">Start</button></div>
+  </div>`;
+}
+
+function upload() {
+  const busy = uploads.some((u) => u.busy);
+  const anyOk = uploads.some((u) => u.ok);
+  const files = uploads.map((u) => `
+    <div class="file ${u.ok ? "ok" : u.err ? "err" : ""}">
+      <div style="font-weight:600">${u.busy ? '<span class="spin" aria-hidden="true"></span>' : ""}${esc(u.name)}</div>
+      <div>${esc(u.msg)}</div>
+    </div>`).join("");
+  return `
+  <div class="stack">
+    <h1>Bring in what you have</h1>
+    <p class="muted">A resume, a LinkedIn PDF, or both. A second file only adds what's new, so nothing is listed twice.</p>
+    ${files}
+    <div class="drop" id="drop">
+      <div style="font-weight:600">${anyOk ? "Have another file? Drop it here, or choose it" : "Drop a file here, or choose one"}</div>
+      <div class="small muted">PDF, Word or plain text, up to 5 MB. You can choose more than one.</div>
+      <input type="file" id="files" accept=".pdf,.docx,.txt,.md" multiple hidden>
+      <button class="${anyOk ? "btn2" : "btn"}" id="pick" ${busy ? "disabled" : ""}>${anyOk ? "Add another file" : "Choose a file"}</button>
+    </div>
+    <div>
+      <button class="link" id="liTip" aria-expanded="${!!ui.li}">Using LinkedIn? How to save your profile as a PDF</button>
+      <ol class="muted" style="margin:4px 0 0;padding-left:22px;font-size:15px" ${ui.li ? "" : "hidden"}>
+        <li>Open your LinkedIn profile on a computer.</li>
+        <li>Choose Resources (or More) under your name, then Save to PDF.</li>
+        <li>Come back here and choose that file.</li>
+      </ol>
+    </div>
+    <div class="row">
+      ${anyOk ? `<button class="btn" data-go="check" ${busy ? "disabled" : ""}>Check what we read</button>` : ""}
+      <button class="link" data-back>Back</button>
+      ${anyOk ? "" : `<button class="link" id="skip" ${busy ? "disabled" : ""}>I don't have a file. Skip this</button>`}
+    </div>
+  </div>`;
+}
+
+function recordScreen(isCheck) {
+  const jobs = S.jobs || [];
+  const none = !jobs.length;
+  const head = isCheck
+    ? (none ? `<h1>Your jobs</h1>
+         <p class="muted">List your jobs, newest first: the employer, your title and the dates. Include part-time, contract and military work. The detail comes later, one job at a time.</p>`
+       : `<h1>Check what we read</h1>
+         <p class="muted">Fix anything that's wrong before we start. You can change all of it later too.</p>`)
+    : `<h1>Your record</h1>${continueNote()}${targetsCard()}`;
+  const counts = none ? "" : `<p class="small muted">${plural(jobs.length, "job")} · ${plural(S.line_count, "line")}</p>`;
+  return `
+  <div class="stack">
+    ${head}
+    ${contactCard()}
+    ${none ? "" : `<div class="label" style="padding-top:4px">Jobs, newest first</div>${counts}`}
+    ${jobs.map(jobCard).join("")}
+    ${addJobBlock(none)}
+    ${undoBar()}
+    <div class="row" style="padding-top:4px">
+      ${isCheck ? `<button class="btn" data-go="targets" ${none ? "disabled" : ""}>Looks right. Next</button>`
+                : `<button class="btn2" data-go="upload">Bring in another file</button>`}
+      <button class="link" data-back>Back</button>
+    </div>
+  </div>`;
+}
+
+function contactCard() {
+  const c = S.contact || {};
+  if (ui.contact) {
+    const f = (k, label, type = "text") => `
+      <div class="stack-s"><label for="c_${k}">${label}</label>
+      <input type="${type}" id="c_${k}" value="${esc(c[k])}" autocomplete="off"></div>`;
+    return `<div class="card">
+      <div class="label">Contact</div>
+      ${f("Name", "Name")}${f("Email", "Email", "email")}${f("Telephone", "Phone")}
+      ${f("Location", "City and state or country")}${f("Linkedin", "LinkedIn address")}
+      <div class="row"><button class="btn2" id="saveContact">Save</button>
+      <button class="link" id="cancelContact">Cancel</button></div></div>`;
+  }
+  const bits = [c.Email, c.Telephone, c.Location].filter(Boolean).map(esc).join(" · ");
+  const empty = !c.Name && !bits;
+  return `<div class="card" style="gap:4px">
+    <div class="label">Contact</div>
+    ${empty ? `<div class="muted">No contact details yet.</div>`
+            : `<div style="font-weight:600">${esc(c.Name) || "<span class='muted'>No name yet</span>"}</div>
+               ${bits ? `<div class="muted" style="font-size:15px">${bits}</div>` : ""}`}
+    <div><button class="link" id="editContact">${empty ? "Add contact details" : "Edit contact details"}</button></div>
+  </div>`;
+}
+
+function jobCard(j) {
+  const i = j.index;
+  const open = ui.open === i;
+  const n = j.lines.length;
+  if (ui.editJob === i) {
+    return `<div class="card">
+      ${jobFields("e", j)}
+      <div class="row"><button class="btn2" data-savejob="${i}">Save</button>
+      <button class="link" data-canceljob>Cancel</button></div></div>${titlePrompt(j)}`;
+  }
+  const lines = j.lines.map((l, k) => ui.editLine === `${i}:${k}`
+    ? `<div class="line" style="flex-direction:column;align-items:stretch">
+         <label for="el">Edit this line</label>
+         <textarea id="el">${esc(l.text)}</textarea>
+         <div class="row"><button class="btn2" data-saveline="${i}:${k}">Save</button>
+         <button class="link" data-cancelline>Cancel</button></div></div>`
+    : `<div class="line"><div>${esc(l.text)}</div>
+         <div class="acts"><button class="link tight" data-editline="${i}:${k}">Edit</button>
+         <button class="link tight danger" data-delline="${i}:${k}" aria-label="Delete this line">Delete</button></div></div>`).join("");
+  const adding = ui.addLine === i
+    ? `<div class="stack-s" style="padding-top:8px"><label for="nl">A line for this job</label>
+       <textarea id="nl" placeholder="e.g. Trained 6 new hires on the scanning system"></textarea>
+       <div class="row"><button class="btn2" data-saveadd="${i}">Add this line</button>
+       <button class="link" data-canceladd>Cancel</button></div></div>`
+    : `<div><button class="link" data-addline="${i}">Add a line</button></div>`;
+  const confirm = ui.confirmDel === i
+    ? `<div class="confirm" role="alertdialog" aria-label="Confirm delete">
+         <div>Delete ${esc(j.title)} at ${esc(j.employer)}${n ? ` and its ${plural(n, "line")}` : ""}?</div>
+         <div class="row"><button class="btn2" data-deljob="${i}">Delete</button>
+         <button class="link" data-keepjob>Keep it</button></div></div>` : "";
+  return `<div class="card">
+    <div class="card-head"><div>${esc(j.title)}, ${esc(j.employer)}</div>
+      <div class="dates">${esc(j.dates) || "<span class='muted'>no dates</span>"}</div></div>
+    <div class="row" style="gap:16px">
+      <button class="link" data-toggle="${i}" aria-expanded="${open}">${open ? "Hide lines" : "Show lines"} (${plural(n, "line")})</button>
+      <button class="link" data-editjob="${i}">Edit job</button>
+      <button class="link danger" data-askdel="${i}">Delete job</button>
+    </div>
+    ${confirm}
+    ${open ? backgroundBlock(j) : ""}
+    ${open ? `<div class="lines">${lines || `<div class="muted small" style="padding:8px 0">No lines yet.</div>`}${adding}</div>` : ""}
+  </div>${titlePrompt(j)}`;
+}
+
+function backgroundBlock(j) {
+  const bg = j.background || [];
+  const first = (S.steps || []).find((x) => x.job === j.index && x.kind === "q");
+  if (!bg.length && !first) return "";
+  return `<div class="stack-s" style="gap:0">
+    ${bg.map((b) => `<div class="bgline"><div class="q">${esc(b.question)}</div><div>${esc(b.answer)}</div></div>`).join("")}
+    ${first ? `<div><button class="link tight" data-answers="${esc(first.id)}">${bg.length ? "Change these answers" : "Answer the background questions"}</button></div>` : ""}
+  </div>`;
+}
+
+function targetsCard() {
+  const t = S.targets;
+  return `<div class="card" style="gap:4px"><div class="label">Jobs you're aiming for</div>
+    <div>${t.titles.length ? t.titles.map(esc).join(" · ") : `<span class="muted">${t.status === "not_sure" ? "Not sure yet" : "None yet"}</span>`}</div>
+    ${t.where || t.modes.length ? `<div class="muted" style="font-size:15px">${[t.where, ...t.modes].filter(Boolean).map(esc).join(" · ")}</div>` : ""}
+    <div><button class="link" data-go="targets">Change</button></div></div>`;
+}
+
+function continueNote() {
+  const left = (S.steps || []).filter((x) => x.status === "todo");
+  const jobs = new Set(left.map((x) => x.job)).size;
+  return `<div class="done stack-s">
+    ${left.length ? `<div>${plural(jobs, "job")} still ${jobs === 1 ? "has" : "have"} background questions to answer.</div>
+      <div><button class="btn" id="continueQs">Continue the questions</button></div>`
+      : `<div>Every job's background questions are answered or skipped. Making your resume lines stronger comes in the next update.</div>`}
+  </div>`;
+}
+
+function progress(caption, frac = 0) {
+  return `<div class="stack-s" aria-label="Progress">
+    <div class="stages">${STAGES.map((st, n) => `<div class="stage ${n === 0 ? "on" : ""}">
+      <div class="bar"><div style="width:${n === 0 ? Math.round(frac * 100) : 0}%"></div></div>${st}</div>`).join("")}</div>
+    ${caption ? `<div class="count">${esc(caption)}</div>` : ""}
+  </div>`;
+}
+
+function targets() {
+  const t = S.targets, full = t.titles.length >= S.max_targets;
+  return `${progress("")}
+  <div class="stack">
+    <h1>What jobs are you aiming for?</h1>
+    <p>Up to three job titles. This tells us which skills to suggest and what your sample resume should aim at. You can change it any time, and changing it never removes anything you've entered.</p>
+    ${t.suggest.length ? `<div class="stack-s"><div style="font-size:14px;font-weight:600">Titles from your record, tap to add</div>
+      <div class="row" style="gap:8px">${t.suggest.map((x) => `<button class="chip add" data-addtarget="${esc(x)}" ${full ? "disabled" : ""}>Add: ${esc(x)}</button>`).join("")}</div></div>` : ""}
+    <div class="stack-s"><label for="targetTitle">${t.suggest.length ? "Or type a title" : "Type a title"}</label>
+      <div class="row" style="gap:8px;flex-wrap:nowrap"><input type="text" id="targetTitle" placeholder="e.g. Director of Distribution" style="flex:1;min-width:0" ${full ? "disabled" : ""}>
+      <button class="btn2" id="addTarget" ${full ? "disabled" : ""}>Add</button></div>
+      ${full ? `<div class="small muted">That's three. Remove one to add another.</div>` : ""}</div>
+    <div class="card">
+      <div class="label">Your targets (${t.titles.length} of ${S.max_targets})</div>
+      ${t.titles.length ? t.titles.map((x, n) => `<div class="card-head" style="align-items:center"><div style="font-size:17px">${esc(x)}</div>
+        <button class="link tight" data-rmtarget="${n}">Remove</button></div>`).join("") : `<div class="muted">None yet.</div>`}
+    </div>
+    <div class="stack-s"><label for="targetWhere">Where do you want to work? (optional)</label>
+      <input type="text" id="targetWhere" placeholder="e.g. Columbus, Ohio" value="${esc(t.where)}">
+      <div class="row" style="gap:8px">${S.work_modes.map((m) => `<button class="chip" data-mode="${esc(m)}" aria-pressed="${t.modes.includes(m)}">${esc(m)}</button>`).join("")}</div></div>
+    <div class="row" style="border-top:1px solid var(--line);padding-top:14px">
+      <button class="btn" id="saveTargets">${t.titles.length ? "Save. Start with my newest job" : "Start with my newest job"}</button>
+      ${t.titles.length ? "" : `<button class="btn2" id="notSure">Not sure yet</button>`}
+      <button class="link" data-back>Back</button>
+    </div>
+    ${t.titles.length ? "" : `<p class="small muted">Not sure yet? We'll work from your current title and ask again when you reach your skills.</p>`}
+  </div>`;
+}
+
+function bg() {
+  let k = stepIndex();
+  if (k < 0) {   // the job was deleted or renamed since: start from the next open question
+    const n = nextPending(-1);
+    if (!n) { setTimeout(() => go("bgdone", { push: false })); return ""; }
+    at = n.id; k = stepIndex();
+    history.replaceState({ ...history.state, at }, "", "#bg");
+  }
+  const x = S.steps[k];
+  const where = `${esc(x.title)}, ${esc(x.employer)}${x.dates ? ` · ${esc(x.dates)}` : ""}`;
+  const caption = `Job ${x.job_number} of ${x.job_total}`;
+  const frac = (x.job_number - 1) / x.job_total;
+  const examples = (list) => `<div class="ex"><div style="font-weight:600">For example</div>
+    ${list.map((e) => `<div>“${esc(e)}”</div>`).join("")}</div>`;
+  const box = `<label for="answer">Your answer</label><textarea id="answer" data-step="${esc(x.id)}">${esc(x.answer)}</textarea>`;
+  if (x.kind === "company") {
+    return `${progress(caption, frac)}<div class="stack">
+      <div class="small muted">${esc(x.employer)}</div>
+      <h1>First, in one line: what did ${esc(x.employer)} do?</h1>
+      <p class="muted">${esc(Q.company.help)}</p>
+      ${examples(Q.company.examples)}
+      ${box}
+      <div class="row"><button class="btn" data-answer="answered">Next</button>
+      <button class="btn2" data-answer="skipped">Skip</button>
+      <button class="link" data-back>Back</button></div></div>`;
+  }
+  if (x.kind === "titles") {
+    const one = x.titles.length === 1;
+    const form = ui.promo || ui.titleForm;
+    return `${progress(caption, frac)}<div class="stack">
+      <div class="small muted">${esc(x.employer)}</div>
+      <h1>${ui.promo ? `You mentioned a promotion. What was your title at ${esc(x.employer)} before that?`
+                     : `Did your title change while you were at ${esc(x.employer)}, for example a promotion?`}</h1>
+      <p class="muted">Promotions are some of the strongest evidence on a resume. Listing each title with its dates shows them.</p>
+      <div class="card">
+        <div class="label">Your ${one ? "title" : "titles"} at ${esc(x.employer)}</div>
+        ${x.titles.map((t) => `<div class="card-head"><div>${esc(t.title)}</div><div class="dates">${esc(t.dates) || "no dates"}</div></div>`).join("")}
+        <div class="small muted">Your resume will show ${one ? "each title" : "these"} stacked under one ${esc(x.employer)} heading, newest first.</div>
+      </div>
+      ${form ? `<div class="card">
+        <div class="stack-s"><label for="t_title">Title</label><input type="text" id="t_title" placeholder="e.g. Warehouse Associate"></div>
+        <div class="stack-s"><label for="t_dates">Dates</label><input type="text" id="t_dates" placeholder="e.g. 2017 to 2018"></div>
+        <div class="row"><button class="btn2" id="addTitle">Add this title</button>
+        <button class="link" id="cancelTitle">Cancel</button></div></div>` : ""}
+      <div class="row"><button class="btn" data-answer="done">${ui.promo && one ? "Skip this" : one ? "No, one title" : "That's all of them"}</button>
+      ${form ? "" : `<button class="btn2" id="openTitle">Add a title</button>`}
+      <button class="link" data-back>Back</button></div>
+      <p class="small muted">Each title gets its own background questions, all optional.</p>
+    </div>`;
+  }
+  const q = Q.questions[x.field];
+  return `${progress(caption, frac)}<div class="stack">
+    <div class="small muted">${where}</div>
+    <h1>${esc(q.q)}</h1>
+    <p class="muted">${esc(q.help)}</p>
+    ${examples(q.examples)}
+    ${box}
+    <div class="row"><button class="btn" data-answer="answered">Next</button>
+    <button class="btn2" data-answer="na">Doesn't apply to this job</button>
+    <button class="link" data-back>Back</button></div></div>`;
+}
+
+function bgdone() {
+  const all = S.steps || [];
+  const jobs = new Set(all.map((x) => x.job)).size;
+  const answered = all.filter((x) => x.kind !== "titles" && x.status === "answered").length;
+  const left = all.filter((x) => x.status === "todo");
+  return `${progress(`${plural(jobs, "job")} · ${plural(answered, "answer")}`, left.length ? 0.9 : 1)}<div class="stack">
+    <h1>${left.length ? "Nearly there" : "That's the background for every job"}</h1>
+    ${left.length ? `<p>${plural(left.length, "question")} ${left.length === 1 ? "is" : "are"} still open, from a job added along the way.</p>` : ""}
+    <p>Your answers are on your record now, under each job. Next comes making your resume lines stronger, one line at a time. That part arrives in the next update.</p>
+    <div class="row">
+      ${left.length ? `<button class="btn" id="continueQs">Answer ${left.length === 1 ? "it" : "them"}</button>` : ""}
+      <button class="${left.length ? "btn2" : "btn"}" data-go="record">See your record</button>
+      <button class="link" data-back>Back</button>
+    </div></div>`;
+}
+
+function titlePrompt(j) {
+  if (!j.last_at_employer || j.outside) return "";
+  if (ui.addTitle === j.employer) {
+    return `<div class="card">
+      <div style="font-weight:600">Another title at ${esc(j.employer)}</div>
+      <p class="small muted">Promotions are some of the strongest evidence on a resume. Each title with its dates shows them.</p>
+      ${jobFields("t", { title: "", dates: "" }, true)}
+      <div class="row"><button class="btn2" data-savetitle="${esc(j.employer)}">Add this title</button>
+      <button class="link" data-canceltitle>Cancel</button></div></div>`;
+  }
+  return `<div class="small muted" style="margin-top:-8px">Held more than one title at ${esc(j.employer)}?
+    <button class="link tight" style="font-size:14px" data-addtitle="${esc(j.employer)}">Add each one with its dates</button></div>`;
+}
+
+function jobFields(p, j, noEmployer) {
+  return `${noEmployer ? "" : `<div class="stack-s"><label for="${p}_emp">Employer</label>
+      <input type="text" id="${p}_emp" value="${esc(j.employer)}"></div>`}
+    <div class="stack-s"><label for="${p}_title">Your title</label>
+      <input type="text" id="${p}_title" value="${esc(j.title)}"></div>
+    <div class="stack-s"><label for="${p}_dates">Dates</label>
+      <input type="text" id="${p}_dates" value="${esc(j.dates)}" placeholder="e.g. Mar 2019 to now"></div>`;
+}
+
+function addJobBlock(none) {
+  if (ui.addJob || none) {
+    return `<div class="card">
+      <div style="font-weight:600">${none ? "Add a job" : "A job that's missing"}</div>
+      ${jobFields("n", { employer: "", title: "", dates: "" })}
+      <div class="row"><button class="${none ? "btn" : "btn2"}" id="saveJob">Add this job</button>
+      ${none ? "" : `<button class="link" id="cancelJob">Cancel</button>`}</div></div>`;
+  }
+  return `<div><button class="link" id="addJob">Add a job that's missing</button></div>`;
+}
+
+function undoBar() {
+  if (!ui.undo) return "";
+  return `<div class="toast" role="status"><div style="min-width:0">Deleted “${esc(ui.undo.text)}”</div>
+    <button class="link tight" id="undo">Undo</button></div>`;
+}
+
+// ---------------------------------------------------------------- actions
+
+const on = (sel, fn) => document.querySelectorAll(sel).forEach((el) => el.onclick = () => fn(el));
+const val = (id) => ($(id)?.value || "").trim();
+const job = (i) => S.jobs[i];
+const lineAt = (key) => { const [i, k] = key.split(":").map(Number); return [i, k, job(i).lines[k]]; };
+
+function wire() {
+  on("[data-go]", (el) => go(el.dataset.go));
+  on("[data-back]", back);
+  if (screen === "upload") wireUpload();
+  if (screen === "check" || screen === "record") wireRecord();
+  if (screen === "targets") wireTargets();
+  if (screen === "bg") wireBg();
+  if ($("continueQs")) $("continueQs").onclick = startQuestions;
+  on("[data-answers]", (el) => go("bg", { to: el.dataset.answers }));
+}
+
+function wireTargets() {
+  const t = () => S.targets;
+  const save = (patch) => act(() => send("PUT", "/api/j/targets",
+    { titles: t().titles, where: val("targetWhere"), modes: t().modes, ...patch }));
+  const add = (title) => { if (title) save({ titles: [...t().titles, title] }); };
+  on("[data-addtarget]", (el) => add(el.dataset.addtarget));
+  $("addTarget").onclick = () => add(val("targetTitle"));
+  $("targetTitle").onkeydown = (e) => { if (e.key === "Enter") add(val("targetTitle")); };
+  on("[data-rmtarget]", (el) => save({ titles: t().titles.filter((_, n) => n !== +el.dataset.rmtarget) }));
+  on("[data-mode]", (el) => { const m = el.dataset.mode;
+    save({ modes: t().modes.includes(m) ? t().modes.filter((x) => x !== m) : [...t().modes, m] }); });
+  $("saveTargets").onclick = async () => { if (await save({})) startQuestions(); };
+  if ($("notSure")) $("notSure").onclick = async () => { if (await save({ not_sure: true })) startQuestions(); };
+}
+
+function wireBg() {
+  const box = $("answer");
+  if (box) box.oninput = () => typed(box.dataset.step, box.value);
+  on("[data-answer]", (el) => act(async () => {
+    clearTimeout(draft?.timer); draft = null;
+    const from = stepIndex();
+    const r = await send("POST", "/api/j/answer", { id: at, status: el.dataset.answer,
+      text: box ? box.value : "" });
+    S = { ...S, ...r };
+    if (r.ask_earlier_title) go("bg", { to: r.ask_earlier_title, promo: true });
+    else goNext(from);
+  }));
+  if ($("openTitle")) $("openTitle").onclick = () => { ui.titleForm = true; render(); $("t_title")?.focus(); };
+  if ($("cancelTitle")) $("cancelTitle").onclick = () => { ui.titleForm = ui.promo = false; render(); };
+  if ($("addTitle")) $("addTitle").onclick = () => act(async () => {
+    const x = S.steps[stepIndex()];
+    const r = await send("POST", "/api/j/jobs", { employer: x.employer, title: val("t_title"), dates: val("t_dates") });
+    ui.titleForm = ui.promo = false; return r;
+  });
+}
+
+function wireUpload() {
+  const input = $("files"), drop = $("drop");
+  $("pick").onclick = () => input.click();
+  input.onchange = () => readFiles([...input.files]);
+  drop.ondragover = (e) => { e.preventDefault(); drop.classList.add("over"); };
+  drop.ondragleave = () => drop.classList.remove("over");
+  drop.ondrop = (e) => { e.preventDefault(); drop.classList.remove("over"); readFiles([...e.dataTransfer.files]); };
+  $("liTip").onclick = () => { ui.li = !ui.li; render(); };
+  if ($("skip")) $("skip").onclick = () => go("check");
+}
+
+async function readFiles(files) {
+  if (!files.length || uploads.some((u) => u.busy)) return;
+  say("");
+  const mine = files.map((f) => ({ name: f.name, busy: true,
+    msg: "Waiting its turn." }));
+  uploads.push(...mine);
+  render();
+  for (let n = 0; n < files.length; n++) {
+    const u = mine[n];
+    u.msg = "Reading it and checking every line against your file. This can take a minute; keep this page open.";
+    render();
+    const slow = setTimeout(() => { u.msg = "Still reading. A longer resume takes more time; keep this page open."; render(); }, 45000);
+    try {
+      const fd = new FormData(); fd.append("file", files[n]);
+      const r = await api("/api/j/import", { method: "POST", body: fd });
+      S = { ...S, ...r };
+      const first = !mine.slice(0, n).some((x) => x.ok) && !uploads.slice(0, -mine.length).some((x) => x.ok);
+      const parts = [];
+      if (first && r.jobs.length && r.new_jobs === r.jobs.length) {
+        parts.push(`Found ${plural(r.jobs.length, "job")} and ${plural(r.line_count, "resume line")}. Next you'll check them.`);
+      } else if (r.new_jobs || r.new_lines) {
+        parts.push(`Added ${[r.new_jobs ? plural(r.new_jobs, "new job") : "", r.new_lines ? plural(r.new_lines, "new line") : ""].filter(Boolean).join(" and ")}. Everything else was already on your record.`);
+      } else {
+        parts.push("Nothing new in this one: everything in it is already on your record.");
+      }
+      if (r.left_out_deleted) parts.push(`${plural(r.left_out_deleted, "thing")} you deleted or reworded earlier ${r.left_out_deleted === 1 ? "was" : "were"} left out.`);
+      if (r.set_aside) parts.push(`${plural(r.set_aside, "line")} couldn't be matched to the file word for word, so ${r.set_aside === 1 ? "it was" : "they were"} left out rather than risk changing your words.`);
+      Object.assign(u, { busy: false, ok: true, msg: parts.join(" ") });
+    } catch (e) {
+      Object.assign(u, { busy: false, err: true,
+        msg: e.message === "signed out" ? "Sign in, then choose the file again." : e.message });
+    } finally { clearTimeout(slow); }
+    render();
+  }
+}
+
+function wireRecord() {
+  if ($("editContact")) $("editContact").onclick = () => { ui.contact = true; render(); $("c_Name")?.focus(); };
+  if ($("cancelContact")) $("cancelContact").onclick = () => { ui.contact = false; render(); };
+  if ($("saveContact")) $("saveContact").onclick = () => act(async () => {
+    const fields = {};
+    ["Name", "Email", "Telephone", "Location", "Linkedin"].forEach((k) => fields[k] = val("c_" + k));
+    const r = await send("PATCH", "/api/j/contact", { fields });
+    ui.contact = false; return r;
+  });
+
+  on("[data-toggle]", (el) => { const i = +el.dataset.toggle; ui.open = ui.open === i ? null : i; ui.editLine = ui.addLine = null; render(); });
+  on("[data-editjob]", (el) => { ui.editJob = +el.dataset.editjob; render(); $("e_title")?.focus(); });
+  on("[data-canceljob]", () => { ui.editJob = null; render(); });
+  on("[data-savejob]", (el) => act(async () => {
+    const i = +el.dataset.savejob;
+    const r = await send("PATCH", `/api/j/jobs/${i}`, { expect: job(i).label,
+      employer: val("e_emp"), title: val("e_title"), dates: val("e_dates") });
+    ui.editJob = null; return r;
+  }));
+  on("[data-askdel]", (el) => { ui.confirmDel = +el.dataset.askdel; render(); });
+  on("[data-keepjob]", () => { ui.confirmDel = null; render(); });
+  on("[data-deljob]", (el) => act(async () => {
+    const i = +el.dataset.deljob;
+    const r = await api(`/api/j/jobs/${i}?expect=${encodeURIComponent(job(i).label)}`, { method: "DELETE" });
+    ui = {}; return r;
+  }));
+
+  on("[data-editline]", (el) => { ui.editLine = el.dataset.editline; render(); $("el")?.focus(); });
+  on("[data-cancelline]", () => { ui.editLine = null; render(); });
+  on("[data-saveline]", (el) => act(async () => {
+    const [i, k, l] = lineAt(el.dataset.saveline);
+    const r = await send("PATCH", `/api/j/jobs/${i}/lines/${l.index}`, { expect: job(i).label,
+      kind: l.kind, expect_text: l.text, text: val("el") });
+    ui.editLine = null; return r;
+  }));
+  on("[data-delline]", (el) => act(async () => {
+    const [i, k, l] = lineAt(el.dataset.delline);
+    const label = job(i).label;
+    const r = await send("POST", `/api/j/jobs/${i}/lines/${l.index}/delete`, { expect: label,
+      kind: l.kind, expect_text: l.text });
+    ui.undo = { i, label, ...r.deleted }; return r;
+  }));
+  if ($("undo")) $("undo").onclick = () => act(async () => {
+    const u = ui.undo;
+    const r = await send("POST", `/api/j/jobs/${u.i}/lines/${u.index}/restore`, { expect: u.label,
+      kind: u.kind, text: u.text, story: u.story });
+    ui.undo = null; return r;
+  });
+  on("[data-addline]", (el) => { ui.addLine = +el.dataset.addline; render(); $("nl")?.focus(); });
+  on("[data-canceladd]", () => { ui.addLine = null; render(); });
+  on("[data-saveadd]", (el) => act(async () => {
+    const i = +el.dataset.saveadd;
+    const r = await send("POST", `/api/j/jobs/${i}/lines`, { expect: job(i).label, text: val("nl") });
+    ui.addLine = null; return r;
+  }));
+
+  on("[data-addtitle]", (el) => { ui.addTitle = el.dataset.addtitle; render(); $("t_title")?.focus(); });
+  on("[data-canceltitle]", () => { ui.addTitle = null; render(); });
+  on("[data-savetitle]", (el) => act(async () => {
+    const r = await send("POST", "/api/j/jobs", { employer: el.dataset.savetitle,
+      title: val("t_title"), dates: val("t_dates") });
+    ui.addTitle = null; return r;
+  }));
+
+  if ($("addJob")) $("addJob").onclick = () => { ui.addJob = true; render(); $("n_emp")?.focus(); };
+  if ($("cancelJob")) $("cancelJob").onclick = () => { ui.addJob = false; render(); };
+  if ($("saveJob")) $("saveJob").onclick = () => act(async () => {
+    const r = await send("POST", "/api/j/jobs", { employer: val("n_emp"), title: val("n_title"),
+      dates: val("n_dates") });
+    ui.addJob = false; return r;
+  });
+}
+
+// ---------------------------------------------------------------- sign-in
+
+function signIn() {
+  screen = "signin";
+  $("main").innerHTML = `<div class="stack" style="padding-top:12px">
+    <h1>Sign in</h1>
+    <div class="stack-s"><label for="email">Email</label><input type="email" id="email" autocomplete="email"></div>
+    <div class="stack-s"><label for="code">Invite code, if you were given one</label><input type="text" id="code"></div>
+    <div><button class="btn" id="login">Sign in</button></div></div>`;
+  $("login").onclick = async () => {
+    say("");
+    try {
+      await send("POST", "/dev/login", { email: val("email"), code: val("code") });
+      boot();
+    } catch (e) { say(e.message); }
+  };
+}
+
+async function boot() {
+  try {
+    [S, Q] = await Promise.all([api("/api/j/state"), api("/api/j/questions")]);
+  } catch (e) { if (e.message !== "signed out") say(e.message); return; }
+  const fromHash = location.hash.slice(1);
+  const h = history.state || {};
+  const kept = SCREENS.includes(fromHash) && h.screen === fromHash;
+  screen = kept ? fromHash : S.screen;
+  at = screen === "bg" ? (kept ? h.at : S.step.at) || "" : "";
+  ui = { promo: kept && !!h.promo };
+  history.replaceState({ screen, at, promo: ui.promo, depth: h.depth || 0 }, "", "#" + screen);
+  render();
+}
+boot();
+</script>
+</body>
+</html>
