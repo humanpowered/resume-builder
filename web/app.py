@@ -27,7 +27,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from resume_builder import export as X  # noqa: E402
-from resume_builder import health, importer, interview, matching, skills  # noqa: E402
+from resume_builder import health, importer, interview, journey, matching, skills  # noqa: E402
 from resume_builder import summary as summary_mod  # noqa: E402
 from resume_builder import record as mr  # noqa: E402
 from resume_builder.store import SqlStore  # noqa: E402
@@ -157,8 +157,8 @@ def put_record(body: RecordText, store: SqlStore = Depends(store_for)):
     return {"summary": summary(rec)}
 
 
-@app.post("/api/import")
-async def import_resume(file: UploadFile = File(...), store: SqlStore = Depends(store_for)):
+async def _read_upload(file: UploadFile) -> str:
+    """The text of an uploaded resume, or the reason it can't be read."""
     data = await file.read()
     if len(data) > MAX_UPLOAD:
         raise HTTPException(413, "That file is over 5 MB")
@@ -174,6 +174,12 @@ async def import_resume(file: UploadFile = File(...), store: SqlStore = Depends(
     if len(text.strip()) < 50:
         raise HTTPException(422, "No text could be read. If it is a scanned PDF, "
                                  "upload it as Word or text instead.")
+    return text
+
+
+@app.post("/api/import")
+async def import_resume(file: UploadFile = File(...), store: SqlStore = Depends(store_for)):
+    text = await _read_upload(file)
     from datetime import date
     incoming, rep = importer.to_record(importer.extract(text), text,
                                        file.filename or "upload", date.today().isoformat())
@@ -566,6 +572,156 @@ def delete_me(response: Response, store: SqlStore = Depends(store_for)):
     store.delete_everything()
     response.delete_cookie("rb_user")
     return {"deleted": True}
+
+
+# --------------------------------------------------------------------------
+# The guided build (the new page, served at /new while the old page stays up)
+#
+# Jobs are addressed by position with the label the page last showed, and
+# lines by kind and position with the text the page last showed, so an edit
+# made against an out-of-date page is refused rather than landing on the
+# wrong thing.
+
+def _j(fn, *args, **kw):
+    try:
+        return fn(*args, **kw)
+    except journey.Stale:
+        raise HTTPException(409, STALE)
+    except IndexError as exc:
+        raise HTTPException(404, str(exc))
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+
+
+def _jstate(store: SqlStore, rec: mr.Record | None = None) -> dict:
+    rec = rec if rec is not None else store.load_record()
+    return {"exists": store.exists(), "screen": journey.start_screen(store),
+            "step": journey.load_step(store), **journey.view(rec)}
+
+
+@app.get("/api/j/state")
+def j_state(store: SqlStore = Depends(store_for)):
+    return _jstate(store)
+
+
+class JStep(BaseModel):
+    screen: str = Field(..., max_length=40)
+
+
+@app.put("/api/j/step")
+def j_step(body: JStep, store: SqlStore = Depends(store_for)):
+    return _j(journey.save_step, store, body.screen)
+
+
+@app.post("/api/j/import")
+async def j_import(file: UploadFile = File(...), store: SqlStore = Depends(store_for)):
+    """Read one file into the record. Several files are sent one at a time,
+    so the page can say how each one went."""
+    text = await _read_upload(file)
+    from datetime import date
+    incoming, rep = importer.to_record(importer.extract(text), text,
+                                       file.filename or "upload", date.today().isoformat())
+    left_out = journey.leave_out_deleted(store, incoming)
+    if store.exists():
+        rec = store.load_record()
+        before_jobs = len(rec.roles)
+        before_lines = sum(len(r.recorded_bullets) for r in rec.roles)
+        importer.merge(rec, incoming)
+    else:
+        rec, before_jobs, before_lines = incoming, 0, 0
+    store.save_record(rec)
+    return {"file": file.filename, "new_jobs": len(rec.roles) - before_jobs,
+            "new_lines": sum(len(r.recorded_bullets) for r in rec.roles) - before_lines,
+            "set_aside": len(rep["rejected"]), "left_out_deleted": left_out,
+            **_jstate(store, rec)}
+
+
+class JContact(BaseModel):
+    fields: dict[str, str] = Field(default_factory=dict)
+
+
+@app.patch("/api/j/contact")
+def j_contact(body: JContact, store: SqlStore = Depends(store_for)):
+    rec = store.load_record()
+    _j(journey.edit_contact, rec, body.fields)
+    store.save_record(rec)
+    return _jstate(store, rec)
+
+
+class JJob(BaseModel):
+    expect: str = Field("", max_length=600)
+    employer: str | None = Field(None, max_length=300)
+    title: str | None = Field(None, max_length=300)
+    dates: str | None = Field(None, max_length=100)
+
+
+@app.post("/api/j/jobs")
+def j_add_job(body: JJob, store: SqlStore = Depends(store_for)):
+    rec = store.load_record()
+    at = _j(journey.add_job, rec, body.employer or "", body.title or "", body.dates or "")
+    store.save_record(rec)
+    return {"added": at, **_jstate(store, rec)}
+
+
+@app.patch("/api/j/jobs/{ri}")
+def j_edit_job(ri: int, body: JJob, store: SqlStore = Depends(store_for)):
+    rec = store.load_record()
+    role = _j(journey.edit_job, rec, ri, body.expect, body.employer, body.title, body.dates)
+    store.save_record(rec)
+    return _jstate(store, rec)
+
+
+@app.delete("/api/j/jobs/{ri}")
+def j_delete_job(ri: int, expect: str, store: SqlStore = Depends(store_for)):
+    rec = store.load_record()
+    gone = _j(journey.delete_job, store, rec, ri, expect)
+    store.save_record(rec)
+    return {"deleted": gone, **_jstate(store, rec)}
+
+
+class JLine(BaseModel):
+    expect: str = Field("", max_length=600)
+    kind: str = Field(journey.RESUME, max_length=10)
+    expect_text: str = Field("", max_length=4000)
+    text: str = Field("", max_length=4000)
+    story: dict | None = None
+
+
+@app.post("/api/j/jobs/{ri}/lines")
+def j_add_line(ri: int, body: JLine, store: SqlStore = Depends(store_for)):
+    rec = store.load_record()
+    _j(journey.add_line, rec, ri, body.expect, body.text)
+    store.save_record(rec)
+    return _jstate(store, rec)
+
+
+@app.patch("/api/j/jobs/{ri}/lines/{li}")
+def j_edit_line(ri: int, li: int, body: JLine, store: SqlStore = Depends(store_for)):
+    rec = store.load_record()
+    _j(journey.edit_line, store, rec, ri, body.expect, body.kind, li, body.expect_text, body.text)
+    store.save_record(rec)
+    return _jstate(store, rec)
+
+
+@app.post("/api/j/jobs/{ri}/lines/{li}/delete")
+def j_delete_line(ri: int, li: int, body: JLine, store: SqlStore = Depends(store_for)):
+    rec = store.load_record()
+    gone = _j(journey.delete_line, store, rec, ri, body.expect, body.kind, li, body.expect_text)
+    store.save_record(rec)
+    return {"deleted": gone, **_jstate(store, rec)}
+
+
+@app.post("/api/j/jobs/{ri}/lines/{li}/restore")
+def j_restore_line(ri: int, li: int, body: JLine, store: SqlStore = Depends(store_for)):
+    rec = store.load_record()
+    _j(journey.restore_line, store, rec, ri, body.expect, body.kind, li, body.text, body.story)
+    store.save_record(rec)
+    return _jstate(store, rec)
+
+
+@app.get("/new")
+def new_page():
+    return FileResponse(Path(__file__).parent / "static" / "new.html")
 
 
 @app.get("/")
