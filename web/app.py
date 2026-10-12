@@ -600,7 +600,8 @@ def _jstate(store: SqlStore, rec: mr.Record | None = None) -> dict:
         job["background"] = bg
     return {"exists": store.exists(), "screen": journey.start_screen(store),
             "step": journey.load_step(store), "targets": journey.targets_view(store, rec),
-            "steps": journey.steps(store, rec), "work_modes": list(journey.WORK_MODES),
+            "steps": journey.steps(store, rec), "work": journey.work_view(store, rec),
+            "work_modes": list(journey.WORK_MODES),
             "max_targets": journey.MAX_TARGETS, **view}
 
 
@@ -652,7 +653,84 @@ def j_answer(body: JAnswer, store: SqlStore = Depends(store_for)):
 @app.get("/api/j/questions")
 def j_questions():
     return {"questions": {f: journey.question(f) for f in journey.QUESTION_FIELDS},
-            "company": {"help": journey.COMPANY_HELP[0], "examples": journey.COMPANY_HELP[1]}}
+            "company": {"help": journey.COMPANY_HELP[0], "examples": journey.COMPANY_HELP[1]},
+            "line_steps": [{"field": f, "label": l, "q": q, "help": h, "example": e}
+                           for f, l, q, h, e in journey.LINE_STEPS],
+            "chips": list(journey.MORE_CHIPS)}
+
+
+# Working on a job's lines. A job is named by its key and a line by the key
+# of its wording, both as the page last showed them.
+
+class JLineRef(BaseModel):
+    job: str = Field(..., max_length=400)
+    line: str = Field("", max_length=400)
+    status: str = Field("", max_length=20)
+    what: str = Field("", max_length=20)
+    text: str = Field("", max_length=2000)
+    answers: dict[str, str] = Field(default_factory=dict)
+    items: list[str] = Field(default_factory=list, max_length=20)
+
+
+@app.post("/api/j/line/status")
+def j_line_status(body: JLineRef, store: SqlStore = Depends(store_for)):
+    rec = store.load_record()
+    _j(journey.set_line_status, store, rec, body.job, body.line, body.status)
+    return _jstate(store, rec)
+
+
+@app.post("/api/j/job/mark")
+def j_job_mark(body: JLineRef, store: SqlStore = Depends(store_for)):
+    rec = store.load_record()
+    _j(journey.mark_job, store, rec, body.job, body.what)
+    return _jstate(store, rec)
+
+
+@app.post("/api/j/job/more")
+def j_job_more(body: JLineRef, store: SqlStore = Depends(store_for)):
+    rec = store.load_record()
+    added = _j(journey.add_more, store, rec, body.job, [i[:500] for i in body.items])
+    store.save_record(rec)
+    return {"added": added, **_jstate(store, rec)}
+
+
+@app.post("/api/j/line/answers/get")
+def j_line_answers_get(body: JLineRef, store: SqlStore = Depends(store_for)):
+    return journey.line_answers(store, body.job, body.line)
+
+
+@app.post("/api/j/line/answers")
+def j_line_answers(body: JLineRef, store: SqlStore = Depends(store_for)):
+    return _j(journey.save_line_answers, store, body.job, body.line,
+              {k: v[:2000] for k, v in body.answers.items()})
+
+
+@app.post("/api/j/line/stronger")
+def j_line_stronger(body: JLineRef, store: SqlStore = Depends(store_for)):
+    rec = store.load_record()
+    try:
+        return _j(journey.write_stronger, store, rec, body.job, body.line)
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(502, "The line writer didn't answer. Your answers are saved; "
+                                 "try again in a moment.")
+
+
+@app.post("/api/j/line/approve")
+def j_line_approve(body: JLineRef, store: SqlStore = Depends(store_for)):
+    rec = store.load_record()
+    key = _j(journey.approve_line, store, rec, body.job, body.line, body.text)
+    store.save_record(rec)
+    return {"line": key, **_jstate(store, rec)}
+
+
+@app.post("/api/j/line/remove")
+def j_line_remove(body: JLineRef, store: SqlStore = Depends(store_for)):
+    rec = store.load_record()
+    gone = _j(journey.remove_line, store, rec, body.job, body.line)
+    store.save_record(rec)
+    return {"deleted": gone, **_jstate(store, rec)}
 
 
 @app.post("/api/j/import")

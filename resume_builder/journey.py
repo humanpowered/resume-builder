@@ -15,14 +15,15 @@ shows both the same way; `kind` says which list it lives in.
 import re
 from dataclasses import asdict
 
-from . import health, importer
+from . import health, importer, llm
 from . import record as mr
 
 STEP = "journey.step"
 DELETED = "journey.deleted"
 ANSWERS = "journey.answers"
 
-SCREENS = ("welcome", "upload", "check", "targets", "bg", "bgdone", "record")
+SCREENS = ("welcome", "upload", "check", "targets", "bg", "lines", "line", "more", "end",
+           "stopped", "bgdone", "record")
 CONTACT_FIELDS = ("Name", "Email", "Telephone", "Location", "Linkedin", "Website")
 RESUME, STORY = "resume", "story"
 
@@ -82,8 +83,7 @@ def save_step(store, screen: str, at: str = "") -> dict:
         raise ValueError(f"No such step: {screen}")
     step = load_step(store)
     step["screen"] = screen
-    if screen == "bg":
-        step["at"] = at
+    step["at"] = at
     if screen != "welcome" and screen != "upload":
         step["seen_check"] = True
     store.save_state(STEP, step)
@@ -516,3 +516,336 @@ def background_view(rec: mr.Record) -> list:
     return [[{"field": f, "question": names[f], "answer": clean(role.fields.get(f, ""))}
              for f in (COMPANY,) + QUESTION_FIELDS if clean(role.fields.get(f, ""))]
             for role in rec.roles]
+
+
+# --------------------------------------------------------------------------
+# Making lines stronger, one job at a time
+#
+# Each line on a job carries a status: todo, skipped (postponed, never a
+# block), stronger, kept. Removing a line deletes it from the record. A line
+# is found by its wording, so the status follows it however the list shifts.
+
+WORK = "journey.work"
+LINE_ANSWERS = "journey.lineanswers"
+LINE_STATUSES = ("todo", "skipped", "stronger", "kept")
+LINE_FIELDS = ("situation", "did", "result", "number")
+LINE_STEPS = (
+    ("situation", "Situation", "What was going on?",
+     "What was the problem, goal or deadline before you acted? This gives the result its stakes.",
+     "Both warehouses ran heavy overtime every week during peak season."),
+    ("did", "What you did", "What did you do about it?",
+     "Your part, in your own words. \"We\" is fine; say what you did within it. This keeps "
+     "the line about you, not the team.",
+     "I redesigned the shift handoffs and cross-trained pickers to cover gaps."),
+    ("result", "Result", "What changed because of it?",
+     "For the business, the team or the customer. This is what a reader cares about most.",
+     "Overtime came down and stayed down through the next peak."),
+    ("number", "Number", "Can you put a number on it?",
+     "A rough figure is fine: a percentage, hours, dollars, people. Numbers are what make a "
+     "line stand out on a skim. Leave out anything your employer treats as confidential.",
+     "About 30% less overtime; 12 people cross-trained."),
+)
+MORE_CHIPS = ("Trained or mentored people", "Saved money or time", "Fixed a recurring problem",
+              "Won or kept a customer", "Improved safety or quality", "Led a project or rollout",
+              "Was picked for something")
+
+# The suggested starting lines follow a stated rule: first a change with no
+# result or number ("Reduced overtime costs"), then a duty or a vague verb
+# that hides the person's part, then lines that already carry a number.
+CHANGE_WORDS = re.compile(
+    r"\b(reduc|increas|improv|cut|grew|grow|rais|lower|sav|streamlin|boost|expand|"
+    r"decreas|accelerat|shorten|speed|sped|doubl|tripl|launch|implement|introduc|"
+    r"transform|turn(ed)? around|won|win)\w*", re.I)
+VAGUE_WORDS = re.compile(
+    r"^(responsible for|duties included|tasked with|helped|assisted|worked on|involved in|"
+    r"participated in|in charge of|managed|handled|supported|coordinated|oversaw|"
+    r"prepared|maintained|performed)\b", re.I)
+NUMBER = re.compile(r"\d")
+SUGGEST = 3
+
+
+def line_key(text: str) -> str:
+    return importer._norm(text)[:160]
+
+
+def line_rank(text: str) -> int:
+    if NUMBER.search(text):
+        return 2
+    if CHANGE_WORDS.search(text) and not VAGUE_WORDS.match(text):
+        return 0
+    return 1
+
+
+def _work(store) -> dict:
+    return store.load_state(WORK) or {}
+
+
+def _job_work(w: dict, role: mr.Role) -> dict:
+    j = w.setdefault(job_key(role), {})
+    j.setdefault("lines", {})
+    return j
+
+
+def _lines(role: mr.Role) -> list:
+    out = [{"kind": RESUME, "index": n, "text": t} for n, t in enumerate(role.recorded_bullets)]
+    out += [{"kind": STORY, "index": n, "text": line_text(a)}
+            for n, a in enumerate(role.accomplishments) if not a.is_empty()]
+    return out
+
+
+def _months(ranges: list) -> int:
+    """Months covered by a set of date ranges, overlaps counted once."""
+    pts = sorted((s[0] * 12 + s[1], e[0] * 12 + e[1]) for s, e in ranges)
+    total, cur = 0, None
+    for a, b in pts:
+        if cur is None or a > cur[1]:
+            if cur:
+                total += cur[1] - cur[0] + 1
+            cur = [a, b]
+        else:
+            cur[1] = max(cur[1], b)
+    if cur:
+        total += cur[1] - cur[0] + 1
+    return total
+
+
+def work_view(store, rec: mr.Record) -> dict:
+    """Each job's lines with their status and the suggested starting lines,
+    whether the job is complete, and the record's years covered."""
+    w = _work(store)
+    bg = steps(store, rec)
+    order = [i for _, idx in _groups(rec) for i in idx]
+    number = {i: n + 1 for n, i in enumerate(order)}
+    jobs, done_ranges, all_ranges = [], [], []
+    for i, role in enumerate(rec.roles):
+        j = w.get(job_key(role), {})
+        status = j.get("lines", {})
+        lines = []
+        for l in _lines(role):
+            st = status.get(line_key(l["text"]), "todo")
+            lines.append({**l, "key": line_key(l["text"]), "status": st,
+                          "rank": line_rank(l["text"]), "new": line_key(l["text"]) in j.get("new", [])})
+        todo = sorted((l for l in lines if l["status"] == "todo"), key=lambda l: (l["rank"], l["index"]))
+        open_bg = [s for s in bg if s["job"] == i and s["status"] == "todo"]
+        complete = j.get("done") or (not open_bg and j.get("more")
+                                     and all(l["status"] in ("stronger", "kept") for l in lines))
+        rng = health.parse_range(role.fields.get("Dates", ""))
+        if rng and not role.outside():
+            all_ranges.append(rng)
+            if complete:
+                done_ranges.append(rng)
+        count = {s: sum(1 for l in lines if l["status"] == s) for s in LINE_STATUSES}
+        jobs.append({"key": job_key(role), "index": i, "label": role.label(),
+                     "number": number[i], "total": len(order),
+                     "dates": clean(role.fields.get("Dates", "")),
+                     "title": role.title, "employer": role.employer,
+                     "lines": lines, "suggested": [l["key"] for l in todo[:SUGGEST]],
+                     "next_line": todo[0]["key"] if todo else "",
+                     "counts": count, "open_questions": len(open_bg),
+                     "more": bool(j.get("more")), "done": bool(j.get("done")),
+                     "complete": bool(complete), "intro_seen": bool(w.get("intro_seen"))})
+    return {"jobs": jobs, "order": order,
+            "years": {"covered": round(_months(done_ranges) / 12),
+                      "total": round(_months(all_ranges) / 12)},
+            "complete_count": sum(1 for j in jobs if j["complete"])}
+
+
+def _find_line(role: mr.Role, key: str) -> dict:
+    for l in _lines(role):
+        if line_key(l["text"]) == key:
+            return l
+    raise IndexError("That line isn't on this job any more")
+
+
+def _role_by_key(rec: mr.Record, key: str) -> tuple:
+    for i, role in enumerate(rec.roles):
+        if job_key(role) == key:
+            return i, role
+    raise IndexError("That job isn't on your record any more")
+
+
+def set_line_status(store, rec: mr.Record, jkey: str, lkey: str, status: str) -> None:
+    if status not in LINE_STATUSES:
+        raise ValueError(f"No such status: {status}")
+    _, role = _role_by_key(rec, jkey)
+    _find_line(role, lkey)
+    w = _work(store)
+    _job_work(w, role)["lines"][lkey] = status
+    store.save_state(WORK, w)
+
+
+def mark_job(store, rec: mr.Record, jkey: str, what: str) -> None:
+    """`intro`: the line explanation was seen. `lines_fine`: every line not yet
+    worked on is kept as it is. `more`: Anything else was asked. `done`: the
+    person closed the job as it is (the tool never closes one itself)."""
+    _, role = _role_by_key(rec, jkey)
+    w = _work(store)
+    j = _job_work(w, role)
+    if what == "intro":
+        w["intro_seen"] = True
+    elif what == "lines_fine":
+        for l in _lines(role):
+            if j["lines"].get(line_key(l["text"]), "todo") == "todo":
+                j["lines"][line_key(l["text"])] = "kept"
+    elif what in ("more", "done"):
+        j[what] = True
+    else:
+        raise ValueError(f"Nothing called {what}")
+    store.save_state(WORK, w)
+
+
+def add_more(store, rec: mr.Record, jkey: str, items: list) -> int:
+    """Anything else from this job: each item becomes its own line to work
+    through, in the person's words."""
+    i, role = _role_by_key(rec, jkey)
+    w = _work(store)
+    j = _job_work(w, role)
+    have = {line_key(l["text"]) for l in _lines(role)}
+    added = 0
+    for item in items:
+        item = (item or "").strip()
+        if item and line_key(item) not in have:
+            role.recorded_bullets.append(item)
+            have.add(line_key(item))
+            j.setdefault("new", []).append(line_key(item))
+            added += 1
+    j["more"] = True
+    store.save_state(WORK, w)
+    return added
+
+
+def line_answers(store, jkey: str, lkey: str) -> dict:
+    return (store.load_state(LINE_ANSWERS) or {}).get(jkey, {}).get(lkey, {})
+
+
+def save_line_answers(store, jkey: str, lkey: str, answers: dict) -> dict:
+    a = store.load_state(LINE_ANSWERS) or {}
+    mine = a.setdefault(jkey, {}).setdefault(lkey, {})
+    for k, v in answers.items():
+        if k not in LINE_FIELDS:
+            raise ValueError(f"No such answer: {k}")
+        mine[k] = (v or "").strip()
+    mine.pop("draft", None)      # the answers changed, so any draft is out of date
+    store.save_state(LINE_ANSWERS, a)
+    return mine
+
+
+STRONGER_SCHEMA = {
+    "type": "object",
+    "properties": {"line": {"type": "string"}},
+    "required": ["line"],
+    "additionalProperties": False,
+}
+
+STRONGER_PROMPT = """Rewrite one resume line using only what the person told us about it.
+
+RULES
+- One sentence, or two short ones. Under {max_words} words.
+- Lead with what changed, then how. Start with a past-tense verb.
+- No first person. No "responsible for", "helped", "assisted with".
+- Use only facts in the original line and the answers below. If an answer is
+  missing, leave that part out: never supply a result, a number, a team size
+  or a tool the person didn't give.
+- Every number must appear in the original line or the answers. Do not
+  derive, round, combine or estimate one.
+- If the answers say "we" or a team did it, say what this person did and
+  credit the outcome to the team or the effort.
+- Do not name the employer. Plain words. No "spearheaded", "leveraged",
+  "utilized", no em dashes.
+
+JOB: {title}
+ORIGINAL LINE: {original}
+WHAT WAS GOING ON: {situation}
+WHAT THEY DID: {did}
+WHAT CHANGED: {result}
+NUMBER: {number}
+
+Return JSON: {{"line": "..."}}"""
+
+
+def write_stronger(store, rec: mr.Record, jkey: str, lkey: str) -> dict:
+    """Draft a stronger version of one line from the person's answers and the
+    original, held to them by the grounding check. With every question
+    skipped, nothing is written. The draft is kept, so a refresh doesn't pay
+    for a second one."""
+    from . import bullets
+    _, role = _role_by_key(rec, jkey)
+    line = _find_line(role, lkey)
+    a = store.load_state(LINE_ANSWERS) or {}
+    mine = a.setdefault(jkey, {}).setdefault(lkey, {})
+    if not any(mine.get(f) for f in LINE_FIELDS):
+        return {"line": "", "empty": True}
+    if mine.get("draft"):
+        return {"line": mine["draft"]}
+    source = " ".join([line["text"]] + [mine.get(f, "") for f in LINE_FIELDS])
+    prompt = STRONGER_PROMPT.format(
+        max_words=bullets.MAX_BULLET_WORDS, title=role.title, original=line["text"],
+        **{f: mine.get(f) or "(not answered)" for f in LINE_FIELDS})
+    messages = [{"role": "user", "content": prompt}]
+    text = ""
+    for _ in range(2):
+        reply = llm.request_json(messages, 1024, "stronger line", schema=STRONGER_SCHEMA)
+        text = (reply.get("line") or "").strip()
+        invented = bullets.ungrounded(text, source)
+        if text and not invented:
+            mine["draft"] = text
+            store.save_state(LINE_ANSWERS, a)
+            return {"line": text}
+        messages = messages + [
+            {"role": "assistant", "content": f'{{"line": {text!r}}}'},
+            {"role": "user", "content":
+             f"These figures are not in the original line or the answers: "
+             f"{', '.join(sorted(invented))}. Rewrite using only figures that appear there, or none."}]
+    return {"line": "", "ungrounded": True}
+
+
+def approve_line(store, rec: mr.Record, jkey: str, lkey: str, text: str) -> str:
+    """Put the approved version on the record. The original is kept with it
+    (as the story's title), and remembered as reworded so the same resume
+    uploaded again doesn't bring it back beside the new one. A version no
+    different from the original is just keeping it."""
+    _, role = _role_by_key(rec, jkey)
+    line = _find_line(role, lkey)
+    text = (text or "").strip()
+    if not text:
+        raise ValueError("The line can't be blank")
+    w = _work(store)
+    j = _job_work(w, role)
+    if importer._norm(text) == importer._norm(line["text"]):
+        j["lines"][lkey] = "kept"
+        store.save_state(WORK, w)
+        return lkey
+    mine = line_answers(store, jkey, lkey)
+    result = "; ".join(x for x in (mine.get("result"), mine.get("number")) if x)
+    if line["kind"] == RESUME:
+        role.recorded_bullets.pop(line["index"])
+        role.accomplishments.append(mr.Accomplishment(
+            title=line["text"], problem=mine.get("situation", ""), actions=mine.get("did", ""),
+            results=result, bullet=text))
+        _remember(store, "lines", {"employer": role.employer, "title": role.title,
+                                   "text": line["text"], "reworded": True})
+    else:
+        acc = role.accomplishments[line["index"]]
+        acc.bullet = text
+        for attr, f in (("problem", "situation"), ("actions", "did")):
+            if mine.get(f):
+                setattr(acc, attr, mine[f])
+        if result:
+            acc.results = result
+    new = line_key(text)
+    j["lines"].pop(lkey, None)
+    j["lines"][new] = "stronger"
+    if lkey in j.get("new", []):
+        j["new"].append(new)
+    store.save_state(WORK, w)
+    a = store.load_state(LINE_ANSWERS) or {}
+    if lkey in a.get(jkey, {}):
+        a[jkey][new] = a[jkey].pop(lkey)
+        store.save_state(LINE_ANSWERS, a)
+    return new
+
+
+def remove_line(store, rec: mr.Record, jkey: str, lkey: str) -> dict:
+    i, role = _role_by_key(rec, jkey)
+    line = _find_line(role, lkey)
+    return delete_line(store, rec, i, role.label(), line["kind"], line["index"], line["text"])

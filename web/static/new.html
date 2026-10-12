@@ -107,6 +107,26 @@
   .ex { display: flex; flex-direction: column; gap: 4px; font-size: 14px; color: var(--muted); }
   .bgline { display: flex; flex-direction: column; gap: 2px; padding: 8px 0; border-bottom: 1px solid var(--soft-line); }
   .bgline .q { font-size: 13px; color: var(--muted); }
+  .tag { flex: none; font-size: 12px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase;
+         padding: 2px 8px; border-radius: 6px; background: var(--soft-line); color: var(--muted); }
+  .tag.todo { background: var(--warn-bg); color: var(--warn-ink); }
+  .tag.stronger { background: var(--accent); color: var(--accent-ink); }
+  .tag.kept { background: var(--tint); color: var(--accent-dark); }
+  .pick { display: flex; justify-content: space-between; gap: 12px; align-items: center; text-align: left;
+          width: 100%; min-height: 48px; padding: 10px 14px; border-radius: 10px; border: 1px solid var(--line);
+          background: var(--panel); color: var(--ink); font: 400 16px/1.4 'IBM Plex Sans', system-ui, sans-serif;
+          cursor: pointer; }
+  .pick:hover { border-color: var(--ink); }
+  .pick > span:first-child { min-width: 0; }
+  .lsteps { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+  .lstep { font-size: 12px; font-weight: 600; text-align: center; padding: 6px 2px; border-radius: 6px;
+           background: var(--soft-line); color: var(--muted); }
+  .lstep.on { background: var(--accent); color: var(--accent-ink); }
+  .lstep.done { background: var(--tint); color: var(--accent-dark); }
+  .big { font-size: 22px; line-height: 1.3; font-weight: 600; }
+  h2 { margin: 0; font-size: 24px; line-height: 1.25; font-weight: 700; text-wrap: balance; }
+  .pair { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
+  .card.strong { border: 2px solid var(--accent); }
   [hidden] { display: none !important; }
 </style>
 </head>
@@ -124,7 +144,8 @@ const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) =>
   ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const plural = (n, one, many) => `${n} ${n === 1 ? one : (many || one + "s")}`;
 
-const SCREENS = ["welcome", "upload", "check", "targets", "bg", "bgdone", "record"];
+const SCREENS = ["welcome", "upload", "check", "targets", "bg", "lines", "line", "more", "end",
+                 "stopped", "bgdone", "record"];
 // Where the on-screen Back goes from each screen when there is no browser
 // history to go back through (for example, straight after a refresh). The
 // background questions step back one question at a time instead.
@@ -169,7 +190,7 @@ async function act(fn) {
 
 function go(next, { push = true, to = "", promo = false } = {}) {
   flush();
-  screen = next; ui = { promo }; at = next === "bg" ? to : "";
+  screen = next; ui = { promo }; at = to || "";
   const st = { screen: next, at, promo, depth: (history.state?.depth || 0) + (push ? 1 : 0) };
   if (push) history.pushState(st, "", "#" + next);
   else history.replaceState(st, "", "#" + next);
@@ -179,8 +200,13 @@ function go(next, { push = true, to = "", promo = false } = {}) {
 }
 function back() {
   if ((history.state?.depth || 0) > 0) return history.back();
+  const job = curJob();
   if (screen === "bg") return stepBack();
-  if (screen === "bgdone") { const all = S.steps || []; return all.length ? go("bg", { to: all[all.length - 1].id, push: false }) : go("targets", { push: false }); }
+  if (screen === "lines") return jobBack(job);
+  if (screen === "line") return go("lines", { to: job.key, push: false });
+  if (screen === "more") return go("lines", { to: job.key, push: false });
+  if (screen === "end") return go("more", { to: job.key, push: false });
+  if (screen === "bgdone" || screen === "stopped") return go("record", { push: false });
   go(BACK[screen] || "welcome", { push: false });
 }
 window.addEventListener("popstate", (e) => {
@@ -196,19 +222,52 @@ function nextPending(from) {
   for (let n = from + 1; n < all.length; n++) if (all[n].status === "todo") return all[n];
   return null;
 }
+// One job at a time: its background questions, then its lines, then
+// "anything else", then the job-complete screen, then the next job.
+const W = () => S.work || { jobs: [], order: [] };
+const jobByKey = (k) => W().jobs.find((j) => j.key === k);
+const jobByIndex = (i) => W().jobs[i];
+function curJob() {
+  if (screen === "bg") { const x = (S.steps || [])[stepIndex()]; return x ? jobByIndex(x.job) : null; }
+  return jobByKey(at.split("\n")[0]) || null;
+}
+function jobStart(job, opts = {}) {
+  const st = (S.steps || []).find((x) => x.job === job.index && x.status === "todo");
+  st ? go("bg", { to: st.id, ...opts }) : go("lines", { to: job.key, ...opts });
+}
+function nextJob(after) {
+  const order = W().order, from = after ? order.indexOf(after.index) : -1;
+  const pick = (list) => list.map(jobByIndex).find((j) => j && !j.complete);
+  return pick(order.slice(from + 1)) || pick(order.slice(0, Math.max(from, 0)));
+}
+function resume() {
+  const j = nextJob(null);
+  j ? jobStart(j) : go("record");
+}
 function goNext(from) {
-  const n = nextPending(from);
-  n ? go("bg", { to: n.id }) : go("bgdone");
+  const x = S.steps[from];
+  const all = S.steps || [];
+  for (let n = from + 1; n < all.length; n++) {
+    if (all[n].job !== x.job) break;
+    if (all[n].status === "todo") return go("bg", { to: all[n].id });
+  }
+  go("lines", { to: jobByIndex(x.job).key });
 }
 function stepBack() {
   const k = stepIndex();
-  if (k > 0) go("bg", { to: S.steps[k - 1].id, push: false });
-  else go("targets", { push: false });
+  if (k > 0 && S.steps[k - 1].job === S.steps[k].job) return go("bg", { to: S.steps[k - 1].id, push: false });
+  const order = W().order, pos = order.indexOf(S.steps[k]?.job);
+  if (pos > 0) return go("end", { to: jobByIndex(order[pos - 1]).key, push: false });
+  go("targets", { push: false });
 }
-function startQuestions() {
-  const n = nextPending(-1);
-  n ? go("bg", { to: n.id }) : go("bgdone");
+function jobBack(job) {
+  const mine = (S.steps || []).filter((x) => x.job === job.index);
+  if (mine.length) return go("bg", { to: mine[mine.length - 1].id, push: false });
+  const order = W().order, pos = order.indexOf(job.index);
+  if (pos > 0) return go("end", { to: jobByIndex(order[pos - 1]).key, push: false });
+  go("targets", { push: false });
 }
+const startQuestions = resume;
 
 // An answer is saved a moment after typing stops, and before leaving the
 // screen, so Back (on screen or in the browser) never loses it.
@@ -231,6 +290,7 @@ function render() {
   const m = $("main");
   if (screen === "signin") return;
   m.innerHTML = ({ welcome, upload, check: () => recordScreen(true), targets, bg, bgdone,
+                   lines: linesScreen, line: lineScreen, more: moreScreen, end: endScreen, stopped,
                    record: () => recordScreen(false) }[screen] || welcome)();
   wire();
 }
@@ -395,12 +455,13 @@ function targetsCard() {
 }
 
 function continueNote() {
-  const left = (S.steps || []).filter((x) => x.status === "todo");
-  const jobs = new Set(left.map((x) => x.job)).size;
+  const w = W(), n = nextJob(null);
+  if (!w.jobs.length) return "";
   return `<div class="done stack-s">
-    ${left.length ? `<div>${plural(jobs, "job")} still ${jobs === 1 ? "has" : "have"} background questions to answer.</div>
-      <div><button class="btn" id="continueQs">Continue the questions</button></div>`
-      : `<div>Every job's background questions are answered or skipped. Making your resume lines stronger comes in the next update.</div>`}
+    <div class="count">${w.complete_count} of ${plural(w.jobs.length, "job")} complete · covers ${w.years.covered} of your ${w.years.total} years</div>
+    ${n ? `<div>Next: ${esc(n.title)} at ${esc(n.employer)}.</div>
+      <div><button class="btn" id="continueQs">Continue where you left off</button></div>`
+      : `<div>Every job is complete. Education, skills and your summary come in later updates.</div>`}
   </div>`;
 }
 
@@ -503,6 +564,167 @@ function bg() {
     <button class="link" data-back>Back</button></div></div>`;
 }
 
+function jobHead(j) {
+  return `<div class="small muted">${esc(j.title)}, ${esc(j.employer)}${j.dates ? ` · ${esc(j.dates)}` : ""}</div>`;
+}
+function jobCaption(j, extra) {
+  return progress(`Job ${j.number} of ${j.total}${extra ? " · " + extra : ""}`, (j.number - 1) / j.total);
+}
+const TAGS = { todo: "To do", skipped: "Skipped for now", stronger: "Stronger", kept: "Kept as is" };
+const tag = (st) => `<span class="tag ${st}">${TAGS[st]}</span>`;
+const lineOf = (j, key) => j.lines.find((l) => l.key === key);
+
+function linesScreen() {
+  const j = curJob();
+  if (!j) { setTimeout(() => go("record", { push: false })); return ""; }
+  const n = j.lines.length, c = j.counts, done = c.stronger + c.kept;
+  const intro = !j.intro_seen;
+  const shown = ui.all ? j.lines : j.suggested.map((k) => lineOf(j, k)).filter(Boolean);
+  const skipped = j.lines.filter((l) => l.status === "skipped");
+  const next = lineOf(j, j.next_line);
+  const status = `You've been through all ${plural(n, "line")}: ${[c.stronger ? `${c.stronger} stronger` : "", c.kept ? `${c.kept} kept as ${c.kept === 1 ? "it is" : "they are"}` : "", c.skipped ? `${c.skipped} skipped for now` : ""].filter(Boolean).join(", ")}.`;
+  return `${jobCaption(j, `${done} of ${plural(n, "line")} done`)}<div class="stack">
+    ${jobHead(j)}
+    ${intro ? `<h1>Now we make your resume lines stronger</h1>
+      <p>Your resume says what you did. A hiring manager wants to know what it was for and what came of it. For each line we ask four quick questions, then write a stronger version for you to approve. Your original is kept.</p>
+      <div class="card"><div class="stack-s" style="gap:2px"><div class="label">Before</div><div>Reduced overtime costs</div></div>
+        <div class="stack-s" style="gap:2px"><div class="label" style="color:var(--accent)">After</div><div style="font-weight:600">Cut weekly overtime by about 30% across two warehouses by redesigning shift handoffs</div></div></div>`
+      : `<h1>Your lines as ${esc(j.title)}</h1>`}
+    ${n ? `<div class="stack-s">
+      ${next && !ui.all ? `<div style="font-weight:600">We suggest starting with ${shown.length === 1 ? "this one" : "these"}. Tap any line to work on it, in any order.</div>` : ""}
+      ${shown.map((l) => `<button class="pick" data-openline="${esc(l.key)}"><span>${esc(l.text)}</span>${tag(l.status)}</button>`).join("")}
+      ${n > shown.length || ui.all ? `<div><button class="link" id="allLines">${ui.all ? "Show the suggested lines" : `Show all ${plural(n, "line")}`}</button></div>` : ""}
+    </div>` : `<p class="muted">Your resume had no lines for this job. Add anything you did here on the next screen.</p>`}
+    <div class="row">
+      ${next ? `<button class="btn" data-openline="${esc(next.key)}">Start with “${esc(next.text.length > 40 ? next.text.slice(0, 38) + "…" : next.text)}”</button>
+        <button class="btn2" id="skipLine">Skip for now</button>`
+      : `${n ? `<div style="flex-basis:100%;font-weight:600">${status}</div>` : ""}
+        <button class="btn" id="toMore">Next: anything else from this job</button>
+        ${skipped.length ? `<button class="btn2" data-openline="${esc(skipped[0].key)}">Go back to a skipped line (${skipped.length})</button>` : ""}`}
+      <button class="link" data-back>Back</button>
+    </div>
+    ${next ? `<div class="stack-s" style="gap:2px;border-top:1px solid var(--line);padding-top:6px">
+      <div><button class="link" id="linesFine">My lines are fine as they are</button></div>
+      <div class="small muted">Keeps every line you haven't worked on exactly as it is, and moves on. ${done} of ${n} done so far.</div></div>` : ""}
+    ${undoBar()}
+  </div>`;
+}
+
+function lineScreen() {
+  const [jk, lk] = at.split("\n");
+  const j = jobByKey(jk), l = j && lineOf(j, lk);
+  if (!l) { setTimeout(() => j ? go("lines", { to: j.key, push: false }) : go("record", { push: false })); return ""; }
+  if (!ui.ans) { loadAnswers(j, l); return `<div class="muted">Opening your line…</div>`; }
+  const steps = Q.line_steps, a = ui.ans, k = ui.step || 0;
+  const head = `${jobCaption(j, "")}
+    <div class="card"><div class="label">${l.new ? "Your new line" : "Your line"}</div><div class="big">${esc(l.text)}</div>
+      <div><button class="link tight" id="why">${ui.why ? "Hide why we ask" : "Why we ask this"}</button></div>
+      ${ui.why ? `<p style="font-size:15px">A hiring manager wants to know what this line was for and what came of it. Four quick questions, then we write a stronger version for you to approve. Your original is kept.</p>` : ""}</div>`;
+  const leave = `<div class="row" style="gap:16px;border-top:1px solid var(--line);padding-top:6px">
+      <button class="link" id="lineKeep">This line is fine as it is</button>
+      <button class="link danger" id="lineRemove">Remove this line</button>
+      <button class="link" id="jobDone">Mark this job done as it is</button></div>`;
+  if (ui.phase === "writing") return `${head}<div class="stack"><div><span class="spin" aria-hidden="true"></span>Writing a stronger version from your answers…</div></div>`;
+  if (ui.phase === "empty") return `${head}<div class="stack">
+    <h2>Nothing new to add yet</h2>
+    <p>You skipped every question, so there's nothing to build a stronger line from. We won't write one without your answers.</p>
+    <div class="row"><button class="btn" id="lineKeep">Keep it as it is</button>
+    <button class="btn2" id="lineSkip">Skip for now</button>
+    <button class="link danger" id="lineRemove">Remove this line</button>
+    <button class="link" id="lineBack">Back</button></div></div>`;
+  if (ui.phase === "result") {
+    const failed = !ui.draft;
+    return `${head}<div class="stack">
+      <h2>${failed ? "Write it in your own words" : "Here's the stronger line"}</h2>
+      <p class="small muted">${failed ? "We couldn't write a version without adding figures you didn't give, so we won't offer one. Edit your line below using your answers." : "Written only from what you told us. Nothing is added that you didn't say."}</p>
+      <div class="pair">
+        <div class="card" style="min-width:0"><div class="label">Your original (kept)</div><div>${esc(l.text)}</div></div>
+        <div class="card strong" style="min-width:0"><div class="label" style="color:var(--accent)">Stronger version</div>
+          ${ui.edit || failed ? `<label for="lineEdit">Edit the line</label><textarea id="lineEdit">${esc(ui.draft || l.text)}</textarea>`
+                             : `<div style="font-size:17px;font-weight:500">${esc(ui.draft)}</div>`}</div>
+      </div>
+      <div class="row"><button class="btn" id="approve">Approve</button>
+      ${failed ? "" : `<button class="btn2" id="editDraft">${ui.edit ? "Done editing" : "Edit"}</button>`}
+      <button class="link" id="lineBack">Back</button></div>
+      <p class="small muted">Approving takes you back to your list of lines.</p></div>`;
+  }
+  const q = steps[k];
+  const soFar = steps.filter((x) => a[x.field]).map((x) => `<div style="font-size:15px"><b>${esc(x.label)}:</b> ${esc(a[x.field])}</div>`).join("");
+  return `${head}<div class="stack">
+    <div class="lsteps">${steps.map((x, n) => `<div class="lstep ${n === k ? "on" : a[x.field] ? "done" : ""}">${esc(x.label)}</div>`).join("")}</div>
+    <h2>${esc(q.q)}</h2>
+    <p>${esc(q.help)}</p>
+    <p class="small muted">For example: “${esc(q.example)}”</p>
+    <label for="lans">Your answer</label><textarea id="lans">${esc(a[q.field] || "")}</textarea>
+    <div class="row"><button class="btn" id="lineNext">${k === 3 ? "Write the line" : "Next"}</button>
+    <button class="btn2" id="lineSkipQ">Not sure, skip</button>
+    <button class="link" id="lineBack">Back</button></div>
+    ${soFar ? `<div class="done stack-s"><div class="label" style="color:var(--accent-dark)">Your line so far</div>${soFar}</div>` : ""}
+    ${leave}
+  </div>`;
+}
+
+function moreScreen() {
+  const j = curJob();
+  if (!j) { setTimeout(() => go("record", { push: false })); return ""; }
+  ui.items = ui.items || [];
+  return `${jobCaption(j, "")}<div class="stack">
+    ${jobHead(j)}
+    <h1>Anything else from this job your resume doesn't mention?</h1>
+    <p class="muted">Tap any that ring a bell. Each one becomes its own line, and we go through it the same way: situation, what you did, result, number.</p>
+    <div class="row" style="gap:8px">${Q.chips.map((c) => `<button class="chip" data-chip="${esc(c)}" aria-pressed="${ui.items.includes(c)}">${esc(c)}</button>`).join("")}</div>
+    <div class="stack-s"><label for="moreText">Something else? Describe it in a few words</label>
+      <textarea id="moreText" style="min-height:72px" placeholder="e.g. trained the night shift on the new scanners"></textarea>
+      <div><button class="btn2" id="addMore">Add to the list</button></div></div>
+    ${ui.items.length ? `<div class="done stack-s"><div class="label" style="color:var(--accent-dark)">New lines to work through (${ui.items.length})</div>
+      ${ui.items.map((x, n) => `<div class="card-head" style="align-items:center"><div style="font-weight:400">${esc(x)}</div><button class="link tight" data-rmitem="${n}">Remove</button></div>`).join("")}</div>` : ""}
+    <div class="row">
+      ${ui.items.length ? `<button class="btn" id="workMore">Work through these</button>` : ""}
+      <button class="${ui.items.length ? "btn2" : "btn"}" id="noMore">${ui.items.length ? "Skip these, finish the job" : "Nothing else. Finish this job"}</button>
+      <button class="link" data-back>Back</button>
+    </div></div>`;
+}
+
+const BG_LABELS = { Challenge: "Brought in to", Authority: "Responsible for",
+                    "Results against targets": "Judged on", Recognition: "Recognised" };
+function endScreen() {
+  const j = curJob();
+  if (!j) { setTimeout(() => go("record", { push: false })); return ""; }
+  const rec = S.jobs[j.index], bg = rec.background || [];
+  const company = bg.find((b) => b.field === "Company");
+  const c = j.counts, w = W(), next = nextJob(j);
+  const open = c.todo + c.skipped + j.open_questions;
+  const shownLines = j.lines.map((l) => `<div class="row" style="gap:10px;align-items:baseline;flex-wrap:nowrap">${tag(l.status)}<span style="min-width:0;font-size:15px">${esc(l.text)}</span></div>`).join("");
+  return `${jobCaption(j, "")}<div class="stack">
+    <h1>Job ${j.number} of ${j.total} ${j.complete ? "complete" : "nearly complete"}</h1>
+    <p>Here is how this job now reads on your record.${j.complete ? " You can change any of it later." : ` ${plural(open, "thing")} ${open === 1 ? "is" : "are"} left for later; the job counts as complete once ${open === 1 ? "it's" : "they're"} done, or when you mark it done as it is.`}</p>
+    <div class="card">
+      <div><div style="font-size:18px;font-weight:600">${esc(j.title)}</div><div class="muted" style="font-size:15px">${esc(j.employer)}${j.dates ? ` · ${esc(j.dates)}` : ""}</div></div>
+      ${company ? `<div class="muted" style="font-size:15px;font-style:italic">${esc(company.answer)} (your words)</div>` : ""}
+      ${bg.filter((b) => BG_LABELS[b.field]).map((b) => `<div style="font-size:15px"><b>${BG_LABELS[b.field]}:</b> ${esc(b.answer)}</div>`).join("")}
+      ${shownLines ? `<div class="stack-s" style="border-top:1px solid var(--line);padding-top:10px">${shownLines}</div>` : ""}
+      <div class="count small muted">${plural(c.stronger, "line")} strengthened · ${c.kept} kept as is${c.todo + c.skipped ? ` · ${c.todo + c.skipped} still to do` : ""}</div>
+    </div>
+    <div class="card" style="gap:4px"><div>Your record covers ${w.years.covered} of your ${w.years.total} years so far. Each job you complete gives every future resume more to draw from.</div></div>
+    <div class="row">
+      ${next ? `<button class="btn" id="nextJob">Next job: ${esc(next.title)}</button>` : `<button class="btn" data-go="record">See your record</button>`}
+      <button class="btn2" id="stopNow">Stop for now</button>
+      ${j.complete ? "" : `<button class="link" id="jobDone">Mark this job done as it is</button>`}
+      <button class="link" data-back>Back</button>
+    </div></div>`;
+}
+
+function stopped() {
+  const w = W(), n = nextJob(null);
+  const st = n && (S.steps || []).find((x) => x.job === n.index && x.status === "todo");
+  return `<div class="stack" style="padding-top:8px">
+    <h1>Everything is saved</h1>
+    <p>You've completed ${w.complete_count} of your ${plural(w.jobs.length, "job")}, covering ${w.years.covered} of your ${w.years.total} years. Nothing you've entered will be lost.</p>
+    ${n ? `<p>When you come back, we'll pick up where you left off: ${esc(n.title)} at ${esc(n.employer)}, starting with ${st ? "its background questions" : "its lines"}. You can also choose a different job from your record.</p>` : ""}
+    <div class="row"><button class="btn" id="continueQs">Keep going now</button>
+    <button class="btn2" data-go="record">See your record</button></div></div>`;
+}
+
 function bgdone() {
   const all = S.steps || [];
   const jobs = new Set(all.map((x) => x.job)).size;
@@ -573,7 +795,11 @@ function wire() {
   if (screen === "check" || screen === "record") wireRecord();
   if (screen === "targets") wireTargets();
   if (screen === "bg") wireBg();
-  if ($("continueQs")) $("continueQs").onclick = startQuestions;
+  if (screen === "lines") wireLines();
+  if (screen === "line") wireLine();
+  if (screen === "more") wireMore();
+  if (screen === "end") wireEnd();
+  if ($("continueQs")) $("continueQs").onclick = resume;
   on("[data-answers]", (el) => go("bg", { to: el.dataset.answers }));
 }
 
@@ -590,6 +816,114 @@ function wireTargets() {
     save({ modes: t().modes.includes(m) ? t().modes.filter((x) => x !== m) : [...t().modes, m] }); });
   $("saveTargets").onclick = async () => { if (await save({})) startQuestions(); };
   if ($("notSure")) $("notSure").onclick = async () => { if (await save({ not_sure: true })) startQuestions(); };
+}
+
+const lineBody = (j, l, extra = {}) => ({ job: j.key, line: l ? l.key : "", ...extra });
+const seenIntro = (j) => { if (!j.intro_seen) send("POST", "/api/j/job/mark", { job: j.key, what: "intro" })
+  .then((r) => { S = { ...S, ...r }; }).catch(() => {}); };
+
+function wireLines() {
+  const j = curJob();
+  on("[data-openline]", (el) => { seenIntro(j); go("line", { to: j.key + "\n" + el.dataset.openline }); });
+  if ($("allLines")) $("allLines").onclick = () => { ui.all = !ui.all; render(); };
+  if ($("skipLine")) $("skipLine").onclick = () => act(() => { seenIntro(j);
+    return send("POST", "/api/j/line/status", lineBody(j, lineOf(j, j.next_line), { status: "skipped" })); });
+  if ($("linesFine")) $("linesFine").onclick = () => act(() => { seenIntro(j);
+    return send("POST", "/api/j/job/mark", { job: j.key, what: "lines_fine" }); });
+  if ($("toMore")) $("toMore").onclick = () => { seenIntro(j); go("more", { to: j.key }); };
+  if ($("undo")) $("undo").onclick = () => act(async () => {
+    const u = ui.undo;
+    const r = await send("POST", `/api/j/jobs/${u.i}/lines/${u.index}/restore`, { expect: u.label,
+      kind: u.kind, text: u.text, story: u.story });
+    ui.undo = null; return r;
+  });
+}
+
+async function loadAnswers(j, l) {
+  try {
+    ui.ans = await send("POST", "/api/j/line/answers/get", lineBody(j, l));
+    ui.step = Q.line_steps.findIndex((x) => !ui.ans[x.field]);
+    if (ui.step < 0) ui.step = 0;
+    if (ui.ans.draft) { ui.phase = "result"; ui.draft = ui.ans.draft; }
+  } catch (e) { ui.ans = {}; ui.step = 0; }
+  render();
+}
+
+let ansTimer = null;
+function saveAnswers(j, l) {
+  clearTimeout(ansTimer);
+  const answers = {}; Q.line_steps.forEach((x) => answers[x.field] = ui.ans[x.field] || "");
+  return send("POST", "/api/j/line/answers", lineBody(j, l, { answers })).catch(() => {});
+}
+
+function wireLine() {
+  const [jk, lk] = at.split("\n");
+  const j = jobByKey(jk), l = j && lineOf(j, lk);
+  if (!l || !ui.ans) return;
+  const box = $("lans");
+  const field = Q.line_steps[ui.step || 0].field;
+  if (box) box.oninput = () => { ui.ans[field] = box.value.trim(); clearTimeout(ansTimer); ansTimer = setTimeout(() => saveAnswers(j, l), 800); };
+  if ($("why")) $("why").onclick = () => { ui.why = !ui.why; render(); };
+  const toList = () => go("lines", { to: j.key });
+  const status = (st) => act(async () => { const r = await send("POST", "/api/j/line/status", lineBody(j, l, { status: st })); S = { ...S, ...r }; toList(); });
+  const advance = async (keep) => {
+    if (box) ui.ans[field] = keep ? box.value.trim() : "";
+    if (!keep && box) box.value = "";
+    await saveAnswers(j, l);
+    if ((ui.step || 0) < 3) { ui.step = (ui.step || 0) + 1; render(); window.scrollTo(0, 0); return; }
+    if (!Q.line_steps.some((x) => ui.ans[x.field])) { ui.phase = "empty"; return render(); }
+    ui.phase = "writing"; render();
+    try {
+      const r = await send("POST", "/api/j/line/stronger", lineBody(j, l));
+      if (r.empty) { ui.phase = "empty"; } else { ui.phase = "result"; ui.draft = r.line; ui.edit = false; }
+    } catch (e) { ui.phase = null; say(e.message); }
+    render();
+  };
+  if ($("lineNext")) $("lineNext").onclick = () => advance(true);
+  if ($("lineSkipQ")) $("lineSkipQ").onclick = () => advance(false);
+  if ($("lineBack")) $("lineBack").onclick = () => {
+    if (ui.phase) { ui.phase = null; ui.step = 3; return render(); }
+    if ((ui.step || 0) > 0) { ui.step--; return render(); }
+    back();
+  };
+  if ($("lineKeep")) $("lineKeep").onclick = () => status("kept");
+  if ($("lineSkip")) $("lineSkip").onclick = () => status("skipped");
+  if ($("lineRemove")) $("lineRemove").onclick = () => act(async () => {
+    const r = await send("POST", "/api/j/line/remove", lineBody(j, l));
+    S = { ...S, ...r }; toList();
+    ui.undo = { i: j.index, label: S.jobs[j.index].label, ...r.deleted }; render();
+  });
+  if ($("jobDone")) $("jobDone").onclick = () => act(async () => {
+    const r = await send("POST", "/api/j/job/mark", { job: j.key, what: "done" }); S = { ...S, ...r }; go("end", { to: j.key }); });
+  if ($("editDraft")) $("editDraft").onclick = () => { if (ui.edit) ui.draft = val("lineEdit") || ui.draft; ui.edit = !ui.edit; render(); };
+  if ($("approve")) $("approve").onclick = () => act(async () => {
+    const text = $("lineEdit") ? val("lineEdit") : ui.draft;
+    const r = await send("POST", "/api/j/line/approve", lineBody(j, l, { text }));
+    S = { ...S, ...r }; toList();
+  });
+}
+
+function wireMore() {
+  const j = curJob();
+  on("[data-chip]", (el) => { const c = el.dataset.chip;
+    ui.items = ui.items.includes(c) ? ui.items.filter((x) => x !== c) : [...ui.items, c]; render(); });
+  $("addMore").onclick = () => { const t = val("moreText"); if (t && !ui.items.includes(t)) ui.items.push(t); render(); };
+  on("[data-rmitem]", (el) => { ui.items.splice(+el.dataset.rmitem, 1); render(); });
+  if ($("workMore")) $("workMore").onclick = () => act(async () => {
+    const r = await send("POST", "/api/j/job/more", { job: j.key, items: ui.items });
+    S = { ...S, ...r }; go("lines", { to: j.key });
+  });
+  $("noMore").onclick = () => act(async () => {
+    const r = await send("POST", "/api/j/job/mark", { job: j.key, what: "more" });
+    S = { ...S, ...r }; go("end", { to: j.key });
+  });
+}
+
+function wireEnd() {
+  const j = curJob();
+  if ($("nextJob")) $("nextJob").onclick = () => jobStart(nextJob(j));
+  $("stopNow").onclick = () => go("stopped");
+  if ($("jobDone")) $("jobDone").onclick = () => act(() => send("POST", "/api/j/job/mark", { job: j.key, what: "done" }));
 }
 
 function wireBg() {
@@ -759,7 +1093,7 @@ async function boot() {
   const h = history.state || {};
   const kept = SCREENS.includes(fromHash) && h.screen === fromHash;
   screen = kept ? fromHash : S.screen;
-  at = screen === "bg" ? (kept ? h.at : S.step.at) || "" : "";
+  at = (kept ? h.at : S.step.at) || "";
   ui = { promo: kept && !!h.promo };
   history.replaceState({ screen, at, promo: ui.promo, depth: h.depth || 0 }, "", "#" + screen);
   render();

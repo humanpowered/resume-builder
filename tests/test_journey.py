@@ -337,6 +337,102 @@ class RecordPage(unittest.TestCase):
         r = self.c.post("/api/j/answer", json={"id": "q|nowhere|x|Challenge", "status": "na"})
         self.assertEqual(r.status_code, 404)
 
+    # -- lines, one job at a time
+
+    def work(self, s=None, job=0):
+        return (s or self.state())["work"]["jobs"][job]
+
+    def post(self, path, **body):
+        r = self.c.post(path, json=body)
+        self.assertEqual(r.status_code, 200, r.text)
+        return r.json()
+
+    def test_lines_start_as_to_do_with_a_change_without_a_result_suggested_first(self):
+        w = self.work(self.upload())
+        self.assertEqual([l["status"] for l in w["lines"]], ["todo", "todo"])
+        self.assertEqual(w["next_line"], w["lines"][1]["key"])   # "Cut handoff errors on the unit"
+        self.assertEqual(w["lines"][0]["rank"], 2)                # has a number
+
+    def test_skip_postpones_and_fine_as_it_is_keeps(self):
+        w = self.work(self.upload())
+        s = self.post("/api/j/line/status", job=w["key"], line=w["lines"][1]["key"], status="skipped")
+        w = self.work(s)
+        self.assertEqual(w["next_line"], w["lines"][0]["key"])
+        s = self.post("/api/j/line/status", job=w["key"], line=w["lines"][0]["key"], status="kept")
+        w = self.work(s)
+        self.assertEqual((w["next_line"], w["counts"]["kept"], w["counts"]["skipped"]), ("", 1, 1))
+        self.assertFalse(w["complete"])
+
+    def test_every_question_skipped_writes_nothing(self):
+        w = self.work(self.upload())
+        r = self.post("/api/j/line/stronger", job=w["key"], line=w["lines"][1]["key"])
+        self.assertTrue(r["empty"])
+
+    def test_a_stronger_line_is_written_from_the_answers_and_approved(self):
+        w = self.work(self.upload())
+        key = w["lines"][1]["key"]
+        self.post("/api/j/line/answers", job=w["key"], line=key, answers={
+            "situation": "Handoffs between shifts missed meds", "did": "I wrote a bedside checklist",
+            "result": "Errors dropped", "number": "from 9 a month to 2"})
+        llm.use_backend(FakeBackend({"line": "Cut handoff errors from 9 a month to 2 with a bedside checklist"}))
+        r = self.post("/api/j/line/stronger", job=w["key"], line=key)
+        self.assertEqual(r["line"], "Cut handoff errors from 9 a month to 2 with a bedside checklist")
+        # a second ask uses the kept draft rather than paying again
+        r = self.post("/api/j/line/stronger", job=w["key"], line=key)
+        self.assertEqual(r["line"], "Cut handoff errors from 9 a month to 2 with a bedside checklist")
+        s = self.post("/api/j/line/approve", job=w["key"], line=key, text=r["line"])
+        w = self.work(s)
+        stronger = [l for l in w["lines"] if l["status"] == "stronger"]
+        self.assertEqual([l["text"] for l in stronger], [r["line"]])
+        md = self.c.get("/api/record").json()["markdown"]
+        self.assertIn("Cut handoff errors on the unit", md)        # the original is kept
+        # the same resume again doesn't bring the original back beside it
+        self.assertEqual(self.upload()["new_lines"], 0)
+
+    def test_an_invented_figure_is_never_offered(self):
+        w = self.work(self.upload())
+        key = w["lines"][1]["key"]
+        self.post("/api/j/line/answers", job=w["key"], line=key, answers={"result": "Errors dropped"})
+        llm.use_backend(FakeBackend({"line": "Cut handoff errors by 40%"},
+                                    {"line": "Cut handoff errors by 40%"}))
+        r = self.post("/api/j/line/stronger", job=w["key"], line=key)
+        self.assertEqual((r["line"], r.get("ungrounded")), ("", True))
+
+    def test_lines_fine_keeps_the_rest_and_anything_else_adds_lines(self):
+        w = self.work(self.upload())
+        s = self.post("/api/j/job/mark", job=w["key"], what="lines_fine")
+        self.assertEqual(self.work(s)["counts"]["kept"], 2)
+        s = self.post("/api/j/job/more", job=w["key"], items=["Trained or mentored people", " "])
+        w = self.work(s)
+        self.assertEqual((s["added"], w["lines"][2]["text"], w["lines"][2]["new"]),
+                         (1, "Trained or mentored people", True))
+        self.assertEqual(w["next_line"], w["lines"][2]["key"])
+
+    def test_a_job_is_complete_when_questions_lines_and_anything_else_are_done(self):
+        s = self.upload()
+        for st in [x for x in s["steps"] if x["job"] == 0]:
+            s = self.post("/api/j/answer", id=st["id"], status="na" if st["kind"] == "q"
+                          else "skipped" if st["kind"] == "company" else "done")
+        w = self.work(s)
+        self.post("/api/j/job/mark", job=w["key"], what="lines_fine")
+        s = self.post("/api/j/job/mark", job=w["key"], what="more")
+        self.assertTrue(self.work(s)["complete"])
+        self.assertEqual(s["work"]["years"], {"covered": 6, "total": 10})
+
+    def test_mark_this_job_done_closes_it_in_one_press(self):
+        w = self.work(self.upload(), job=2)
+        s = self.post("/api/j/job/mark", job=w["key"], what="done")
+        self.assertTrue(self.work(s, job=2)["complete"])
+
+    def test_removing_a_line_can_be_undone(self):
+        w = self.work(self.upload())
+        r = self.post("/api/j/line/remove", job=w["key"], line=w["lines"][0]["key"])
+        self.assertEqual(len(self.work(r)["lines"]), 1)
+        g = r["deleted"]
+        s = self.post(f"/api/j/jobs/0/lines/{g['index']}/restore", expect=r["jobs"][0]["label"],
+                      kind=g["kind"], text=g["text"])
+        self.assertEqual(len(self.work(s)["lines"]), 2)
+
     def test_the_new_page_is_served_beside_the_old_one(self):
         self.assertIn("Career record", self.c.get("/new").text)
         self.assertEqual(self.c.get("/").status_code, 200)
