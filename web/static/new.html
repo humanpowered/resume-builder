@@ -467,7 +467,7 @@ function continueNote() {
   const w = W(), n = nextJob(null);
   if (!w.jobs.length) return "";
   return `<div class="done stack-s">
-    <div class="count">${w.complete_count} of ${plural(w.jobs.length, "job")} complete · covers ${w.years.covered} of your ${w.years.total} years</div>
+    <div class="count">${w.complete_count} of ${plural(w.jobs.length, "position")} complete · covers ${w.years.covered} of your ${w.years.total} years</div>
     ${n ? `<div>Next: ${esc(n.title)} at ${esc(n.employer)}.</div>
       <div><button class="btn" id="continueQs">Continue where you left off</button></div>`
       : `<div>Every job is complete. Education, skills and your summary come in later updates.</div>`}
@@ -520,7 +520,7 @@ function bg() {
     history.replaceState({ ...history.state, at }, "", "#bg");
   }
   const x = S.steps[k];
-  const caption = `Job ${x.job_number} of ${x.job_total}`;
+  const caption = `Position ${x.job_number} of ${x.job_total}`;
   const frac = (x.job_number - 1) / x.job_total;
   const examples = (list) => `<div class="ex"><div style="font-weight:600">For example</div>
     ${list.map((e) => `<div>“${esc(e)}”</div>`).join("")}</div>`;
@@ -588,7 +588,7 @@ function fixForm(j) {
     <button class="link" data-cancelfix>Cancel</button></div></div>`;
 }
 function jobCaption(j, extra) {
-  return progress(`Job ${j.number} of ${j.total}${extra ? " · " + extra : ""}`, (j.number - 1) / j.total);
+  return progress(`Position ${j.number} of ${j.total}${extra ? " · " + extra : ""}`, (j.number - 1) / j.total);
 }
 const TAGS = { todo: "To do", skipped: "Skipped for now", stronger: "Stronger", kept: "Kept as is" };
 const tag = (st) => `<span class="tag ${st}">${TAGS[st]}</span>`;
@@ -717,7 +717,7 @@ function endScreen() {
   const open = c.todo + c.skipped + j.open_questions;
   const shownLines = j.lines.map((l) => `<div class="row" style="gap:10px;align-items:baseline;flex-wrap:nowrap">${tag(l.status)}<span style="min-width:0;font-size:15px">${esc(l.text)}</span></div>`).join("");
   return `${jobCaption(j, "")}<div class="stack">
-    <h1>Job ${j.number} of ${j.total} ${j.complete ? "complete" : "nearly complete"}</h1>
+    <h1>Position ${j.number} of ${j.total} ${j.complete ? "complete" : "nearly complete"}</h1>
     <p>Here is how this job now reads on your record.${j.complete ? " You can change any of it later." : ` ${plural(open, "thing")} ${open === 1 ? "is" : "are"} left for later; the job counts as complete once ${open === 1 ? "it's" : "they're"} done, or when you mark it done as it is.`}</p>
     <div class="card">
       ${fixForm(j) || `<div><div style="font-size:18px;font-weight:600">${esc(j.title)}</div><div class="muted" style="font-size:15px">${esc(j.employer)}${j.dates ? ` · ${esc(j.dates)}` : ""}</div>
@@ -741,7 +741,7 @@ function stopped() {
   const st = n && (S.steps || []).find((x) => x.job === n.index && x.status === "todo");
   return `<div class="stack" style="padding-top:8px">
     <h1>Everything is saved</h1>
-    <p>You've completed ${w.complete_count} of your ${plural(w.jobs.length, "job")}, covering ${w.years.covered} of your ${w.years.total} years. Nothing you've entered will be lost.</p>
+    <p>You've completed ${w.complete_count} of your ${plural(w.jobs.length, "position")}, covering ${w.years.covered} of your ${w.years.total} years. Nothing you've entered will be lost.</p>
     ${n ? `<p>When you come back, we'll pick up where you left off: ${esc(n.title)} at ${esc(n.employer)}, starting with ${st ? "its background questions" : "its lines"}. You can also choose a different job from your record.</p>` : ""}
     <div class="row"><button class="btn" id="continueQs">Keep going now</button>
     <button class="btn2" data-go="record">See your record</button></div></div>`;
