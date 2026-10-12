@@ -841,7 +841,9 @@ def j_restore_line(ri: int, li: int, body: JLine, store: SqlStore = Depends(stor
 
 @app.get("/new")
 def new_page():
-    return FileResponse(Path(__file__).parent / "static" / "new.html")
+    # Always check for a newer copy, so a refresh after an update shows it.
+    return FileResponse(Path(__file__).parent / "static" / "new.html",
+                        headers={"Cache-Control": "no-cache"})
 
 
 @app.get("/")

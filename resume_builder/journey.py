@@ -448,8 +448,8 @@ def steps(store, rec: mr.Record) -> list:
             step("company", idx[0], COMPANY, emp.get(COMPANY), given)
         if not all(r.outside() for r in roles):
             step("titles", idx[0], "titles", emp.get("titles"), "",
-                 titles=[{"title": r.title, "dates": clean(r.fields.get("Dates", ""))}
-                         for r in roles])
+                 titles=[{"title": r.title, "dates": clean(r.fields.get("Dates", "")), "job": i}
+                         for i, r in zip(idx, roles)])
         for i in idx:
             role = rec.roles[i]
             mine = a["job"].get(job_key(role), {})

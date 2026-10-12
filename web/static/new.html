@@ -546,7 +546,8 @@ function bg() {
       <p class="muted">Promotions are some of the strongest evidence on a resume. Listing each title with its dates shows them.</p>
       <div class="card">
         <div class="label">Your ${one ? "title" : "titles"} at ${esc(x.employer)}</div>
-        ${x.titles.map((t) => `<div class="card-head"><div>${esc(t.title)}</div><div class="dates">${esc(t.dates) || "no dates"}</div></div>`).join("")}
+        ${x.titles.map((t) => fixForm(jobByIndex(t.job)) || `<div class="card-head"><div>${esc(t.title)}</div><div class="dates">${esc(t.dates) || "no dates"}</div></div>
+          <div style="margin-top:-6px">${fixLink(jobByIndex(t.job)).replace("margin-left:6px", "margin-left:0")}</div>`).join("")}
         <div class="small muted">Your resume will show ${one ? "each title" : "these"} stacked under one ${esc(x.employer)} heading, newest first.</div>
       </div>
       ${form ? `<div class="card">
@@ -578,9 +579,9 @@ function jobHead(j) {
   return fixForm(j) || `<div class="small muted">${esc(j.title)}, ${esc(j.employer)}${j.dates ? ` · ${esc(j.dates)}` : ""}
     ${fixLink(j)}</div>`;
 }
-const fixLink = (j) => `<button class="link tight" style="font-size:14px;margin-left:6px" data-fixjob="${j.index}">Fix title or dates</button>`;
+const fixLink = (j) => !j ? "" : `<button class="link tight" style="font-size:14px;margin-left:6px" data-fixjob="${j.index}">Fix title or dates</button>`;
 function fixForm(j) {
-  if (ui.fixJob !== j.index) return "";
+  if (!j || ui.fixJob !== j.index) return "";
   return `<div class="card">
     <div style="font-weight:600">Fix this job's details</div>
     ${jobFields("f", j)}
@@ -845,19 +846,19 @@ function wireFix() {
   on("[data-savefix]", (el) => act(async () => {
     const i = +el.dataset.savefix;
     const x = screen === "bg" ? S.steps[stepIndex()] : null;
-    const before = { key: jobByIndex(i)?.key, steps: (S.steps || []).filter((y) => y.job === i) };
+    const before = { key: jobByIndex(i)?.key, steps: S.steps || [] };
     const r = await send("PATCH", `/api/j/jobs/${i}`, { expect: job(i).label,
       employer: val("f_emp"), title: val("f_title"), dates: val("f_dates") });
     S = { ...S, ...r };
     const map = [[before.key, jobByIndex(i)?.key], ...before.steps.map((y) =>
-      [y.id, S.steps.find((z) => z.job === i && z.kind === y.kind && z.field === y.field)?.id])];
+      [y.id, S.steps.find((z) => z.job === y.job && z.kind === y.kind && z.field === y.field)?.id])];
     map.forEach(([o, n]) => { if (o && n && o !== n) {
       renamed.forEach((v, k) => { if (v === o) renamed.set(k, n); });
       renamed.set(o, n);
     } });
     ui.fixJob = null;
     if (x) {
-      const same = S.steps.find((y) => y.job === i && y.kind === x.kind && y.field === x.field);
+      const same = S.steps.find((y) => y.job === x.job && y.kind === x.kind && y.field === x.field);
       if (same) at = same.id;
     } else if (jobByIndex(i)) {
       const parts = at.split("\n"); parts[0] = jobByIndex(i).key; at = parts.join("\n");
