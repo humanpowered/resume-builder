@@ -211,8 +211,17 @@ function back() {
 }
 window.addEventListener("popstate", (e) => {
   const to = e.state?.screen;
-  if (SCREENS.includes(to)) go(to, { push: false, to: e.state.at, promo: e.state.promo });
+  if (SCREENS.includes(to)) go(to, { push: false, to: renamedAt(e.state.at || ""), promo: e.state.promo });
 });
+// Earlier pages in the browser's history still name a job by what it was
+// called before its title or employer was fixed; this maps them to the new name.
+const renamed = new Map();
+function renamedAt(a) {
+  if (renamed.has(a)) return renamed.get(a);
+  const parts = a.split("\n");
+  if (renamed.has(parts[0])) parts[0] = renamed.get(parts[0]);
+  return parts.join("\n");
+}
 
 // The background questions, in order. Next goes to the next one not yet
 // answered or skipped; Back goes to the one before, whatever its state.
@@ -280,7 +289,7 @@ function flush() {
   clearTimeout(draft.timer);
   const d = draft; draft = null;
   if (!d.text.trim()) return;
-  send("POST", "/api/j/answer", { id: d.id, status: "answered", text: d.text })
+  return send("POST", "/api/j/answer", { id: d.id, status: "answered", text: d.text })
     .then((r) => { S = { ...S, ...r }; }).catch(() => {});
 }
 
@@ -511,7 +520,6 @@ function bg() {
     history.replaceState({ ...history.state, at }, "", "#bg");
   }
   const x = S.steps[k];
-  const where = `${esc(x.title)}, ${esc(x.employer)}${x.dates ? ` · ${esc(x.dates)}` : ""}`;
   const caption = `Job ${x.job_number} of ${x.job_total}`;
   const frac = (x.job_number - 1) / x.job_total;
   const examples = (list) => `<div class="ex"><div style="font-weight:600">For example</div>
@@ -519,7 +527,7 @@ function bg() {
   const box = `<label for="answer">Your answer</label><textarea id="answer" data-step="${esc(x.id)}">${esc(x.answer)}</textarea>`;
   if (x.kind === "company") {
     return `${progress(caption, frac)}<div class="stack">
-      <div class="small muted">${esc(x.employer)}</div>
+      ${jobHead(jobByIndex(x.job))}
       <h1>First, in one line: what did ${esc(x.employer)} do?</h1>
       <p class="muted">${esc(Q.company.help)}</p>
       ${examples(Q.company.examples)}
@@ -554,7 +562,7 @@ function bg() {
   }
   const q = Q.questions[x.field];
   return `${progress(caption, frac)}<div class="stack">
-    <div class="small muted">${where}</div>
+    ${jobHead(jobByIndex(x.job))}
     <h1>${esc(q.q)}</h1>
     <p class="muted">${esc(q.help)}</p>
     ${examples(q.examples)}
@@ -564,8 +572,20 @@ function bg() {
     <button class="link" data-back>Back</button></div></div>`;
 }
 
+// The job's name and dates at the top of each screen in a job, with a link
+// to correct them right there.
 function jobHead(j) {
-  return `<div class="small muted">${esc(j.title)}, ${esc(j.employer)}${j.dates ? ` · ${esc(j.dates)}` : ""}</div>`;
+  return fixForm(j) || `<div class="small muted">${esc(j.title)}, ${esc(j.employer)}${j.dates ? ` · ${esc(j.dates)}` : ""}
+    ${fixLink(j)}</div>`;
+}
+const fixLink = (j) => `<button class="link tight" style="font-size:14px;margin-left:6px" data-fixjob="${j.index}">Fix title or dates</button>`;
+function fixForm(j) {
+  if (ui.fixJob !== j.index) return "";
+  return `<div class="card">
+    <div style="font-weight:600">Fix this job's details</div>
+    ${jobFields("f", j)}
+    <div class="row"><button class="btn2" data-savefix="${j.index}">Save</button>
+    <button class="link" data-cancelfix>Cancel</button></div></div>`;
 }
 function jobCaption(j, extra) {
   return progress(`Job ${j.number} of ${j.total}${extra ? " · " + extra : ""}`, (j.number - 1) / j.total);
@@ -617,6 +637,7 @@ function lineScreen() {
   if (!ui.ans) { loadAnswers(j, l); return `<div class="muted">Opening your line…</div>`; }
   const steps = Q.line_steps, a = ui.ans, k = ui.step || 0;
   const head = `${jobCaption(j, "")}
+    <div class="stack-s" style="margin-bottom:12px">${jobHead(j)}</div>
     <div class="card"><div class="label">${l.new ? "Your new line" : "Your line"}</div><div class="big">${esc(l.text)}</div>
       <div><button class="link tight" id="why">${ui.why ? "Hide why we ask" : "Why we ask this"}</button></div>
       ${ui.why ? `<p style="font-size:15px">A hiring manager wants to know what this line was for and what came of it. Four quick questions, then we write a stronger version for you to approve. Your original is kept.</p>` : ""}</div>`;
@@ -699,7 +720,8 @@ function endScreen() {
     <h1>Job ${j.number} of ${j.total} ${j.complete ? "complete" : "nearly complete"}</h1>
     <p>Here is how this job now reads on your record.${j.complete ? " You can change any of it later." : ` ${plural(open, "thing")} ${open === 1 ? "is" : "are"} left for later; the job counts as complete once ${open === 1 ? "it's" : "they're"} done, or when you mark it done as it is.`}</p>
     <div class="card">
-      <div><div style="font-size:18px;font-weight:600">${esc(j.title)}</div><div class="muted" style="font-size:15px">${esc(j.employer)}${j.dates ? ` · ${esc(j.dates)}` : ""}</div></div>
+      ${fixForm(j) || `<div><div style="font-size:18px;font-weight:600">${esc(j.title)}</div><div class="muted" style="font-size:15px">${esc(j.employer)}${j.dates ? ` · ${esc(j.dates)}` : ""}</div>
+        <div>${fixLink(j).replace("margin-left:6px", "margin-left:0")}</div></div>`}
       ${company ? `<div class="muted" style="font-size:15px;font-style:italic">${esc(company.answer)} (your words)</div>` : ""}
       ${bg.filter((b) => BG_LABELS[b.field]).map((b) => `<div style="font-size:15px"><b>${BG_LABELS[b.field]}:</b> ${esc(b.answer)}</div>`).join("")}
       ${shownLines ? `<div class="stack-s" style="border-top:1px solid var(--line);padding-top:10px">${shownLines}</div>` : ""}
@@ -801,6 +823,49 @@ function wire() {
   if (screen === "end") wireEnd();
   if ($("continueQs")) $("continueQs").onclick = resume;
   on("[data-answers]", (el) => go("bg", { to: el.dataset.answers }));
+  wireFix();
+}
+
+// Fixing a job's title, employer or dates from inside the job. Saving keeps
+// the same question or line on screen, whatever the job is now called.
+function wireFix() {
+  // Whatever is half-typed on the screen is saved first and stays in its box.
+  const boxes = ["answer", "lans", "moreText"];
+  const restore = () => boxes.forEach((id) => { if ($(id) && ui.typed?.[id] != null) $(id).value = ui.typed[id]; });
+  on("[data-fixjob]", async (el) => {
+    ui.typed = Object.fromEntries(boxes.filter((id) => $(id)).map((id) => [id, $(id).value]));
+    await flush();
+    if (screen === "line" && ansTimer) {
+      clearTimeout(ansTimer); ansTimer = null;
+      const j = curJob(); await saveAnswers(j, lineOf(j, at.split("\n")[1]));
+    }
+    ui.fixJob = +el.dataset.fixjob; render(); restore(); $("f_title")?.focus();
+  });
+  on("[data-cancelfix]", () => { ui.fixJob = null; render(); restore(); });
+  on("[data-savefix]", (el) => act(async () => {
+    const i = +el.dataset.savefix;
+    const x = screen === "bg" ? S.steps[stepIndex()] : null;
+    const before = { key: jobByIndex(i)?.key, steps: (S.steps || []).filter((y) => y.job === i) };
+    const r = await send("PATCH", `/api/j/jobs/${i}`, { expect: job(i).label,
+      employer: val("f_emp"), title: val("f_title"), dates: val("f_dates") });
+    S = { ...S, ...r };
+    const map = [[before.key, jobByIndex(i)?.key], ...before.steps.map((y) =>
+      [y.id, S.steps.find((z) => z.job === i && z.kind === y.kind && z.field === y.field)?.id])];
+    map.forEach(([o, n]) => { if (o && n && o !== n) {
+      renamed.forEach((v, k) => { if (v === o) renamed.set(k, n); });
+      renamed.set(o, n);
+    } });
+    ui.fixJob = null;
+    if (x) {
+      const same = S.steps.find((y) => y.job === i && y.kind === x.kind && y.field === x.field);
+      if (same) at = same.id;
+    } else if (jobByIndex(i)) {
+      const parts = at.split("\n"); parts[0] = jobByIndex(i).key; at = parts.join("\n");
+    }
+    history.replaceState({ ...history.state, at }, "", location.hash);
+    send("PUT", "/api/j/step", { screen, at }).catch(() => {});
+    return r;
+  }).then(restore));
 }
 
 function wireTargets() {

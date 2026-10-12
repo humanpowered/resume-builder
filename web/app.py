@@ -786,7 +786,7 @@ def j_add_job(body: JJob, store: SqlStore = Depends(store_for)):
 @app.patch("/api/j/jobs/{ri}")
 def j_edit_job(ri: int, body: JJob, store: SqlStore = Depends(store_for)):
     rec = store.load_record()
-    role = _j(journey.edit_job, rec, ri, body.expect, body.employer, body.title, body.dates)
+    role = _j(journey.edit_job_keep, store, rec, ri, body.expect, body.employer, body.title, body.dates)
     store.save_record(rec)
     return _jstate(store, rec)
 

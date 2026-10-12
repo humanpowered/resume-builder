@@ -849,3 +849,43 @@ def remove_line(store, rec: mr.Record, jkey: str, lkey: str) -> dict:
     i, role = _role_by_key(rec, jkey)
     line = _find_line(role, lkey)
     return delete_line(store, rec, i, role.label(), line["kind"], line["index"], line["text"])
+
+
+# --------------------------------------------------------------------------
+# Fixing a job's employer or title keeps everything already done on it
+
+def edit_job_keep(store, rec: mr.Record, i: int, expect: str,
+                  employer=None, title=None, dates=None) -> mr.Role:
+    """edit_job, then carry the job's answers, line work and line drafts over
+    to its new name, so a corrected title or employer loses nothing."""
+    old = job(rec, i, expect)
+    old_job, old_emp = job_key(old), emp_key(old)
+    role = edit_job(rec, i, expect, employer, title, dates)
+    new_job, new_emp = job_key(role), emp_key(role)
+    if new_job != old_job:
+        a = answers(store)
+        _move(a["job"], old_job, new_job)
+        if new_emp != old_emp and not any(emp_key(r) == old_emp for r in rec.roles):
+            _move(a["emp"], old_emp, new_emp)
+        store.save_state(ANSWERS, a)
+        for name in (WORK, LINE_ANSWERS):
+            state = store.load_state(name) or {}
+            if old_job in state:
+                _move(state, old_job, new_job)
+                store.save_state(name, state)
+    return role
+
+
+def _move(d: dict, old: str, new: str) -> None:
+    """Move d[old] to d[new]; where both exist, what's already under new wins."""
+    if old not in d:
+        return
+    was = d.pop(old)
+    if isinstance(was, dict) and isinstance(d.get(new), dict):
+        for k, v in was.items():
+            if isinstance(v, dict) and isinstance(d[new].get(k), dict):
+                d[new][k] = {**v, **d[new][k]}
+            else:
+                d[new].setdefault(k, v)
+    else:
+        d.setdefault(new, was)

@@ -433,6 +433,24 @@ class RecordPage(unittest.TestCase):
                       kind=g["kind"], text=g["text"])
         self.assertEqual(len(self.work(s)["lines"]), 2)
 
+    def test_fixing_a_title_or_dates_mid_job_keeps_its_answers_and_line_work(self):
+        s = self.upload()
+        q = next(x for x in s["steps"] if x["job"] == 0 and x["kind"] == "q")
+        self.post("/api/j/answer", id=q["id"], status="answered", text="Fix the night shift")
+        w = self.work()
+        self.post("/api/j/line/status", job=w["key"], line=w["lines"][0]["key"], status="kept")
+        self.post("/api/j/line/answers", job=w["key"], line=w["lines"][1]["key"],
+                  answers={"situation": "Handoffs missed meds"})
+        r = self.c.patch("/api/j/jobs/0", json={"expect": s["jobs"][0]["label"], "employer": "Riverside Hospital",
+                                                 "title": "Nurse Manager", "dates": "2020 - Present"})
+        self.assertEqual(r.status_code, 200, r.text)
+        w = self.work(r.json())
+        self.assertEqual((w["title"], w["dates"], w["counts"]["kept"]), ("Nurse Manager", "2020 - Present", 1))
+        q2 = next(x for x in r.json()["steps"] if x["job"] == 0 and x["field"] == q["field"])
+        self.assertEqual((q2["status"], q2["answer"]), ("answered", "Fix the night shift"))
+        a = self.post("/api/j/line/answers/get", job=w["key"], line=w["lines"][1]["key"])
+        self.assertEqual(a.get("answers", a)["situation"], "Handoffs missed meds")
+
     def test_the_new_page_is_served_beside_the_old_one(self):
         self.assertIn("Career record", self.c.get("/new").text)
         self.assertEqual(self.c.get("/").status_code, 200)
