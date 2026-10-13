@@ -897,6 +897,9 @@ const LEVEL_HELP = [["Expert", "others come to you for it; you could teach it."]
                     ["Advanced", "you handle hard problems with it on your own."],
                     ["Working", "you use it regularly and sometimes look things up."],
                     ["Familiar", "you've used it and would need a refresher."]];
+const LANG_HELP = [["Native", "your first language, or as good as one."],
+                   ["Fluent", "you work in it comfortably, speaking and writing."],
+                   ["Conversational", "you can hold everyday conversations."]];
 
 function skillItem(k) {
   const fix = ui.fixSkill === k.name;
@@ -907,7 +910,7 @@ function skillItem(k) {
         <button class="btn2" data-saveuse="${esc(k.name)}">Save</button><button class="link" data-canceluse>Cancel</button></div>`
     : `<div class="small muted">${k.use ? esc(k.use) + " " : ""}<button class="link tight" style="font-size:14px" data-fixuse="${esc(k.name)}">${k.use ? "Correct this" : "Add years used"}</button></div>`) : "";
   const body = k.state === "yes"
-    ? `<div class="row" style="gap:6px"><span class="small muted">Level:</span>${S.skills.levels.map((l) =>
+    ? `<div class="row" style="gap:6px"><span class="small muted">Level:</span>${k.levels.map((l) =>
         `<button class="chip" style="min-height:36px;padding:6px 10px;font-size:14px" data-level="${esc(k.name)}" data-l="${l}" aria-pressed="${k.level === l}">${l}</button>`).join("")}</div>
        <div><button class="link tight danger" data-have="${esc(k.name)}" data-h="no">I don't have this</button></div>`
     : k.state === "ask"
@@ -947,7 +950,9 @@ function skillsScreen() {
     </div>
     <div class="note">List only skills you have. Anything here can appear on a resume, and an interviewer may ask you to show it.</div>
     <div class="stack-s" style="gap:4px;font-size:15px"><div style="font-weight:600">What the levels mean</div>
-      ${LEVEL_HELP.map(([l, d]) => `<div><b>${l}:</b> ${d}</div>`).join("")}</div>
+      ${LEVEL_HELP.map(([l, d]) => `<div><b>${l}:</b> ${d}</div>`).join("")}
+      ${k.groups.some((g) => g.cat === "Languages") ? `<div style="font-weight:600;padding-top:6px">For languages</div>
+        ${LANG_HELP.map(([l, d]) => `<div><b>${l}:</b> ${d}</div>`).join("")}` : ""}</div>
     ${ui.building ? `<div class="done"><span class="spin" aria-hidden="true"></span>Finding the skills postings for ${esc(basis)} usually ask for…</div>` : ""}
     ${ui.buildErr ? `<div class="note">${esc(ui.buildErr)} <button class="link tight" id="retryBuild">Try again</button></div>` : ""}
     ${k.groups.length ? `<p class="muted">These are skills job postings in your field usually ask for. Add any we missed at the bottom.</p>` : ""}

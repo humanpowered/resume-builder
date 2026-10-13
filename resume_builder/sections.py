@@ -280,7 +280,10 @@ def skills_view(store, rec: mr.Record) -> dict:
     groups, order = {}, []
     for s in rec.skills:
         cat = s.category if (s.category or "").strip().lower() not in skills.UNSORTED else ""
-        cat = cat or ("Added by you" if s.source == skills.FROM_YOU else "From your resume")
+        cat = cat or ("Languages" if mr.is_language(s.name) else
+                      "Added by you" if s.source == skills.FROM_YOU else "From your resume")
+        if mr.is_language(s.name, cat):
+            cat = "Languages"
         if cat not in groups:
             groups[cat] = []
             order.append(cat)
@@ -288,8 +291,7 @@ def skills_view(store, rec: mr.Record) -> dict:
         if s.have == skills.YES:
             state = "yes"
             tag = {"resume": "From your resume", skills.FROM_YOU: "Added by you"}.get(s.source, "Yours")
-            shown = sb["shown"] or ("Added by you" if s.source == skills.FROM_YOU else
-                                    "From your resume's skills list. No line shows it yet."
+            shown = sb["shown"] or ("From your resume's skills list. No line shows it yet."
                                     if s.source == "resume" else "")
         elif s.have == skills.NO:
             state, tag, shown = "no", "Not yours", ""
@@ -299,6 +301,7 @@ def skills_view(store, rec: mr.Record) -> dict:
                      f"Common for {_and(basis)}" if basis else "Common in your field")
         groups[cat].append({"name": s.name, "state": state, "tag": tag, "shown": shown,
                             "use": sb["use"] if state == "yes" else "", "level": s.level,
+                            "levels": list(mr.levels_for(s.name, cat)),
                             "years": s.years.lstrip("~"), "last_used": s.last_used.lstrip("~")})
     mine = [s for s in rec.skills if s.have == skills.YES]
     built = store.load_state(BUILT_FOR) or []

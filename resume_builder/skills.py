@@ -279,8 +279,9 @@ def set_skill(rec: mr.Record, name: str, have: str | None = None, level: str | N
         raise LookupError(f"No skill called {name!r}")
     if have is not None and have not in HAVE:
         raise ValueError(f"have must be one of {', '.join(HAVE)}")
-    if level and level not in mr.LEVELS:
-        raise ValueError(f"Level must be one of {', '.join(mr.LEVELS)}")
+    allowed = mr.levels_for(s.name, s.category)
+    if level and level not in allowed:
+        raise ValueError(f"Level must be one of {', '.join(allowed)}")
     if rename is not None and rename.strip() and rename.strip() != s.name:
         other = rec.skill(rename)
         if other is not None and other is not s:
@@ -308,10 +309,12 @@ def add_skill(rec: mr.Record, name: str, category: str = "", level: str = ""):
     name = (name or "").strip()
     if not name:
         raise ValueError("A skill needs a name")
-    if level and level not in mr.LEVELS:
-        raise ValueError(f"Level must be one of {', '.join(mr.LEVELS)}")
+    if level and level not in mr.levels_for(name, category):
+        raise ValueError(f"Level must be one of {', '.join(mr.levels_for(name, category))}")
     if rec.skill(name) is not None:
         return set_skill(rec, name, have=YES, level=level or None, category=category or None)
+    if not category and mr.is_language(name):
+        category = "Languages"
     s = mr.Skill(name=name, category=category.strip() or "Other", level=level,
                  have=YES, source=FROM_YOU)
     rec.skills.append(s)

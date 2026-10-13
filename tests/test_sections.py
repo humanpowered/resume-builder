@@ -143,11 +143,24 @@ class Sections(unittest.TestCase):
         s = self.post("/api/j/skill", name="Epic EHR", years="6", last_used="2024")
         k = s["skills"]["groups"][0]["items"][0]
         self.assertEqual((k["level"], k["use"]), ("Advanced", "6 years · last used 2024"))
-        s = self.post("/api/j/skill/add", name="Spanish")
+        s = self.post("/api/j/skill/add", name="Power BI")
         self.assertEqual(s["skills"]["groups"][-1]["cat"], "Added by you")
         self.assertEqual(s["skills"]["mine"], 2)
         r = self.c.post("/api/j/skill", json={"name": "Nope", "level": "Expert"})
         self.assertEqual(r.status_code, 404)
+
+    def test_a_language_has_its_own_levels(self):
+        self.upload()
+        s = self.post("/api/j/skill/add", name="Spanish")
+        g = next(g for g in s["skills"]["groups"] if g["cat"] == "Languages")
+        self.assertEqual(g["items"][0]["levels"], ["Conversational", "Fluent", "Native"])
+        s = self.post("/api/j/skill", name="Spanish", level="Fluent")
+        self.assertEqual(next(g for g in s["skills"]["groups"] if g["cat"] == "Languages")["items"][0]["level"],
+                         "Fluent")
+        self.assertIn("- Spanish (Fluent)", self.c.get("/api/record").json()["markdown"])
+        r = self.c.post("/api/j/skill", json={"name": "Spanish", "level": "Expert"})
+        self.assertEqual(r.status_code, 400)
+        self.post("/api/j/skill", name="Epic EHR", level="Expert")    # other skills keep theirs
 
     # -- beyond paid work
 
