@@ -27,7 +27,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from resume_builder import export as X  # noqa: E402
-from resume_builder import finish, health, importer, interview, journey, matching, sections, skills  # noqa: E402
+from resume_builder import finish, health, sample, importer, interview, journey, matching, sections, skills  # noqa: E402
 from resume_builder import summary as summary_mod  # noqa: E402
 from resume_builder import record as mr  # noqa: E402
 from resume_builder.store import SqlStore  # noqa: E402
@@ -612,6 +612,7 @@ def _jstate(store: SqlStore, rec: mr.Record | None = None) -> dict:
             "finish": finish.progress(store, rec, work),
             "suggestions": finish.suggestions(store, rec, work, skill_view, summary),
             "updated": store.updated(), "review": finish.review_view(store, rec),
+            "samples": sample.view(store),
             **view}
 
 
@@ -904,6 +905,40 @@ def j_summary_draft(store: SqlStore = Depends(store_for)):
 @app.post("/api/j/summary/approve")
 def j_summary_approve(body: JSec, store: SqlStore = Depends(store_for)):
     return _sec(store, lambda rec: finish.approve_summary(store, rec, body.text))
+
+
+class JPosting(BaseModel):
+    text: str = Field("", max_length=30000)
+
+
+# Samples are made and kept inside this tool. Nothing here writes a file or
+# reaches the job-application pipeline.
+
+@app.post("/api/j/sample/draft")
+def j_sample_draft(store: SqlStore = Depends(store_for)):
+    return {"sample": sample.draft(store, store.load_record())}
+
+
+def _paid_sample(store, make):
+    rec = store.load_record()
+    try:
+        res = make(rec)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    except Exception:
+        raise HTTPException(502, "We couldn't make the sample just now. Nothing was changed; "
+                                 "try again in a moment.")
+    return {"sample": res, **_jstate(store, rec)}
+
+
+@app.post("/api/j/sample/general")
+def j_sample_general(store: SqlStore = Depends(store_for)):
+    return _paid_sample(store, lambda rec: sample.general(store, rec))
+
+
+@app.post("/api/j/sample/tailor")
+def j_sample_tailor(body: JPosting, store: SqlStore = Depends(store_for)):
+    return _paid_sample(store, lambda rec: sample.tailored(store, rec, body.text))
 
 
 @app.post("/api/j/dismiss")

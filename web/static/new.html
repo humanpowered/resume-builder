@@ -139,6 +139,20 @@
   .tick { display: flex; gap: 10px; align-items: flex-start; font-weight: 400; font-size: 16px; padding: 8px 0;
           border-top: 1px solid var(--soft-line); cursor: pointer; }
   .tick input { width: 20px; height: 20px; margin: 2px 0 0; flex: none; accent-color: var(--accent); }
+  .paper { display: flex; flex-direction: column; gap: 10px; padding: 24px 26px; background: #FFFFFF; color: #16201E;
+           border: 1px solid #B9C4C1; border-radius: 4px; box-shadow: 0 2px 10px rgba(22,32,30,.08);
+           font-size: 14px; line-height: 1.5; }
+  .paper .rh { border-top: 1px solid #16201E; padding-top: 6px; font-weight: 700; font-size: 13px; letter-spacing: .06em; }
+  .paper .muted { color: #4A5754; }
+  .paper ul { margin: 2px 0 0; padding-left: 18px; }
+  .stamp { align-self: flex-start; font-size: 12px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase;
+           padding: 2px 8px; border-radius: 6px; background: var(--warn-bg); color: var(--warn-ink); }
+  @media print {
+    body { background: #FFFFFF; }
+    .top, #alert, .noprint, [aria-label=Progress] { display: none !important; }
+    .wrap { max-width: none; padding: 0; }
+    .paper { border: 0; box-shadow: none; padding: 0; }
+  }
   [hidden] { display: none !important; }
 </style>
 </head>
@@ -158,7 +172,7 @@ const plural = (n, one, many) => `${n} ${n === 1 ? one : (many || one + "s")}`;
 
 const SCREENS = ["welcome", "upload", "check", "targets", "bg", "lines", "line", "more", "end",
                  "stopped", "bgdone", "record", "edu", "skills", "beyond", "later",
-                 "story", "summary", "complete", "review", "back"];
+                 "story", "summary", "complete", "review", "back", "sample"];
 // Where the on-screen Back goes from each screen when there is no browser
 // history to go back through (for example, straight after a refresh). The
 // background questions step back one question at a time instead.
@@ -207,9 +221,9 @@ function go(next, { push = true, to = "", promo = false } = {}) {
   const st = { screen: next, at, promo, depth: (history.state?.depth || 0) + (push ? 1 : 0) };
   if (push) history.pushState(st, "", "#" + next);
   else history.replaceState(st, "", "#" + next);
-  // Welcome back is shown over the step the person left off at, never saved
-  // in its place, so "Resume where I left off" still knows where that was.
-  if (next !== "back") send("PUT", "/api/j/step", { screen: next, at }).catch(() => {});
+  // Welcome back and samples are shown over the step the person left off at,
+  // never saved in its place, so "Resume where I left off" still knows where that was.
+  if (next !== "back" && next !== "sample") send("PUT", "/api/j/step", { screen: next, at }).catch(() => {});
   render();
   window.scrollTo(0, 0);
 }
@@ -230,6 +244,7 @@ function back() {
   if (screen === "summary") return go("story", { push: false });
   if (screen === "complete" || screen === "later") return go("summary", { push: false });
   if (screen === "review") return go("upload", { push: false });
+  if (screen === "sample") return go(S.finish.record_complete ? "complete" : "record", { push: false });
   go(BACK[screen] || "welcome", { push: false });
 }
 window.addEventListener("popstate", (e) => {
@@ -327,7 +342,7 @@ function render() {
                    record: homeScreen, edu: eduScreen, skills: skillsScreen,
                    beyond: beyondScreen, later: completeScreen, story: storyScreen,
                    summary: summaryScreen, complete: completeScreen, review: reviewScreen,
-                   back: welcomeBack }[screen] || welcome)();
+                   back: welcomeBack, sample: sampleScreen }[screen] || welcome)();
   wire();
 }
 
@@ -797,6 +812,7 @@ function endScreen() {
       <div class="count small muted">${plural(c.stronger, "line")} strengthened · ${c.kept} kept as is${c.todo + c.skipped ? ` · ${c.todo + c.skipped} still to do` : ""}</div>
     </div>
     <div class="card" style="gap:4px"><div>Your record covers ${w.years.covered} of your ${w.years.total} years so far. Each job you complete gives every future resume more to draw from.</div></div>
+    ${!j.outside && w.complete_count >= 2 && !S.finish.record_complete ? draftOffer() : ""}
     <div class="row">
       ${j.outside ? `<button class="btn" data-go="beyond">Back to beyond paid work</button>`
         : next ? `<button class="btn" id="nextJob">Next job: ${esc(next.title)}</button>`
@@ -1119,11 +1135,11 @@ function nextWords() {
 function homeScreen() {
   const jobs = S.jobs || [], f = S.finish, name = firstName();
   const main = f.record_complete
-    ? `<div class="done stack-s"><div style="font-weight:600">Make a resume for a job</div>
-        <div>Your record is complete. Pasting a job posting here to get a resume and cover letter written from your record comes in the next update.</div></div>`
+    ? `${postingBox("Make a resume for a job", "Paste the posting and we'll choose what from your record fits it.", true)}`
     : jobs.length ? `<div class="done stack-s">
         ${nextWords() ? `<div>Next: ${esc(nextWords())}.</div>` : ""}
-        <div><button class="btn" id="continueQs">Continue where you left off</button></div></div>` : "";
+        <div><button class="btn" id="continueQs">Continue where you left off</button></div>
+        ${S.finish.complete >= 2 ? `<div><button class="link tight" data-show="draft">See a draft of your resume</button></div>` : ""}</div>` : "";
   const sug = S.suggestions || [];
   return `<div class="stack">
     <div class="stack-s" style="gap:6px;padding-top:8px">
@@ -1286,7 +1302,11 @@ function completeScreen() {
       : `Everything is saved. A few things are waiting for you: ${esc(left.join("; "))}. Finish them whenever you like from your record; nothing here holds you back.`}</p>
     <div class="stats">${stats.map(([n, l]) => `<div class="stat"><div class="count" style="font-size:22px">${esc(n)}</div><div class="small muted">${l}</div></div>`).join("")}</div>
     <div class="done stack-s"><h2 style="font-size:20px">See what it can do</h2>
-      <p>A sample resume drawn from your record, and one written for a job posting you paste, come in the next update.</p></div>
+      <p>One press makes a general resume${S.samples.general || headline() ? ` for ${esc(headline())}` : ""}, drawn from your record.</p>
+      <div class="row">${S.samples.general ? `<button class="btn" data-show="general">See your sample resume</button>
+        <button class="link" data-make="general">Make it again</button>` : `<button class="btn" data-make="general">See a sample resume</button>`}</div>
+      ${making("general")}</div>
+    ${postingBox("Have a posting in mind?", "Paste it and see a resume written for that job.")}
     <div class="row" style="border-top:1px solid var(--line);padding-top:14px">
       <button class="btn" data-go="record">Go to my record</button>
       <button class="link" data-back>Back</button>
@@ -1413,6 +1433,123 @@ function wireHome() {
   on("[data-openjob]", (el) => go("end", { to: el.dataset.openjob }));
 }
 
+// ---------------------------------------------------------------- sample resumes
+// Made and kept inside this tool. Every line on a sample is one already on
+// the record; nothing is saved as a file unless the person prints or copies it.
+
+const headline = () => (S.targets.titles[0] || (W().jobs.find((j) => !j.outside) || {}).title || "");
+
+function draftOffer() {
+  const f = S.finish;
+  return `<div class="done stack-s"><div style="font-weight:600">Your draft resume</div>
+    <div>This draft uses ${f.complete} of your ${plural(f.positions, "position")}. The others appear as your resume had them. It gets stronger with every job you add.</div>
+    <div><button class="btn2" data-show="draft">See the draft</button></div></div>`;
+}
+
+const making = (what) => ui.making === what ? `<div><span class="spin" aria-hidden="true"></span>${what === "general" ? "Choosing the strongest lines from your record…" : "Matching your record to the posting…"}</div>` : "";
+
+function postingBox(title, intro, main) {
+  const sm = S.samples, left = sm.free_left;
+  const list = sm.tailored.map((t, n) => `<div class="card-head" style="align-items:center;font-weight:400">
+      <div>${esc(t.posting.title || "A posting")}${t.posting.company ? ` at ${esc(t.posting.company)}` : ""}</div>
+      <button class="link tight" data-show="t${n}">Open</button></div>`).join("");
+  return `<div class="${main ? "done" : "card"} stack-s" style="gap:8px">
+    <label for="posting" style="font-size:18px">${title}</label>
+    <div class="muted" style="font-size:15px">${intro} ${left ? `${left} of ${sm.free} free samples left.` : `You've used your ${sm.free} free samples.`}</div>
+    ${left ? `<textarea id="posting" placeholder="Paste the job posting here" style="min-height:120px">${esc(ui.posting || "")}</textarea>
+      <div><button class="${main ? "btn" : "btn2"}" data-make="tailor" ${ui.making ? "disabled" : ""}>Write one for this job</button></div>${making("tailor")}` : ""}
+    ${list ? `<div class="stack-s" style="gap:4px;padding-top:4px"><div class="label">Written for a posting</div>${list}</div>` : ""}
+  </div>`;
+}
+
+function sampleScreen() {
+  if (!ui.sample && at !== "draft") ui.sample = at === "general" ? S.samples.general
+    : /^t\d+$/.test(at) ? S.samples.tailored[+at.slice(1)] : null;
+  const res = ui.sample;
+  if (!res) { if (!ui.loading) { ui.loading = true; loadSample(at); } return `<div class="muted">Opening your resume…</div>`; }
+  const intro = res.kind === "draft"
+    ? `This draft uses ${S.finish.complete} of your ${plural(S.finish.positions, "position")}. The others appear as your resume had them. It gets stronger with every job you add.`
+    : res.kind === "general" ? `A general resume${res.headline ? ` for ${esc(res.headline)}` : ""}, drawn from your record. Every line is one you wrote or approved; we chose the strongest.`
+    : `Written for ${esc(res.posting.title || "this posting")}${res.posting.company ? ` at ${esc(res.posting.company)}` : ""}. Every line is one you wrote or approved; we chose the ones that fit.`;
+  const gaps = (res.gaps || []).length ? `<div class="note noprint">The posting asks for ${esc(_and(res.gaps.map((g) => g.charAt(0).toLowerCase() + g.slice(1))))}, and your record doesn't show ${res.gaps.length === 1 ? "it" : "them"} yet. ${res.gaps.length === 1 ? "If you've done it, add it to your record and it'll appear next time." : "If you've done them, add them to your record and they'll appear next time."}</div>` : "";
+  return `<div class="stack">
+    <div class="stack-s noprint"><span class="stamp">${res.kind === "draft" ? "Draft" : "Sample"}</span>
+      <h1>${res.kind === "draft" ? "A draft of your resume" : res.kind === "general" ? "Your sample resume" : "A resume for this job"}</h1>
+      <p>${intro}</p></div>
+    ${gaps}
+    ${paper(res)}
+    <div class="row noprint">
+      <button class="btn2" id="printSample">Print or save as PDF</button>
+      <button class="btn2" id="copySample">${ui.copied ? "Copied" : "Copy as text"}</button>
+      <button class="link" data-back>Back</button>
+    </div>
+  </div>`;
+}
+
+function paper(r) {
+  const head = (t) => `<div class="rh">${t}</div>`;
+  return `<div class="paper">
+    <div style="text-align:center"><div style="font-size:20px;font-weight:700;letter-spacing:.02em">${esc((r.name || "Your name").toUpperCase())}</div>
+      <div class="muted">${[r.headline, r.contact].filter(Boolean).map(esc).join(" · ")}</div></div>
+    ${r.summary ? `${head("SUMMARY")}<div>${esc(r.summary)}</div>` : ""}
+    ${head("EXPERIENCE")}
+    ${r.employers.map((e) => `<div><div style="font-weight:700">${esc(e.employer)}</div>
+      ${e.roles.map((x) => `<div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap"><span style="font-style:italic">${esc(x.title)}</span><span class="muted">${esc(x.dates)}</span></div>
+        ${x.lines.length ? `<ul>${x.lines.map((l) => `<li>${esc(l)}</li>`).join("")}</ul>` : ""}`).join("")}</div>`).join("")}
+    ${r.education.length ? `${head("EDUCATION AND LICENCES")}<div>${r.education.map(esc).join("<br>")}</div>` : ""}
+    ${r.skills.length ? `${head("SKILLS")}<div>${r.skills.map(esc).join(" · ")}</div>` : ""}
+    ${r.extras.map((x) => `${head(esc(x.heading.toUpperCase()))}<div>${x.lines.map(esc).join("<br>")}</div>`).join("")}
+  </div>`;
+}
+
+function sampleText(r) {
+  const out = [(r.name || "").toUpperCase(), [r.headline, r.contact].filter(Boolean).join(" · ")];
+  if (r.summary) out.push("", "SUMMARY", r.summary);
+  out.push("", "EXPERIENCE");
+  r.employers.forEach((e) => { out.push("", e.employer);
+    e.roles.forEach((x) => { out.push(x.title + (x.dates ? "  " + x.dates : "")); x.lines.forEach((l) => out.push("• " + l)); }); });
+  if (r.education.length) out.push("", "EDUCATION AND LICENCES", ...r.education);
+  if (r.skills.length) out.push("", "SKILLS", r.skills.join(" · "));
+  r.extras.forEach((x) => out.push("", x.heading.toUpperCase(), ...x.lines));
+  return out.join("\n").trim() + "\n";
+}
+
+// The draft is made fresh each time; a missing sample sends the person home.
+async function loadSample(which) {
+  try {
+    if (which === "draft") ui.sample = (await send("POST", "/api/j/sample/draft", {})).sample;
+    if (!ui.sample) return setTimeout(() => go("record", { push: false }));
+  } catch (e) { say(e.message); return; }
+  if (screen === "sample") render();
+}
+
+function wireSample() {
+  if ($("printSample")) $("printSample").onclick = () => window.print();
+  if ($("copySample")) $("copySample").onclick = async () => {
+    try { await navigator.clipboard.writeText(sampleText(ui.sample)); ui.copied = true; render(); }
+    catch (e) { say("Your browser didn't allow copying. Select the resume and copy it instead."); }
+  };
+}
+
+// Buttons that show a sample, or make one (a paid call), on any screen.
+function wireMakers() {
+  on("[data-show]", (el) => go("sample", { to: el.dataset.show }));
+  if ($("posting")) $("posting").oninput = () => { ui.posting = $("posting").value; };
+  on("[data-make]", async (el) => {
+    const what = el.dataset.make;
+    if (ui.making) return;
+    const text = what === "tailor" ? val("posting") : "";
+    ui.making = what; render(); say("");
+    try {
+      const r = await send("POST", `/api/j/sample/${what === "tailor" ? "tailor" : "general"}`, what === "tailor" ? { text } : {});
+      S = { ...S, ...r }; ui.making = null; ui.posting = "";
+      go("sample", { to: what === "tailor" ? `t${S.samples.tailored.length - 1}` : "general" });
+    } catch (e) {
+      ui.making = null; render(); if (e.message !== "signed out") say(e.message);
+    }
+  });
+}
+
 // ---------------------------------------------------------------- actions
 
 const on = (sel, fn) => document.querySelectorAll(sel).forEach((el) => el.onclick = () => fn(el));
@@ -1439,6 +1576,8 @@ function wire() {
   if (screen === "summary") wireSummary();
   if (screen === "review") wireReview();
   if (screen === "back") wireBack();
+  if (screen === "sample") wireSample();
+  wireMakers();
   if ($("continueQs")) $("continueQs").onclick = resume;
   on("[data-answers]", (el) => go("bg", { to: el.dataset.answers }));
   wireFix();
