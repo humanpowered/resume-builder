@@ -18,6 +18,7 @@ SECTIONS = ("edu", "skills", "beyond")
 DONE = "journey.sections"
 EDU_FIELDS = "journey.edufields"
 BUILT_FOR = "journey.skillsbuilt"
+ALSO = "journey.skillnames"       # other names for a skill: {squashed name: [names]}
 
 # ---------------------------------------------------------------- shared
 
@@ -238,13 +239,13 @@ def named_text(rec: mr.Record) -> str:
     return "\n".join(parts)
 
 
-def _names(name: str) -> list:
-    return [k for k in (mr._squash(p) for p in [name, *name.split(",")]) if len(k) > 2]
+def other_names(store) -> dict:
+    return store.load_state(ALSO) or {}
 
 
-def _shown_by(rec: mr.Record, s: mr.Skill, lines: list, today) -> dict:
-    keys = _names(s.name)
-    hits = [(r, t) for r, t in lines if any(k in mr._squash(t) for k in keys)]
+def _shown_by(rec: mr.Record, s: mr.Skill, lines: list, today, also: dict) -> dict:
+    names = [s.name, *also.get(mr._squash(s.name), [])]
+    hits = [(r, t) for r, t in lines if skills.names_in(names, t)]
     out = {"lines": [t for _, t in hits][:5], "shown": "", "use": ""}
     if hits:
         emps = []
@@ -274,6 +275,7 @@ def skills_view(store, rec: mr.Record) -> dict:
     t = date.today()
     today = (t.year, t.month)
     lines = _role_lines(rec)
+    also = other_names(store)
     targets = journey.targets_view(store, rec)["titles"]
     current = next((r.title for r in rec.roles if not r.outside()), "")
     basis = targets or ([current] if current else [])
@@ -287,7 +289,7 @@ def skills_view(store, rec: mr.Record) -> dict:
         if cat not in groups:
             groups[cat] = []
             order.append(cat)
-        sb = _shown_by(rec, s, lines, today)
+        sb = _shown_by(rec, s, lines, today, also)
         if s.have == skills.YES:
             state = "yes"
             tag = {"resume": "From your resume", skills.FROM_YOU: "Added by you"}.get(s.source, "Yours")
@@ -336,6 +338,12 @@ def build_skills(store, rec: mr.Record) -> dict:
         return {"added": [], "yours": []}
     field = "" if todo == ["(your record)"] else "; ".join(todo)
     out = skills.build(rec, field, levels=False, named_text=named_text(rec))
+    also = other_names(store)
+    for mine, other in out.get("also", []):
+        names = also.setdefault(mr._squash(mine), [])
+        if mr._squash(other) not in {mr._squash(n) for n in names}:
+            names.append(other)
+    store.save_state(ALSO, also)
     built = store.load_state(BUILT_FOR) or []
     store.save_state(BUILT_FOR, built + todo)
     return out

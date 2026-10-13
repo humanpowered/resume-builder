@@ -121,6 +121,24 @@ class Sections(unittest.TestCase):
         self.assertTrue(all(not k["level"] for k in items.values()))
         self.assertFalse(s["skills"]["needs_build"])
 
+    def test_a_line_names_a_skill_in_any_word_form_or_by_its_other_name(self):
+        self.upload()
+        self.post("/api/j/skill/add", name="Patient handoff")
+        llm.use_backend(FakeBackend(build_reply(
+            {"name": "Precepting", "category": "Leadership", "same_as": "", "named": True,
+             "because": [], "level": ""},
+            {"name": "Handoffs", "category": "Clinical", "same_as": "Patient handoff", "named": True,
+             "because": [], "level": ""},
+            {"name": "People management", "category": "Leadership", "same_as": "", "named": False,
+             "because": [], "level": ""})))
+        s = self.post("/api/j/skills/build")
+        items = {k["name"]: k for g in s["skills"]["groups"] for k in g["items"]}
+        self.assertEqual(items["Precepting"]["state"], "yes")        # "Precepted new graduate nurses"
+        self.assertIn("Precepted new graduate nurses", items["Precepting"]["shown"])
+        self.assertNotIn("Handoffs", items)                          # one skill, not two
+        self.assertIn("Cut handoff errors on the unit", items["Patient handoff"]["shown"])
+        self.assertEqual(items["People management"]["state"], "ask")   # implied only
+
     def test_a_new_target_only_adds_and_no_always_wins(self):
         self.upload()
         llm.use_backend(FakeBackend(build_reply()))
