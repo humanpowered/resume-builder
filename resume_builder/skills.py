@@ -101,11 +101,15 @@ def field_hint(rec: mr.Record) -> str:
     return "; ".join(p for p in parts if p)
 
 
-def build(rec: mr.Record, field: str = "") -> dict:
+def build(rec: mr.Record, field: str = "", levels: bool = True, named_text: str = None) -> dict:
     """
     Fill the record's skills from the standard list for the person's field.
     Only blanks are filled: an answer, level or group the person set is never
     changed. Returns what happened, for the person to read.
+
+    `levels=False` leaves every level blank for the person to set. A skill
+    counts as named (theirs, not a suggestion) only if `named_text`, when
+    given, uses its name; otherwise the whole record is searched.
     """
     titles = {a.title for _, a in rec.all_accomplishments()}
     text = mr.render(rec)
@@ -115,14 +119,14 @@ def build(rec: mr.Record, field: str = "") -> dict:
             record=text[:60000],
             listed=json.dumps([s.name for s in rec.skills]))}],
         12000, "skills", schema=BUILD_SCHEMA)
-    plain = mr._squash(text)
+    plain = mr._squash(text if named_text is None else named_text)
     out = {"field": reply.get("field", "") or field, "added": [], "filled": [], "yours": []}
     for item in reply.get("skills") or []:
         name = (item.get("name") or "").strip()
         if not name:
             continue
         because = [t for t in item.get("because") or [] if t in titles]
-        level = item.get("level") if item.get("level") in mr.LEVELS else ""
+        level = item.get("level") if levels and item.get("level") in mr.LEVELS else ""
         category = (item.get("category") or "").strip() or "Other"
         s = rec.skill(item.get("same_as") or "") or rec.skill(name)
         if s is not None:

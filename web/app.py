@@ -27,7 +27,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from resume_builder import export as X  # noqa: E402
-from resume_builder import health, importer, interview, journey, matching, skills  # noqa: E402
+from resume_builder import health, importer, interview, journey, matching, sections, skills  # noqa: E402
 from resume_builder import summary as summary_mod  # noqa: E402
 from resume_builder import record as mr  # noqa: E402
 from resume_builder.store import SqlStore  # noqa: E402
@@ -587,8 +587,8 @@ def _j(fn, *args, **kw):
         return fn(*args, **kw)
     except journey.Stale:
         raise HTTPException(409, STALE)
-    except IndexError as exc:
-        raise HTTPException(404, str(exc))
+    except LookupError as exc:
+        raise HTTPException(404, str(exc).strip("'\""))
     except ValueError as exc:
         raise HTTPException(400, str(exc))
 
@@ -602,7 +602,10 @@ def _jstate(store: SqlStore, rec: mr.Record | None = None) -> dict:
             "step": journey.load_step(store), "targets": journey.targets_view(store, rec),
             "steps": journey.steps(store, rec), "work": journey.work_view(store, rec),
             "work_modes": list(journey.WORK_MODES),
-            "max_targets": journey.MAX_TARGETS, **view}
+            "max_targets": journey.MAX_TARGETS,
+            "sections": sections.done(store), "edu": sections.education_view(store, rec),
+            "skills": sections.skills_view(store, rec), "beyond": sections.beyond_view(rec),
+            **view}
 
 
 @app.get("/api/j/state")
@@ -717,6 +720,96 @@ def j_line_stronger(body: JLineRef, store: SqlStore = Depends(store_for)):
                                  "try again in a moment.")
 
 
+# ---------------------------------------------------------------- education, skills, beyond
+
+class JSec(BaseModel):
+    name: str = Field("", max_length=200)
+    section: str = Field("", max_length=40)
+    index: int = -1
+    expect: str | None = Field(None, max_length=2000)
+    text: str = Field("", max_length=2000)
+    fields: dict[str, str | bool] = Field(default_factory=dict)
+    have: str | None = Field(None, max_length=10)
+    level: str | None = Field(None, max_length=20)
+    years: str | None = Field(None, max_length=20)
+    last_used: str | None = Field(None, max_length=20)
+    done: bool = True
+
+
+def _sec(store, change) -> dict:
+    """Make one change to the record and return it with the page's state."""
+    rec = store.load_record()
+    out = _j(change, rec)
+    store.save_record(rec)
+    return {"result": out, **_jstate(store, rec)}
+
+
+@app.post("/api/j/section")
+def j_section(body: JSec, store: SqlStore = Depends(store_for)):
+    _j(sections.mark, store, body.name, body.done)
+    return _jstate(store)
+
+
+@app.post("/api/j/edu")
+def j_edu(body: JSec, store: SqlStore = Depends(store_for)):
+    return _sec(store, lambda rec: sections.save_education(
+        store, rec, body.section, body.index, body.expect, body.fields))
+
+
+@app.post("/api/j/item/delete")
+def j_item_delete(body: JSec, store: SqlStore = Depends(store_for)):
+    return _sec(store, lambda rec: sections.delete_item(store, rec, body.section, body.index,
+                                                        body.expect))
+
+
+@app.post("/api/j/item/restore")
+def j_item_restore(body: JSec, store: SqlStore = Depends(store_for)):
+    return _sec(store, lambda rec: sections.restore_item(store, rec, body.section, body.index,
+                                                         body.text))
+
+
+@app.post("/api/j/item/edit")
+def j_item_edit(body: JSec, store: SqlStore = Depends(store_for)):
+    return _sec(store, lambda rec: sections.edit_item(rec, body.section, body.index,
+                                                      body.expect, body.text))
+
+
+@app.post("/api/j/tile")
+def j_tile(body: JSec, store: SqlStore = Depends(store_for)):
+    return _sec(store, lambda rec: sections.add_tile(rec, body.name, body.fields))
+
+
+@app.post("/api/j/joblike")
+def j_joblike(body: JSec, store: SqlStore = Depends(store_for)):
+    f = {k: str(v) for k, v in body.fields.items()}
+    return _sec(store, lambda rec: sections.add_job_like(
+        rec, body.name, f.get("title", ""), f.get("org", ""), f.get("dates", "")))
+
+
+@app.post("/api/j/skill")
+def j_skill(body: JSec, store: SqlStore = Depends(store_for)):
+    return _sec(store, lambda rec: sections.set_skill(
+        rec, body.name, body.have, body.level, body.years, body.last_used) and None)
+
+
+@app.post("/api/j/skill/add")
+def j_skill_add(body: JSec, store: SqlStore = Depends(store_for)):
+    return _sec(store, lambda rec: skills.add_skill(rec, body.name) and None)
+
+
+@app.post("/api/j/skills/build")
+def j_skills_build(store: SqlStore = Depends(store_for)):
+    rec = store.load_record()
+    try:
+        out = sections.build_skills(store, rec)
+    except Exception:
+        raise HTTPException(502, "We couldn't load the suggested skills just now. "
+                                 "Your own skills are all here; try again in a moment.")
+    store.save_record(rec)
+    return {"added": len(out.get("added", [])), "yours": len(out.get("yours", [])),
+            **_jstate(store, rec)}
+
+
 @app.post("/api/j/line/approve")
 def j_line_approve(body: JLineRef, store: SqlStore = Depends(store_for)):
     rec = store.load_record()
@@ -742,6 +835,7 @@ async def j_import(file: UploadFile = File(...), store: SqlStore = Depends(store
     incoming, rep = importer.to_record(importer.extract(text), text,
                                        file.filename or "upload", date.today().isoformat())
     left_out = journey.leave_out_deleted(store, incoming)
+    left_out += sections.leave_out_deleted(store, incoming)
     if store.exists():
         rec = store.load_record()
         before_jobs = len(rec.roles)

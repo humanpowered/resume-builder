@@ -127,6 +127,13 @@
   h2 { margin: 0; font-size: 24px; line-height: 1.25; font-weight: 700; text-wrap: balance; }
   .pair { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
   .card.strong { border: 2px solid var(--accent); }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 10px; }
+  .tile { display: flex; flex-direction: column; gap: 4px; text-align: left; min-height: 72px; padding: 12px 14px;
+          border-radius: 12px; border: 1px solid var(--field); background: var(--panel); color: var(--ink);
+          font: 400 16px/1.3 'IBM Plex Sans', system-ui, sans-serif; cursor: pointer; }
+  .tile .small { color: var(--muted); }
+  .tile[aria-pressed=true] { border: 2px solid var(--accent); background: var(--accent); color: var(--accent-ink); }
+  .tile[aria-pressed=true] .small { color: var(--accent-ink); }
   [hidden] { display: none !important; }
 </style>
 </head>
@@ -145,7 +152,7 @@ const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) =>
 const plural = (n, one, many) => `${n} ${n === 1 ? one : (many || one + "s")}`;
 
 const SCREENS = ["welcome", "upload", "check", "targets", "bg", "lines", "line", "more", "end",
-                 "stopped", "bgdone", "record"];
+                 "stopped", "bgdone", "record", "edu", "skills", "beyond", "later"];
 // Where the on-screen Back goes from each screen when there is no browser
 // history to go back through (for example, straight after a refresh). The
 // background questions step back one question at a time instead.
@@ -207,6 +214,11 @@ function back() {
   if (screen === "more") return go("lines", { to: job.key, push: false });
   if (screen === "end") return go("more", { to: job.key, push: false });
   if (screen === "bgdone" || screen === "stopped") return go("record", { push: false });
+  if (screen === "edu") { const last = jobByIndex(W().order.slice(-1)[0]);
+    return last ? go("end", { to: last.key, push: false }) : go("record", { push: false }); }
+  if (screen === "skills") return go("edu", { push: false });
+  if (screen === "beyond") return go("skills", { push: false });
+  if (screen === "later") return go("beyond", { push: false });
   go(BACK[screen] || "welcome", { push: false });
 }
 window.addEventListener("popstate", (e) => {
@@ -236,6 +248,7 @@ function nextPending(from) {
 const W = () => S.work || { jobs: [], order: [] };
 const jobByKey = (k) => W().jobs.find((j) => j.key === k);
 const jobByIndex = (i) => W().jobs[i];
+const paidCount = () => W().jobs.filter((j) => !j.outside).length;
 function curJob() {
   if (screen === "bg") { const x = (S.steps || [])[stepIndex()]; return x ? jobByIndex(x.job) : null; }
   return jobByKey(at.split("\n")[0]) || null;
@@ -246,12 +259,12 @@ function jobStart(job, opts = {}) {
 }
 function nextJob(after) {
   const order = W().order, from = after ? order.indexOf(after.index) : -1;
-  const pick = (list) => list.map(jobByIndex).find((j) => j && !j.complete);
+  const pick = (list) => list.map(jobByIndex).find((j) => j && !j.complete && !j.outside);
   return pick(order.slice(from + 1)) || pick(order.slice(0, Math.max(from, 0)));
 }
 function resume() {
-  const j = nextJob(null);
-  j ? jobStart(j) : go("record");
+  const j = nextJob(null), s = nextSection();
+  j ? jobStart(j) : s ? go(s) : go("record");
 }
 function goNext(from) {
   const x = S.steps[from];
@@ -300,7 +313,8 @@ function render() {
   if (screen === "signin") return;
   m.innerHTML = ({ welcome, upload, check: () => recordScreen(true), targets, bg, bgdone,
                    lines: linesScreen, line: lineScreen, more: moreScreen, end: endScreen, stopped,
-                   record: () => recordScreen(false) }[screen] || welcome)();
+                   record: () => recordScreen(false), edu: eduScreen, skills: skillsScreen,
+                   beyond: beyondScreen, later }[screen] || welcome)();
   wire();
 }
 
@@ -368,6 +382,7 @@ function recordScreen(isCheck) {
     ${none ? "" : `<div class="label" style="padding-top:4px">Jobs, newest first</div>${counts}`}
     ${jobs.map(jobCard).join("")}
     ${addJobBlock(none)}
+    ${isCheck || !S.skills ? "" : sectionCards()}
     ${undoBar()}
     <div class="row" style="padding-top:4px">
       ${isCheck ? `<button class="btn" data-go="targets" ${none ? "disabled" : ""}>Looks right. Next</button>`
@@ -467,17 +482,19 @@ function continueNote() {
   const w = W(), n = nextJob(null);
   if (!w.jobs.length) return "";
   return `<div class="done stack-s">
-    <div class="count">${w.complete_count} of ${plural(w.jobs.length, "position")} complete · covers ${w.years.covered} of your ${w.years.total} years</div>
+    <div class="count">${w.complete_count} of ${plural(paidCount(), "position")} complete · covers ${w.years.covered} of your ${w.years.total} years</div>
     ${n ? `<div>Next: ${esc(n.title)} at ${esc(n.employer)}.</div>
       <div><button class="btn" id="continueQs">Continue where you left off</button></div>`
-      : `<div>Every job is complete. Education, skills and your summary come in later updates.</div>`}
+      : nextSection() ? `<div>Every job is complete. Next: ${SECTION_NAMES[nextSection()].toLowerCase()}.</div>
+        <div><button class="btn" id="continueQs">Continue where you left off</button></div>`
+      : `<div>Your jobs, education and skills are all gone through. Your summary comes in the next update.</div>`}
   </div>`;
 }
 
-function progress(caption, frac = 0) {
+function progress(caption, frac = 0, stage = 0) {
   return `<div class="stack-s" aria-label="Progress">
-    <div class="stages">${STAGES.map((st, n) => `<div class="stage ${n === 0 ? "on" : ""}">
-      <div class="bar"><div style="width:${n === 0 ? Math.round(frac * 100) : 0}%"></div></div>${st}</div>`).join("")}</div>
+    <div class="stages">${STAGES.map((st, n) => `<div class="stage ${n === stage ? "on" : ""}">
+      <div class="bar"><div style="width:${n < stage ? 100 : n === stage ? Math.round(frac * 100) : 0}%"></div></div>${st}</div>`).join("")}</div>
     ${caption ? `<div class="count">${esc(caption)}</div>` : ""}
   </div>`;
 }
@@ -520,8 +537,8 @@ function bg() {
     history.replaceState({ ...history.state, at }, "", "#bg");
   }
   const x = S.steps[k];
-  const caption = `Position ${x.job_number} of ${x.job_total}`;
-  const frac = (x.job_number - 1) / x.job_total;
+  const caption = x.job_number ? `Position ${x.job_number} of ${x.job_total}` : "Beyond paid work";
+  const frac = x.job_number ? (x.job_number - 1) / x.job_total : 0;
   const examples = (list) => `<div class="ex"><div style="font-weight:600">For example</div>
     ${list.map((e) => `<div>“${esc(e)}”</div>`).join("")}</div>`;
   const box = `<label for="answer">Your answer</label><textarea id="answer" data-step="${esc(x.id)}">${esc(x.answer)}</textarea>`;
@@ -589,6 +606,7 @@ function fixForm(j) {
     <button class="link" data-cancelfix>Cancel</button></div></div>`;
 }
 function jobCaption(j, extra) {
+  if (j.outside) return progress(`Beyond paid work${extra ? " · " + extra : ""}`, 0, 3);
   return progress(`Position ${j.number} of ${j.total}${extra ? " · " + extra : ""}`, (j.number - 1) / j.total);
 }
 const TAGS = { todo: "To do", skipped: "Skipped for now", stronger: "Stronger", kept: "Kept as is" };
@@ -692,7 +710,7 @@ function moreScreen() {
   ui.items = ui.items || [];
   return `${jobCaption(j, "")}<div class="stack">
     ${jobHead(j)}
-    <h1>Anything else from this job your resume doesn't mention?</h1>
+    <h1>${j.outside && !j.lines.length ? "What did you do there?" : "Anything else from this job your resume doesn't mention?"}</h1>
     <p class="muted">Tap any that ring a bell. Each one becomes its own line, and we go through it the same way: situation, what you did, result, number.</p>
     <div class="row" style="gap:8px">${Q.chips.map((c) => `<button class="chip" data-chip="${esc(c)}" aria-pressed="${ui.items.includes(c)}">${esc(c)}</button>`).join("")}</div>
     <div class="stack-s"><label for="moreText">Something else? Describe it in a few words</label>
@@ -718,8 +736,8 @@ function endScreen() {
   const open = c.todo + c.skipped + j.open_questions;
   const shownLines = j.lines.map((l) => `<div class="row" style="gap:10px;align-items:baseline;flex-wrap:nowrap">${tag(l.status)}<span style="min-width:0;font-size:15px">${esc(l.text)}</span></div>`).join("");
   return `${jobCaption(j, "")}<div class="stack">
-    <h1>Position ${j.number} of ${j.total} ${j.complete ? "complete" : "nearly complete"}</h1>
-    <p>Here is how this job now reads on your record.${j.complete ? " You can change any of it later." : ` ${plural(open, "thing")} ${open === 1 ? "is" : "are"} left for later; the job counts as complete once ${open === 1 ? "it's" : "they're"} done, or when you mark it done as it is.`}</p>
+    <h1>${j.outside ? `${esc(j.title)} is on your record` : `Position ${j.number} of ${j.total} ${j.complete ? "complete" : "nearly complete"}`}</h1>
+    <p>${j.outside ? "Here is how it reads on your record. It's optional, so nothing here holds you back, and you can add to it any time." : `Here is how this job now reads on your record.`}${j.outside ? "" : j.complete ? " You can change any of it later." : ` ${plural(open, "thing")} ${open === 1 ? "is" : "are"} left for later; the job counts as complete once ${open === 1 ? "it's" : "they're"} done, or when you mark it done as it is.`}</p>
     <div class="card">
       ${fixForm(j) || `<div><div style="font-size:18px;font-weight:600">${esc(j.title)}</div><div class="muted" style="font-size:15px">${esc(j.employer)}${j.dates ? ` · ${esc(j.dates)}` : ""}</div>
         <div>${fixLink(j).replace("margin-left:6px", "margin-left:0")}</div></div>`}
@@ -730,7 +748,10 @@ function endScreen() {
     </div>
     <div class="card" style="gap:4px"><div>Your record covers ${w.years.covered} of your ${w.years.total} years so far. Each job you complete gives every future resume more to draw from.</div></div>
     <div class="row">
-      ${next ? `<button class="btn" id="nextJob">Next job: ${esc(next.title)}</button>` : `<button class="btn" data-go="record">See your record</button>`}
+      ${j.outside ? `<button class="btn" data-go="beyond">Back to beyond paid work</button>`
+        : next ? `<button class="btn" id="nextJob">Next job: ${esc(next.title)}</button>`
+        : nextSection() ? `<button class="btn" data-go="${nextSection()}">Next: ${SECTION_NAMES[nextSection()].toLowerCase()}</button>`
+        : `<button class="btn" data-go="record">See your record</button>`}
       <button class="btn2" id="stopNow">Stop for now</button>
       ${j.complete ? "" : `<button class="link" id="jobDone">Mark this job done as it is</button>`}
       <button class="link" data-back>Back</button>
@@ -742,7 +763,7 @@ function stopped() {
   const st = n && (S.steps || []).find((x) => x.job === n.index && x.status === "todo");
   return `<div class="stack" style="padding-top:8px">
     <h1>Everything is saved</h1>
-    <p>You've completed ${w.complete_count} of your ${plural(w.jobs.length, "position")}, covering ${w.years.covered} of your ${w.years.total} years. Nothing you've entered will be lost.</p>
+    <p>You've completed ${w.complete_count} of your ${plural(paidCount(), "position")}, covering ${w.years.covered} of your ${w.years.total} years. Nothing you've entered will be lost.</p>
     ${n ? `<p>When you come back, we'll pick up where you left off: ${esc(n.title)} at ${esc(n.employer)}, starting with ${st ? "its background questions" : "its lines"}. You can also choose a different job from your record.</p>` : ""}
     <div class="row"><button class="btn" id="continueQs">Keep going now</button>
     <button class="btn2" data-go="record">See your record</button></div></div>`;
@@ -804,6 +825,211 @@ function undoBar() {
     <button class="link tight" id="undo">Undo</button></div>`;
 }
 
+// ---------------------------------------------------------------- education, skills, beyond paid work
+
+const SECTION_NAMES = { edu: "Education and licences", skills: "Your skills", beyond: "Beyond paid work" };
+const nextSection = () => ["edu", "skills", "beyond"].find((k) => !(S.sections || {})[k]);
+
+function itemUndo() {
+  if (!ui.gone) return "";
+  return `<div class="toast" role="status"><div style="min-width:0">Deleted “${esc(ui.gone.text)}”</div>
+    <button class="link tight" id="undoItem">Undo</button></div>`;
+}
+
+const EDU_FORMS = {
+  education: [["degree", "Degree or course", "e.g. BS, or Welding certificate"], ["field", "Field of study", "e.g. Business Administration"],
+              ["school", "School", "e.g. Portland State University"],
+              ["year", "Year", "e.g. 2009", "Optional. Some people leave the year off older degrees. Your choice."]],
+  certifications: [["name", "Name", "e.g. Certified Supply Chain Professional (CSCP)"], ["issuer", "Issued by", "e.g. APICS"],
+                   ["year", "Year earned", "e.g. 2019"]],
+};
+const CURRENT = ["Yes", "No, it lapsed", "Not sure"];
+
+function eduForm(section, e) {
+  const f = e ? e.fields : {};
+  const id = e ? `${section}:${e.index}` : `new:${section}`;
+  if (ui.cur === undefined) ui.cur = f.current || "";
+  const inputs = EDU_FORMS[section].map(([k, label, ph, note]) => `<div class="stack-s" style="gap:4px">
+      <label for="ef_${k}">${label}</label><input type="text" id="ef_${k}" value="${esc(f[k] || "")}" placeholder="${esc(ph)}">
+      ${note ? `<div class="small muted">${note}</div>` : ""}</div>`).join("");
+  const more = section === "education"
+    ? `<label class="row" style="gap:8px;font-weight:400;font-size:15px"><input type="checkbox" id="ef_studying" ${f.studying ? "checked" : ""}> I'm still studying for this (the year above becomes the expected year)</label>
+       <div class="stack-s" style="gap:4px"><label for="ef_extra">Anything worth mentioning from it? (optional)</label>
+       <div class="small muted">For example: graduated with honours · thesis on warehouse routing · captain of the debate team · paid my own way working nights</div>
+       <textarea id="ef_extra" style="min-height:64px">${esc(f.extra || "")}</textarea></div>`
+    : `<div class="stack-s" style="gap:4px"><div style="font-size:14px;font-weight:600">Still current?</div>
+       <div class="row" style="gap:8px">${CURRENT.map((c) => `<button class="chip" data-cur="${esc(c)}" aria-pressed="${ui.cur === c}">${c}</button>`).join("")}</div></div>`;
+  return `<div class="stack" style="gap:12px;border-top:1px solid var(--soft-line);padding-top:12px">${inputs}${more}
+    <div class="row"><button class="btn" data-saveedu="${esc(id)}">Save</button>
+    ${e ? `<button class="link danger" data-deledu="${esc(id)}">Delete this</button>` : ""}
+    <button class="link" data-closeedu>Cancel</button></div></div>`;
+}
+
+function eduScreen() {
+  const list = S.edu || [];
+  const card = (e) => {
+    const id = `${e.section}:${e.index}`, open = ui.eduOpen === id;
+    return `<div class="card">
+      <div class="card-head" style="align-items:flex-start"><div><div class="label">${e.kind === "degree" ? "Degree or course" : "Licence or certification"}</div>
+        <div style="font-weight:600">${esc(e.line)}</div></div>
+        ${open ? "" : `<button class="btn2" data-openedu="${esc(id)}">Edit</button>`}</div>
+      ${open ? eduForm(e.section, e) : ""}</div>`;
+  };
+  const adding = ui.eduOpen?.startsWith("new:") ? ui.eduOpen.slice(4) : "";
+  return `${progress(`Education · ${plural(list.length, "entry", "entries")}`, 0, 1)}<div class="stack">
+    <h1>Education and licences</h1>
+    <p>${list.length ? "We found these in your resume. Check each one, fix anything that's wrong, and add anything missing." : "Add any degree, course, licence or certification you have. If you have none, go straight on."} A degree, a trade certificate and a licence all count.</p>
+    ${list.map(card).join("")}
+    ${adding ? `<div class="card"><div style="font-weight:600">${adding === "education" ? "A degree or course" : "A licence or certification"}</div>${eduForm(adding, null)}</div>` : ""}
+    <div class="row">
+      <button class="btn2" data-openedu="new:education">+ Add a degree or course</button>
+      <button class="btn2" data-openedu="new:certifications">+ Add a licence or certification</button>
+    </div>
+    <div class="row">
+      <button class="btn" id="eduDone">${list.length ? "These are right. On to skills" : "Nothing to add. On to skills"}</button>
+      <button class="link" data-back>Back</button>
+    </div>
+    ${itemUndo()}
+  </div>`;
+}
+
+const LEVEL_HELP = [["Expert", "others come to you for it; you could teach it."],
+                    ["Advanced", "you handle hard problems with it on your own."],
+                    ["Working", "you use it regularly and sometimes look things up."],
+                    ["Familiar", "you've used it and would need a refresher."]];
+
+function skillItem(k) {
+  const fix = ui.fixSkill === k.name;
+  const use = k.state === "yes" ? (fix
+    ? `<div class="row" style="gap:8px;align-items:flex-end">
+        <div class="stack-s" style="gap:4px;flex:1;min-width:100px"><label for="sk_years">Years used</label><input type="text" id="sk_years" value="${esc(k.years)}" placeholder="e.g. 6"></div>
+        <div class="stack-s" style="gap:4px;flex:1;min-width:100px"><label for="sk_last">Last used</label><input type="text" id="sk_last" value="${esc(k.last_used)}" placeholder="e.g. 2024, or now"></div>
+        <button class="btn2" data-saveuse="${esc(k.name)}">Save</button><button class="link" data-canceluse>Cancel</button></div>`
+    : `<div class="small muted">${k.use ? esc(k.use) + " " : ""}<button class="link tight" style="font-size:14px" data-fixuse="${esc(k.name)}">${k.use ? "Correct this" : "Add years used"}</button></div>`) : "";
+  const body = k.state === "yes"
+    ? `<div class="row" style="gap:6px"><span class="small muted">Level:</span>${S.skills.levels.map((l) =>
+        `<button class="chip" style="min-height:36px;padding:6px 10px;font-size:14px" data-level="${esc(k.name)}" data-l="${l}" aria-pressed="${k.level === l}">${l}</button>`).join("")}</div>
+       <div><button class="link tight danger" data-have="${esc(k.name)}" data-h="no">I don't have this</button></div>`
+    : k.state === "ask"
+    ? `<div class="row"><button class="btn2" data-have="${esc(k.name)}" data-h="yes">I have this</button>
+       <button class="btn2" data-have="${esc(k.name)}" data-h="no">No</button></div>`
+    : `<div class="small muted">Not on your resumes. Kept here so we don't suggest it again. <button class="link tight" style="font-size:14px" data-have="${esc(k.name)}" data-h="yes">I do have it</button></div>`;
+  return `<div class="card" style="gap:6px;padding:12px 14px${k.state === "no" ? ";opacity:.8" : ""}">
+    <div class="card-head"><div>${esc(k.name)}</div><span class="tag ${k.state === "yes" ? "kept" : k.state === "ask" ? "todo" : ""}">${esc(k.tag)}</span></div>
+    ${k.shown ? `<div class="small muted">${esc(k.shown)}</div>` : ""}${use}${body}</div>`;
+}
+
+function skillsScreen() {
+  const k = S.skills, t = S.targets, full = t.titles.length >= S.max_targets;
+  if (k.needs_build && !ui.building && !ui.buildErr) setTimeout(buildSkills);
+  const open = ui.skOpen || [];
+  const groups = k.groups.map((g) => {
+    const asks = g.items.filter((x) => x.state === "ask"), show = open.includes(g.cat);
+    const items = g.items.filter((x) => show || x.state !== "ask");
+    if (!items.length && !asks.length) return "";
+    return `<div class="stack-s"><h2 style="font-size:20px">${esc(g.cat)}</h2>
+      ${items.map(skillItem).join("")}
+      ${asks.length ? `<div><button class="link" data-skopen="${esc(g.cat)}">${show ? "Hide suggested skills" : `Show ${plural(asks.length, "suggested skill")} for this group`}</button></div>` : ""}</div>`;
+  }).join("");
+  const basis = k.basis.length ? _and(k.basis) : "your field";
+  return `${progress(`Skills · ${k.mine} listed as yours · ${k.unrated} without a level`, 0, 2)}<div class="stack">
+    <h1>Your skills</h1>
+    <p>Skills from your resume and your record are listed as yours. We've added skills that are common for ${esc(basis)}; mark the ones you have. Set a level for any you like; a skill without a level still counts as yours.</p>
+    <div class="card" style="gap:8px">
+      <div class="label">Skills for the jobs you're aiming for (${t.titles.length} of ${S.max_targets})</div>
+      ${t.titles.length ? t.titles.map((x, n) => `<div class="card-head" style="align-items:center"><div>${esc(x)}</div><button class="link tight" data-rmtarget="${n}">Remove</button></div>`).join("")
+        : `<div style="font-size:15px">None yet, so we've gone by your current role${k.current ? `, ${esc(k.current)}` : ""}. Add a title to get the skills those jobs ask for.</div>`}
+      ${full ? "" : ui.skTarget ? `<label for="skTitle">Type any job title</label>
+        <div class="row" style="flex-wrap:nowrap"><input type="text" id="skTitle" placeholder="e.g. Director of Distribution" style="flex:1;min-width:0"><button class="btn2" id="addSkTarget">Add</button></div>
+        ${t.suggest.length ? `<div class="small muted">Or tap one from your record:</div><div class="row" style="gap:8px">${t.suggest.map((x) => `<button class="chip add" data-addtarget="${esc(x)}">Add: ${esc(x)}</button>`).join("")}</div>` : ""}`
+        : `<div><button class="link tight" id="openSkTarget">Add a title</button></div>`}
+      <div class="small muted">Each title you add brings in the skills postings for it usually ask for. Nothing you've already answered changes.</div>
+    </div>
+    <div class="note">List only skills you have. Anything here can appear on a resume, and an interviewer may ask you to show it.</div>
+    <div class="stack-s" style="gap:4px;font-size:15px"><div style="font-weight:600">What the levels mean</div>
+      ${LEVEL_HELP.map(([l, d]) => `<div><b>${l}:</b> ${d}</div>`).join("")}</div>
+    ${ui.building ? `<div class="done"><span class="spin" aria-hidden="true"></span>Finding the skills postings for ${esc(basis)} usually ask for…</div>` : ""}
+    ${ui.buildErr ? `<div class="note">${esc(ui.buildErr)} <button class="link tight" id="retryBuild">Try again</button></div>` : ""}
+    ${k.groups.length ? `<p class="muted">These are skills job postings in your field usually ask for. Add any we missed at the bottom.</p>` : ""}
+    ${groups}
+    <div class="stack-s"><label for="newSkill">Add a skill we missed</label>
+      <div class="row" style="flex-wrap:nowrap"><input type="text" id="newSkill" placeholder="e.g. Power BI" style="flex:1;min-width:0"><button class="btn2" id="addSkill">Add</button></div></div>
+    <div class="row">
+      <button class="btn" id="skillsDone">Done with skills${k.unanswered ? ` (${plural(k.unanswered, "suggestion")} left unanswered, not used)` : ""}</button>
+      <button class="link" data-back>Back</button>
+    </div>
+  </div>`;
+}
+const _and = (a) => a.length === 1 ? a[0] : a.slice(0, -1).join(", ") + " and " + a[a.length - 1];
+
+const TILES = [
+  { key: "volunteer", label: "Volunteering", hint: "Treated like a job", job: true,
+    fields: [["title", "Your role", "e.g. Food bank shift lead"], ["org", "Organisation", "e.g. Eastside Food Bank"], ["dates", "Dates", "e.g. 2019 to now"]],
+    note: "Next we'll go through what you did there, the same way as a job's lines.", save: "Save and go through it" },
+  { key: "side", label: "Side project or freelance", hint: "Treated like a job", job: true,
+    fields: [["title", "What it was", "e.g. Inventory setup for local shops"], ["org", "For whom", "e.g. 3 small retailers"], ["dates", "Dates", "e.g. 2022 to 2023"]],
+    note: "Next we'll go through what you did, the same way as a job's lines.", save: "Save and go through it" },
+  { key: "award", label: "Award", hint: "Name, from whom, year",
+    fields: [["name", "Award", "e.g. Safety Champion"], ["by", "Given by", "e.g. Northwind Freight"], ["year", "Year", "e.g. 2022"], ["for", "What it was for (one line)", "e.g. Zero lost-time injuries across both sites for a year"]] },
+  { key: "membership", label: "Board or membership", hint: "Organisation, role, years",
+    fields: [["org", "Organisation", "e.g. Warehousing Education and Research Council"], ["role", "Your role", "e.g. Member, or Chapter treasurer"], ["years", "Years", "e.g. 2020 to now"]] },
+  { key: "training", label: "Training or course", hint: "Course, provider, year",
+    fields: [["name", "Course", "e.g. Lean Six Sigma Yellow Belt"], ["where", "Provider", "e.g. ASQ"], ["year", "Year", "e.g. 2021"]],
+    note: "Certifications and licences live under Education." },
+  { key: "talk", label: "Talk or publication", hint: "Title, where, year",
+    fields: [["name", "Title", "e.g. Cross-training to cut peak overtime"], ["where", "Where", "e.g. Regional logistics conference"], ["year", "Year", "e.g. 2023"]] },
+  { key: "break", label: "Career break", hint: "Dates, optional reason",
+    fields: [["from", "From", "e.g. 2016"], ["to", "To", "e.g. 2017"], ["reason", "Reason, if you'd like to give one", "e.g. Caring for a parent, study, travel"]],
+    note: "The reason is optional. A single line explains a gap better than leaving it unexplained." },
+];
+
+function beyondScreen() {
+  const b = S.beyond, n = b.items.length + b.jobs.length;
+  const tile = TILES.find((x) => x.key === ui.tile);
+  const item = (it) => ui.editItem === `${it.section}:${it.index}`
+    ? `<div class="card"><label for="itemText">${esc(it.kind)}</label><textarea id="itemText" style="min-height:64px">${esc(it.text)}</textarea>
+       <div class="row"><button class="btn2" data-saveitem="${it.section}:${it.index}">Save</button><button class="link" data-cancelitem>Cancel</button></div></div>`
+    : `<div class="card" style="gap:4px"><div class="label">${esc(it.kind)}</div><div>${esc(it.text)}</div>
+       <div class="row" style="gap:16px"><button class="link tight" data-edititem="${it.section}:${it.index}">Edit</button>
+       <button class="link tight danger" data-delitem="${it.section}:${it.index}">Delete</button></div></div>`;
+  const jobRow = (j) => `<div class="card" style="gap:4px"><div class="label">${esc(j.kind)}</div><div>${esc(j.title)}, ${esc(j.employer)}${j.dates ? ` · ${esc(j.dates)}` : ""}</div>
+    <div><button class="link tight" data-gojob="${esc(j.key)}">Go through its lines</button></div></div>`;
+  return `${progress(`Beyond paid work · optional · ${plural(n, "item")}`, 0, 3)}<div class="stack">
+    <h1>Anything outside paid work worth adding?</h1>
+    <p>This part is optional. Volunteering, awards and the rest can tip a close decision, and a career break explained in a line reads better than a gap. Tap anything that applies.</p>
+    ${n ? `<div class="stack-s"><div class="label">On your record</div>${b.jobs.map(jobRow).join("")}${b.items.map(item).join("")}</div>` : ""}
+    <div class="tiles">${TILES.map((x) => `<button class="tile" data-tile="${x.key}" aria-pressed="${ui.tile === x.key}"><span style="font-weight:600">${x.label}</span><span class="small">${x.hint}</span></button>`).join("")}</div>
+    ${tile ? `<div class="card"><h2 style="font-size:20px">${tile.label}</h2>
+      ${tile.fields.map(([k, label, ph]) => `<div class="stack-s" style="gap:4px"><label for="tf_${k}">${label}</label><input type="text" id="tf_${k}" placeholder="${esc(ph)}"></div>`).join("")}
+      ${tile.note ? `<p class="small muted">${tile.note}</p>` : ""}
+      <div class="row"><button class="btn" id="saveTile">${tile.save || "Save"}</button><button class="link" id="closeTile">Cancel</button></div></div>` : ""}
+    <div class="row">
+      <button class="btn" id="beyondDone">${n ? "Done with this part" : "Nothing to add. Finish"}</button>
+      <button class="link" data-back>Back</button>
+    </div>
+    ${itemUndo()}
+  </div>`;
+}
+
+function later() {
+  const w = W();
+  return `${progress("", 1, 4)}<div class="stack" style="padding-top:8px">
+    <h1>That's your record gone through</h1>
+    <p>Your jobs, education, skills and anything outside paid work are on your record. ${w.complete_count} of your ${plural(paidCount(), "position")} ${w.complete_count === 1 ? "is" : "are"} complete, covering ${w.years.covered} of your ${w.years.total} years.</p>
+    <p>Your summary and the finished record come in the next update.</p>
+    <div class="row"><button class="btn" data-go="record">See your record</button><button class="link" data-back>Back</button></div></div>`;
+}
+
+function sectionCards() {
+  const k = S.skills, b = S.beyond;
+  const card = (go, name, detail) => `<div class="card" style="gap:4px"><div class="card-head"><div>${name}</div></div>
+    <div class="muted" style="font-size:15px">${detail}</div><div><button class="link tight" data-go="${go}">Open</button></div></div>`;
+  return `<div class="label" style="padding-top:4px">The rest of your record</div>
+    ${card("edu", "Education and licences", (S.edu || []).length ? (S.edu || []).map((e) => esc(e.line)).join(" · ") : "None yet")}
+    ${card("skills", "Skills", `${plural(k.mine, "skill")} listed as yours · ${k.unrated} without a level`)}
+    ${card("beyond", "Beyond paid work", plural(b.items.length + b.jobs.length, "item"))}`;
+}
+
 // ---------------------------------------------------------------- actions
 
 const on = (sel, fn) => document.querySelectorAll(sel).forEach((el) => el.onclick = () => fn(el));
@@ -822,6 +1048,9 @@ function wire() {
   if (screen === "line") wireLine();
   if (screen === "more") wireMore();
   if (screen === "end") wireEnd();
+  if (screen === "edu") wireEdu();
+  if (screen === "skills") wireSkills();
+  if (screen === "beyond") wireBeyond();
   if ($("continueQs")) $("continueQs").onclick = resume;
   on("[data-answers]", (el) => go("bg", { to: el.dataset.answers }));
   wireFix();
@@ -1165,6 +1394,123 @@ async function boot() {
   render();
 }
 boot();
+
+// ---------------------------------------------------------------- education, skills, beyond: actions
+
+const sec = (path, body) => send("POST", path, body);
+function wireUndoItem() {
+  if ($("undoItem")) $("undoItem").onclick = () => act(async () => {
+    const g = ui.gone; ui.gone = null;
+    return sec("/api/j/item/restore", { section: g.section, index: g.index, text: g.text });
+  });
+}
+async function finishSection(name, next) {
+  const r = await act(() => sec("/api/j/section", { name }));
+  if (r) next ? go(next) : go("later");
+}
+
+function wireEdu() {
+  const find = (id) => { const [s, i] = id.split(":"); return (S.edu || []).find((e) => e.section === s && e.index === +i); };
+  on("[data-openedu]", (el) => { ui.eduOpen = el.dataset.openedu; ui.cur = undefined; ui.gone = null; render();
+    $("ef_degree")?.focus() || $("ef_name")?.focus(); });
+  on("[data-closeedu]", () => { ui.eduOpen = null; render(); });
+  on("[data-cur]", (el) => { ui.cur = ui.cur === el.dataset.cur ? "" : el.dataset.cur; render(); });
+  on("[data-saveedu]", (el) => act(async () => {
+    const id = el.dataset.saveedu, isNew = id.startsWith("new:");
+    const section = isNew ? id.slice(4) : id.split(":")[0], e = isNew ? null : find(id);
+    const fields = Object.fromEntries(EDU_FORMS[section].map(([k]) => [k, val(`ef_${k}`)]));
+    if (section === "education") { fields.studying = !!$("ef_studying")?.checked; fields.extra = val("ef_extra"); }
+    else fields.current = ui.cur || "";
+    const r = await sec("/api/j/edu", { section, index: e ? e.index : -1, expect: e ? e.line : null, fields });
+    ui.eduOpen = null; return r;
+  }));
+  on("[data-deledu]", (el) => act(async () => {
+    const e = find(el.dataset.deledu);
+    const r = await sec("/api/j/item/delete", { section: e.section, index: e.index, expect: e.line });
+    ui.eduOpen = null; ui.gone = r.result; return r;
+  }));
+  wireUndoItem();
+  $("eduDone").onclick = () => finishSection("edu", "skills");
+}
+
+async function buildSkills() {
+  if (ui.building) return;
+  ui.building = true; ui.buildErr = ""; render();
+  try {
+    const r = await sec("/api/j/skills/build", {});
+    S = { ...S, ...r };
+  } catch (e) {
+    if (e.message !== "signed out") ui.buildErr = e.message;
+  }
+  ui.building = false;
+  if (screen === "skills") render();
+}
+
+function wireSkills() {
+  const t = () => S.targets;
+  const saveTargets = (titles) => act(async () => {
+    const r = await send("PUT", "/api/j/targets", { titles, where: t().where, modes: t().modes });
+    ui.skTarget = false; ui.buildErr = ""; return r;
+  });
+  const add = (x) => { if (x && t().titles.length < S.max_targets) saveTargets([...t().titles, x]); };
+  if ($("openSkTarget")) $("openSkTarget").onclick = () => { ui.skTarget = true; render(); $("skTitle")?.focus(); };
+  if ($("addSkTarget")) $("addSkTarget").onclick = () => add(val("skTitle"));
+  if ($("skTitle")) $("skTitle").onkeydown = (e) => { if (e.key === "Enter") add(val("skTitle")); };
+  on("[data-addtarget]", (el) => add(el.dataset.addtarget));
+  on("[data-rmtarget]", (el) => saveTargets(t().titles.filter((_, n) => n !== +el.dataset.rmtarget)));
+  if ($("retryBuild")) $("retryBuild").onclick = () => { ui.buildErr = ""; buildSkills(); };
+  on("[data-skopen]", (el) => { const c = el.dataset.skopen, o = ui.skOpen || [];
+    ui.skOpen = o.includes(c) ? o.filter((x) => x !== c) : [...o, c]; render(); });
+  on("[data-level]", (el) => { const k = el.dataset.level, l = el.dataset.l,
+    cur = S.skills.groups.flatMap((g) => g.items).find((x) => x.name === k);
+    act(() => sec("/api/j/skill", { name: k, level: cur && cur.level === l ? "" : l })); });
+  on("[data-have]", (el) => act(() => sec("/api/j/skill", { name: el.dataset.have, have: el.dataset.h })));
+  on("[data-fixuse]", (el) => { ui.fixSkill = el.dataset.fixuse; render(); $("sk_years")?.focus(); });
+  on("[data-canceluse]", () => { ui.fixSkill = null; render(); });
+  on("[data-saveuse]", (el) => act(async () => {
+    const r = await sec("/api/j/skill", { name: el.dataset.saveuse, years: val("sk_years"), last_used: val("sk_last") });
+    ui.fixSkill = null; return r;
+  }));
+  const addSkill = () => { const n = val("newSkill"); if (n) act(() => sec("/api/j/skill/add", { name: n })); };
+  $("addSkill").onclick = addSkill;
+  $("newSkill").onkeydown = (e) => { if (e.key === "Enter") addSkill(); };
+  $("skillsDone").onclick = () => finishSection("skills", "beyond");
+}
+
+function wireBeyond() {
+  const item = (id) => { const [s, i] = id.split(":"); return S.beyond.items.find((x) => x.section === s && x.index === +i); };
+  on("[data-tile]", (el) => { ui.tile = ui.tile === el.dataset.tile ? null : el.dataset.tile; ui.gone = null; render();
+    document.querySelector("[id^=tf_]")?.focus(); });
+  if ($("closeTile")) $("closeTile").onclick = () => { ui.tile = null; render(); };
+  if ($("saveTile")) $("saveTile").onclick = () => act(async () => {
+    const tile = TILES.find((x) => x.key === ui.tile);
+    const fields = Object.fromEntries(tile.fields.map(([k]) => [k, val(`tf_${k}`)]));
+    if (tile.job) {
+      const r = await sec("/api/j/joblike", { name: tile.key, fields });
+      S = { ...S, ...r }; ui.tile = null;
+      const j = jobByIndex(r.result);
+      if (j) go("more", { to: j.key });
+      return r;
+    }
+    const r = await sec("/api/j/tile", { name: tile.key, fields });
+    ui.tile = null; return r;
+  });
+  on("[data-edititem]", (el) => { ui.editItem = el.dataset.edititem; render(); $("itemText")?.focus(); });
+  on("[data-cancelitem]", () => { ui.editItem = null; render(); });
+  on("[data-saveitem]", (el) => act(async () => {
+    const it = item(el.dataset.saveitem);
+    const r = await sec("/api/j/item/edit", { section: it.section, index: it.index, expect: it.text, text: val("itemText") });
+    ui.editItem = null; return r;
+  }));
+  on("[data-delitem]", (el) => act(async () => {
+    const it = item(el.dataset.delitem);
+    const r = await sec("/api/j/item/delete", { section: it.section, index: it.index, expect: it.text });
+    ui.gone = r.result; return r;
+  }));
+  on("[data-gojob]", (el) => go("lines", { to: el.dataset.gojob }));
+  wireUndoItem();
+  $("beyondDone").onclick = () => finishSection("beyond");
+}
 </script>
 </body>
 </html>

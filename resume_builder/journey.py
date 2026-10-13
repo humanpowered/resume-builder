@@ -23,7 +23,7 @@ DELETED = "journey.deleted"
 ANSWERS = "journey.answers"
 
 SCREENS = ("welcome", "upload", "check", "targets", "bg", "lines", "line", "more", "end",
-           "stopped", "bgdone", "record")
+           "stopped", "bgdone", "record", "edu", "skills", "beyond", "later")
 CONTACT_FIELDS = ("Name", "Email", "Telephone", "Location", "Linkedin", "Website")
 RESUME, STORY = "resume", "story"
 
@@ -106,6 +106,7 @@ def deleted(store) -> dict:
     d = store.load_state(DELETED) or {}
     d.setdefault("jobs", [])
     d.setdefault("lines", [])
+    d.setdefault("items", [])
     return d
 
 
@@ -427,15 +428,17 @@ def steps(store, rec: mr.Record) -> list:
     an answer given here stays in, so Back can return to it."""
     a = answers(store)
     jobs = [i for _, idx in _groups(rec) for i in idx]
-    number = {i: n + 1 for n, i in enumerate(jobs)}
+    # Positions are counted over paid work; work outside it is optional.
+    paid = [i for i in jobs if not rec.roles[i].outside()]
+    number = {i: n + 1 for n, i in enumerate(paid)}
     out = []
 
     def step(kind, i, field, status, text, **more):
         role = rec.roles[i]
         out.append({"id": "|".join(x for x in (kind, emp_key(role) if kind != "q" else job_key(role),
                                                 field if kind == "q" else "") if x),
-                    "kind": kind, "field": field, "job": i, "job_number": number[i],
-                    "job_total": len(jobs), "employer": role.employer, "title": role.title,
+                    "kind": kind, "field": field, "job": i, "job_number": number.get(i, 0),
+                    "job_total": len(paid), "employer": role.employer, "title": role.title,
                     "dates": clean(role.fields.get("Dates", "")), "label": role.label(),
                     "status": status or "todo", "answer": clean(text), **more})
 
@@ -615,7 +618,10 @@ def work_view(store, rec: mr.Record) -> dict:
     w = _work(store)
     bg = steps(store, rec)
     order = [i for _, idx in _groups(rec) for i in idx]
-    number = {i: n + 1 for n, i in enumerate(order)}
+    # Positions are counted over paid work; work outside it is optional and
+    # never stands between the person and the finish line.
+    paid = [i for i in order if not rec.roles[i].outside()]
+    number = {i: n + 1 for n, i in enumerate(paid)}
     jobs, done_ranges, all_ranges = [], [], []
     for i, role in enumerate(rec.roles):
         j = w.get(job_key(role), {})
@@ -636,10 +642,10 @@ def work_view(store, rec: mr.Record) -> dict:
                 done_ranges.append(rng)
         count = {s: sum(1 for l in lines if l["status"] == s) for s in LINE_STATUSES}
         jobs.append({"key": job_key(role), "index": i, "label": role.label(),
-                     "number": number[i], "total": len(order),
+                     "number": number.get(i, 0), "total": len(paid),
                      "dates": clean(role.fields.get("Dates", "")),
                      "title": role.title, "employer": role.employer,
-                     "lines": lines, "suggested": [l["key"] for l in todo[:SUGGEST]],
+                     "outside": role.outside(), "lines": lines, "suggested": [l["key"] for l in todo[:SUGGEST]],
                      "next_line": todo[0]["key"] if todo else "",
                      "counts": count, "open_questions": len(open_bg),
                      "more": bool(j.get("more")), "done": bool(j.get("done")),
@@ -647,7 +653,7 @@ def work_view(store, rec: mr.Record) -> dict:
     return {"jobs": jobs, "order": order,
             "years": {"covered": round(_months(done_ranges) / 12),
                       "total": round(_months(all_ranges) / 12)},
-            "complete_count": sum(1 for j in jobs if j["complete"])}
+            "complete_count": sum(1 for j in jobs if j["complete"] and not j["outside"])}
 
 
 def _find_line(role: mr.Role, key: str) -> dict:
