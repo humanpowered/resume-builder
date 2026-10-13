@@ -207,7 +207,7 @@ class Sections(unittest.TestCase):
     def test_sections_are_marked_done(self):
         self.upload()
         s = self.post("/api/j/section", name="edu")
-        self.assertEqual(s["sections"], {"edu": True, "skills": False, "beyond": False})
+        self.assertEqual(s["sections"], {"edu": True, "skills": False, "beyond": False, "summary": False})
         self.c.put("/api/j/step", json={"screen": "skills"})
         self.assertEqual(self.state()["screen"], "skills")
 

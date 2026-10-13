@@ -37,6 +37,13 @@ class FileStore:
         tmp.write_text(mr.render(rec), encoding="utf-8")
         tmp.replace(self.path)
 
+    def updated(self) -> str:
+        """When the record was last saved, as an ISO date, or "" if never."""
+        if not self.path.exists():
+            return ""
+        from datetime import datetime, timezone
+        return datetime.fromtimestamp(self.path.stat().st_mtime, timezone.utc).isoformat()
+
     def load_state(self, name: str):
         p = self._side(name)
         if not p.exists():
@@ -71,7 +78,12 @@ class MemoryStore:
         return mr.parse(self.text) if self.text else mr.Record(header=["# Master record"])
 
     def save_record(self, rec: mr.Record) -> None:
+        from datetime import datetime, timezone
         self.text = mr.render(rec)
+        self.saved_at = datetime.now(timezone.utc).isoformat()
+
+    def updated(self) -> str:
+        return getattr(self, "saved_at", "")
 
     def load_state(self, name: str):
         s = self.states.get(name)
@@ -146,6 +158,11 @@ class SqlStore:
             "DO UPDATE SET body = excluded.body, updated_at = excluded.updated_at",
             (self.user, body, now))
         self.conn.commit()
+
+    def updated(self) -> str:
+        row = self.conn.execute("SELECT updated_at FROM records WHERE user_id = ?",
+                                (self.user,)).fetchone()
+        return row[0] if row else ""
 
     def history(self) -> list:
         return [r[0] for r in self.conn.execute(

@@ -14,7 +14,7 @@ from datetime import date
 from . import health, importer, journey, skills
 from . import record as mr
 
-SECTIONS = ("edu", "skills", "beyond")
+SECTIONS = ("edu", "skills", "beyond", "summary")
 DONE = "journey.sections"
 EDU_FIELDS = "journey.edufields"
 BUILT_FOR = "journey.skillsbuilt"

@@ -134,6 +134,11 @@
   .tile .small { color: var(--muted); }
   .tile[aria-pressed=true] { border: 2px solid var(--accent); background: var(--accent); color: var(--accent-ink); }
   .tile[aria-pressed=true] .small { color: var(--accent-ink); }
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; }
+  .stat { padding: 12px 14px; border-radius: 12px; background: var(--panel); border: 1px solid var(--line); }
+  .tick { display: flex; gap: 10px; align-items: flex-start; font-weight: 400; font-size: 16px; padding: 8px 0;
+          border-top: 1px solid var(--soft-line); cursor: pointer; }
+  .tick input { width: 20px; height: 20px; margin: 2px 0 0; flex: none; accent-color: var(--accent); }
   [hidden] { display: none !important; }
 </style>
 </head>
@@ -152,7 +157,8 @@ const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) =>
 const plural = (n, one, many) => `${n} ${n === 1 ? one : (many || one + "s")}`;
 
 const SCREENS = ["welcome", "upload", "check", "targets", "bg", "lines", "line", "more", "end",
-                 "stopped", "bgdone", "record", "edu", "skills", "beyond", "later"];
+                 "stopped", "bgdone", "record", "edu", "skills", "beyond", "later",
+                 "story", "summary", "complete", "review", "back"];
 // Where the on-screen Back goes from each screen when there is no browser
 // history to go back through (for example, straight after a refresh). The
 // background questions step back one question at a time instead.
@@ -201,7 +207,9 @@ function go(next, { push = true, to = "", promo = false } = {}) {
   const st = { screen: next, at, promo, depth: (history.state?.depth || 0) + (push ? 1 : 0) };
   if (push) history.pushState(st, "", "#" + next);
   else history.replaceState(st, "", "#" + next);
-  send("PUT", "/api/j/step", { screen: next, at }).catch(() => {});
+  // Welcome back is shown over the step the person left off at, never saved
+  // in its place, so "Resume where I left off" still knows where that was.
+  if (next !== "back") send("PUT", "/api/j/step", { screen: next, at }).catch(() => {});
   render();
   window.scrollTo(0, 0);
 }
@@ -218,7 +226,10 @@ function back() {
     return last ? go("end", { to: last.key, push: false }) : go("record", { push: false }); }
   if (screen === "skills") return go("edu", { push: false });
   if (screen === "beyond") return go("skills", { push: false });
-  if (screen === "later") return go("beyond", { push: false });
+  if (screen === "story") return go("beyond", { push: false });
+  if (screen === "summary") return go("story", { push: false });
+  if (screen === "complete" || screen === "later") return go("summary", { push: false });
+  if (screen === "review") return go("upload", { push: false });
   go(BACK[screen] || "welcome", { push: false });
 }
 window.addEventListener("popstate", (e) => {
@@ -264,7 +275,7 @@ function nextJob(after) {
 }
 function resume() {
   const j = nextJob(null), s = nextSection();
-  j ? jobStart(j) : s ? go(s) : go("record");
+  j ? jobStart(j) : s ? go(SECTION_SCREEN[s]) : go("record");
 }
 function goNext(from) {
   const x = S.steps[from];
@@ -313,8 +324,10 @@ function render() {
   if (screen === "signin") return;
   m.innerHTML = ({ welcome, upload, check: () => recordScreen(true), targets, bg, bgdone,
                    lines: linesScreen, line: lineScreen, more: moreScreen, end: endScreen, stopped,
-                   record: () => recordScreen(false), edu: eduScreen, skills: skillsScreen,
-                   beyond: beyondScreen, later }[screen] || welcome)();
+                   record: homeScreen, edu: eduScreen, skills: skillsScreen,
+                   beyond: beyondScreen, later: completeScreen, story: storyScreen,
+                   summary: summaryScreen, complete: completeScreen, review: reviewScreen,
+                   back: welcomeBack }[screen] || welcome)();
   wire();
 }
 
@@ -326,11 +339,15 @@ function welcome() {
     <p>Bring in a resume or LinkedIn file if you have one. Then we go through your jobs one at a time and ask what a good recruiter would ask: what you were brought in to do, what changed because you were there, and how you'd measure it. Education, skills and a short summary come after.</p>
     <p>Why go to the trouble? Most resumes leave out much of what a person has done, because nobody remembers it all while staring at a blank page. The project that saved money and the people you trained win interviews, and they're easy to miss. The right questions bring them back.</p>
     <p>Plan on 15 to 20 minutes a job, over as many sittings as you like. Everything is saved as you go.</p>
-    <div style="padding-top:8px"><button class="btn" data-go="upload">Start</button></div>
+    <div style="padding-top:8px">${S && S.exists && S.step.seen_check
+      ? `<button class="btn" data-go="record">Back to your record</button>` : `<button class="btn" data-go="upload">Start</button>`}</div>
   </div>`;
 }
 
+const reviewing = () => !!(S && S.exists && S.step.seen_check);
+
 function upload() {
+  if (reviewing()) return uploadLater();
   const busy = uploads.some((u) => u.busy);
   const anyOk = uploads.some((u) => u.ok);
   const files = uploads.map((u) => `
@@ -362,6 +379,26 @@ function upload() {
       <button class="link" data-back>Back</button>
       ${anyOk ? "" : `<button class="link" id="skip" ${busy ? "disabled" : ""}>I don't have a file. Skip this</button>`}
     </div>
+  </div>`;
+}
+
+function uploadLater() {
+  const u = uploads[uploads.length - 1];
+  const busy = u && u.busy;
+  return `
+  <div class="stack">
+    <h1>Bring in a newer resume</h1>
+    <p class="muted">A resume or LinkedIn PDF. We read it, then show you what it would add to your record. Nothing is saved until you choose, and anything you deleted earlier is only offered back, never added.</p>
+    ${u && (busy || u.err) ? `<div class="file ${u.err ? "err" : ""}">
+      <div style="font-weight:600">${busy ? '<span class="spin" aria-hidden="true"></span>' : ""}${esc(u.name)}</div>
+      <div>${esc(u.msg)}</div></div>` : ""}
+    <div class="drop" id="drop">
+      <div style="font-weight:600">Drop a file here, or choose one</div>
+      <div class="small muted">PDF, Word or plain text, up to 5 MB.</div>
+      <input type="file" id="files" accept=".pdf,.docx,.txt,.md" hidden>
+      <button class="btn" id="pick" ${busy ? "disabled" : ""}>Choose a file</button>
+    </div>
+    <div class="row"><button class="link" data-back>Back</button></div>
   </div>`;
 }
 
@@ -416,7 +453,7 @@ function contactCard() {
   </div>`;
 }
 
-function jobCard(j) {
+function jobCard(j, home) {
   const i = j.index;
   const open = ui.open === i;
   const n = j.lines.length;
@@ -449,6 +486,7 @@ function jobCard(j) {
   return `<div class="card">
     <div class="card-head"><div>${esc(j.title)}, ${esc(j.employer)}</div>
       <div class="dates">${esc(j.dates) || "<span class='muted'>no dates</span>"}</div></div>
+    ${home ? jobStatus(j) : ""}
     <div class="row" style="gap:16px">
       <button class="link" data-toggle="${i}" aria-expanded="${open}">${open ? "Hide lines" : "Show lines"} (${plural(n, "line")})</button>
       <button class="link" data-editjob="${i}">Edit job</button>
@@ -458,6 +496,18 @@ function jobCard(j) {
     ${open ? backgroundBlock(j) : ""}
     ${open ? `<div class="lines">${lines || `<div class="muted small" style="padding:8px 0">No lines yet.</div>`}${adding}</div>` : ""}
   </div>${titlePrompt(j)}`;
+}
+
+function jobStatus(j) {
+  const w = jobByIndex(j.index);
+  if (!w || w.outside) return "";
+  const up = nextJob(null);
+  const started = w.counts.stronger + w.counts.kept + w.counts.skipped > 0 || w.more
+    || (S.steps || []).some((x) => x.job === j.index && x.status !== "todo");
+  const t = w.complete ? ["kept", "Complete"] : up && up.index === j.index ? ["todo", "Up next"]
+    : started ? ["todo", "In progress"] : ["", "Not started"];
+  return `<div class="row" style="gap:12px"><span class="tag ${t[0]}">${t[1]}</span>
+    <button class="link tight" data-openjob="${esc(w.key)}">Open</button></div>`;
 }
 
 function backgroundBlock(j) {
@@ -750,7 +800,7 @@ function endScreen() {
     <div class="row">
       ${j.outside ? `<button class="btn" data-go="beyond">Back to beyond paid work</button>`
         : next ? `<button class="btn" id="nextJob">Next job: ${esc(next.title)}</button>`
-        : nextSection() ? `<button class="btn" data-go="${nextSection()}">Next: ${SECTION_NAMES[nextSection()].toLowerCase()}</button>`
+        : nextSection() ? `<button class="btn" data-go="${SECTION_SCREEN[nextSection()]}">Next: ${SECTION_NAMES[nextSection()].toLowerCase()}</button>`
         : `<button class="btn" data-go="record">See your record</button>`}
       <button class="btn2" id="stopNow">Stop for now</button>
       ${j.complete ? "" : `<button class="link" id="jobDone">Mark this job done as it is</button>`}
@@ -827,8 +877,10 @@ function undoBar() {
 
 // ---------------------------------------------------------------- education, skills, beyond paid work
 
-const SECTION_NAMES = { edu: "Education and licences", skills: "Your skills", beyond: "Beyond paid work" };
-const nextSection = () => ["edu", "skills", "beyond"].find((k) => !(S.sections || {})[k]);
+const SECTION_NAMES = { edu: "Education and licences", skills: "Your skills", beyond: "Beyond paid work",
+                        summary: "Your summary" };
+const SECTION_SCREEN = { edu: "edu", skills: "skills", beyond: "beyond", summary: "story" };
+const nextSection = () => ["edu", "skills", "beyond", "summary"].find((k) => !(S.sections || {})[k]);
 
 function itemUndo() {
   if (!ui.gone) return "";
@@ -1009,7 +1061,7 @@ function beyondScreen() {
       ${tile.note ? `<p class="small muted">${tile.note}</p>` : ""}
       <div class="row"><button class="btn" id="saveTile">${tile.save || "Save"}</button><button class="link" id="closeTile">Cancel</button></div></div>` : ""}
     <div class="row">
-      <button class="btn" id="beyondDone">${n ? "Done with this part" : "Nothing to add. Finish"}</button>
+      <button class="btn" id="beyondDone">${n ? "Done. On to your summary" : "Nothing to add. On to your summary"}</button>
       <button class="link" data-back>Back</button>
     </div>
     ${itemUndo()}
@@ -1026,13 +1078,339 @@ function later() {
 }
 
 function sectionCards() {
-  const k = S.skills, b = S.beyond;
-  const card = (go, name, detail) => `<div class="card" style="gap:4px"><div class="card-head"><div>${name}</div></div>
-    <div class="muted" style="font-size:15px">${detail}</div><div><button class="link tight" data-go="${go}">Open</button></div></div>`;
+  const k = S.skills, b = S.beyond, sm = S.summary, t = S.targets;
+  const card = (go, name, detail, extra = "") => `<div class="card" style="gap:4px"><div class="card-head"><div>${name}</div></div>
+    <div class="muted" style="font-size:15px">${detail}</div><div class="row" style="gap:16px"><button class="link tight" data-go="${go}">Open</button>${extra}</div></div>`;
+  const short = (x) => x.length > 140 ? x.slice(0, 138) + "…" : x;
   return `<div class="label" style="padding-top:4px">The rest of your record</div>
     ${card("edu", "Education and licences", (S.edu || []).length ? (S.edu || []).map((e) => esc(e.line)).join(" · ") : "None yet")}
     ${card("skills", "Skills", `${plural(k.mine, "skill")} listed as yours · ${k.unrated} without a level`)}
-    ${card("beyond", "Beyond paid work", plural(b.items.length + b.jobs.length, "item"))}`;
+    ${card("beyond", "Beyond paid work", plural(b.items.length + b.jobs.length, "item"))}
+    ${card("summary", "Summary and targets", `${sm.current ? esc(short(sm.current)) : "No summary yet"}<br>Aiming for: ${t.titles.length ? t.titles.map(esc).join(", ") : "not set yet"}`,
+      `<button class="link tight" data-go="targets">Change targets</button>`)}`;
+}
+
+// ---------------------------------------------------------------- home
+
+const firstName = () => {
+  const n = ((S.contact || {}).Name || "").trim().split(/\s+/)[0] || "";
+  return n === n.toUpperCase() ? n.charAt(0) + n.slice(1).toLowerCase() : n;
+};
+const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September",
+                "October", "November", "December"];
+const day = (iso) => { const d = new Date(iso); return isNaN(d) ? "" : `${d.getDate()} ${MONTHS[d.getMonth()]}`; };
+
+function statusLine() {
+  const f = S.finish, y = f.years;
+  const head = f.record_complete ? "Complete" : `${f.complete} of ${plural(f.positions, "position")} complete`;
+  return `${head} · covers ${y.covered} of ${y.total} years${S.updated ? ` · updated ${day(S.updated)}` : ""}`;
+}
+
+// What "Continue where you left off" leads to, in words.
+function nextWords() {
+  const n = nextJob(null), sct = nextSection();
+  if (n) {
+    const st = (S.steps || []).find((x) => x.job === n.index && x.status === "todo");
+    return `${n.title} at ${n.employer}, ${st ? "its background questions" : n.next_line ? "its lines" : "anything else from it"}`;
+  }
+  return sct ? SECTION_NAMES[sct].replace(/^Your /, "your ").replace(/^(Education|Beyond)/, (m) => m.toLowerCase()) : "";
+}
+
+function homeScreen() {
+  const jobs = S.jobs || [], f = S.finish, name = firstName();
+  const main = f.record_complete
+    ? `<div class="done stack-s"><div style="font-weight:600">Make a resume for a job</div>
+        <div>Your record is complete. Pasting a job posting here to get a resume and cover letter written from your record comes in the next update.</div></div>`
+    : jobs.length ? `<div class="done stack-s">
+        ${nextWords() ? `<div>Next: ${esc(nextWords())}.</div>` : ""}
+        <div><button class="btn" id="continueQs">Continue where you left off</button></div></div>` : "";
+  const sug = S.suggestions || [];
+  return `<div class="stack">
+    <div class="stack-s" style="gap:6px;padding-top:8px">
+      <h1>${name ? `${esc(name)}'s career record` : "Your career record"}</h1>
+      ${jobs.length ? `<div class="count">${esc(statusLine())}</div>` : ""}
+    </div>
+    ${ui.added ? `<div class="done" role="status">${esc(ui.added)}</div>` : ""}
+    ${main}
+    ${sug.length ? `<div class="stack-s"><h2 style="font-size:20px">Ways to make it stronger</h2>
+      ${sug.map((x, n) => `<div class="card" style="flex-direction:row;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:12px;padding:12px 14px">
+        <span style="min-width:0;flex:1 1 220px">${esc(x.text)}</span>
+        <span class="row" style="gap:14px;flex-wrap:nowrap"><button class="btn2" data-sug="${n}">${esc(x.action)}</button>
+        <button class="link tight" data-notnow="${esc(x.key)}">Not now</button></span></div>`).join("")}</div>` : ""}
+    <h2 style="font-size:20px">Your record</h2>
+    ${contactCard()}
+    ${jobs.length ? `<div class="label" style="padding-top:4px">Jobs, newest first</div>
+      <p class="small muted">${plural(jobs.length, "job")} · ${plural(S.line_count, "line")}</p>` : ""}
+    ${jobs.map((j) => jobCard(j, true)).join("")}
+    ${addJobBlock(!jobs.length)}
+    ${S.skills ? sectionCards() : ""}
+    ${undoBar()}
+    <div class="row" style="padding-top:4px">
+      <button class="btn2" data-go="upload">Upload a newer resume</button>
+      <button class="link" data-go="welcome">How this works</button>
+    </div>
+  </div>`;
+}
+
+// ---------------------------------------------------------------- the career story, the summary, the finish
+
+function storyScreen() {
+  return `${progress("Summary · your career in your own words", 0.2, 4)}<div class="stack">
+    <h1>Your career in your own words</h1>
+    <p>Three optional questions. Your answers shape your summary and give cover letters something no list of jobs can: what you're like to work with and where you're heading. Answer any, all or none.</p>
+    ${S.story.questions.map((q) => `<div class="stack-s" style="gap:6px">
+      <label for="story_${q.key}" style="font-size:18px">${esc(q.q)}</label>
+      <div class="small muted" style="font-size:15px">For example: ${esc(q.ex)}</div>
+      <textarea id="story_${q.key}" data-story="${q.key}">${esc(q.answer)}</textarea></div>`).join("")}
+    <div class="row" style="border-top:1px solid var(--line);padding-top:14px">
+      <button class="btn" id="storyNext">Next: your summary</button>
+      <button class="btn2" id="storySkip">Skip these</button>
+      <button class="link" data-back>Back</button>
+    </div>
+  </div>`;
+}
+
+let storyTimer = null;
+function saveStory() {
+  clearTimeout(storyTimer); storyTimer = null;
+  const fields = {};
+  document.querySelectorAll("[data-story]").forEach((el) => fields[el.dataset.story] = el.value);
+  return send("PUT", "/api/j/story", { fields }).then((r) => { S = { ...S, ...r }; }).catch((e) => say(e.message));
+}
+function wireStory() {
+  document.querySelectorAll("[data-story]").forEach((el) => el.oninput = () => {
+    clearTimeout(storyTimer); storyTimer = setTimeout(saveStory, 800); });
+  $("storyNext").onclick = async () => { await saveStory(); go("summary"); };
+  $("storySkip").onclick = () => { clearTimeout(storyTimer); storyTimer = null; go("summary"); };
+}
+
+const summaryIssues = (t) => {
+  const out = [], words = t.split(/\s+/).filter(Boolean).length;
+  if (words > 90) out.push(`${words} words; resumes keep the summary under 90.`);
+  if (/\b(I|my|me)\b/.test(t)) out.push("Written in the first person; resume summaries usually leave out “I”.");
+  return out;
+};
+
+function summaryScreen() {
+  const sm = S.summary, drafts = sm.drafts;
+  if (!drafts.length && !sm.current && !sm.failed && !ui.drafting && !ui.sumErr) setTimeout(draftSummary);
+  const pick = ui.sumPick ?? (drafts.length ? drafts.length - 1 : "current");
+  const text = sumText(pick);
+  const label = pick === "own" ? "Your version" : pick === "current" ? (sm.approved ? "Your summary" : "Your current summary") : `Draft ${pick + 1}`;
+  const fresh = drafts.length === 0;
+  const failedLast = sm.failed && !ui.drafting;
+  return `${progress(`Summary · ${typeof pick === "number" ? "draft " + (pick + 1) : "your summary"}`, 0.6, 4)}<div class="stack">
+    <h1>Your professional summary</h1>
+    <p>${fresh && sm.current ? "This is the summary on your record now. Approve it, change it, or have a version written from everything on your record. It uses only facts and figures you gave us, nothing added."
+      : "We drafted this from everything on your record. It uses only facts and figures you gave us, nothing added. Approve it, change it, or ask for another version."} Each tailored resume adjusts it to the job.</p>
+    ${ui.drafting ? `<div class="done"><span class="spin" aria-hidden="true"></span>Writing a summary from your record…</div>` : ""}
+    ${ui.sumErr ? `<div class="note">${esc(ui.sumErr)} <button class="link tight" id="retrySum">Try again</button></div>` : ""}
+    ${failedLast ? `<div class="note">We couldn't write a version without adding figures you didn't give, so we won't offer one. Ask for another version, or write your own.</div>` : ""}
+    ${text || ui.sumEdit ? `<div class="card strong" style="gap:8px">
+      <div class="label" style="color:var(--accent)">${label}</div>
+      ${ui.sumEdit ? `<label for="sumEdit">Edit your summary</label><textarea id="sumEdit" style="min-height:150px">${esc(text)}</textarea>
+        <div class="small muted" id="sumIssues">${summaryIssues(text).map(esc).join(" ")}</div>`
+        : `<div style="font-size:17px;line-height:1.6">${esc(text)}</div>`}
+    </div>` : ""}
+    ${drafts.length + (sm.current ? 1 : 0) + (ui.sumOwn ? 1 : 0) > 1 ? `<div class="row" style="gap:8px"><span class="small muted">Versions:</span>
+      ${sm.current ? `<button class="chip" data-sumpick="current" aria-pressed="${pick === "current"}">Current</button>` : ""}
+      ${ui.sumOwn ? `<button class="chip" data-sumpick="own" aria-pressed="${pick === "own"}">Your version</button>` : ""}
+      ${drafts.map((_, n) => `<button class="chip" data-sumpick="${n}" aria-pressed="${pick === n}">Draft ${n + 1}</button>`).join("")}</div>` : ""}
+    <div class="row">
+      ${text || ui.sumEdit ? `<button class="btn" id="approveSum">${sm.approved && pick === "current" && !ui.sumEdit ? "Keep it" : "Approve"}</button>
+        <button class="btn2" id="editSum">${ui.sumEdit ? "Done editing" : "Edit"}</button>` : `<button class="btn2" id="writeOwn">Write my own</button>`}
+      <button class="btn2" id="moreSum" ${ui.drafting ? "disabled" : ""}>${fresh ? "Write a version from my record" : "Write another version"}</button>
+      <button class="link" data-back>Back</button>
+    </div>
+    <div><button class="link" id="skipSum">Skip for now</button></div>
+  </div>`;
+}
+
+function sumText(pick) {
+  const sm = S.summary;
+  return pick === "own" ? ui.sumOwn || "" : pick === "current" ? sm.current : sm.drafts[pick] || "";
+}
+
+async function draftSummary() {
+  if (ui.drafting) return;
+  ui.drafting = true; ui.sumErr = ""; render();
+  try {
+    const r = await send("POST", "/api/j/summary/draft", {});
+    S = { ...S, ...r };
+    ui.sumPick = r.result.failed ? ui.sumPick : S.summary.drafts.length - 1;
+    ui.sumEdit = false;
+  } catch (e) {
+    if (e.message !== "signed out") ui.sumErr = e.message;
+  }
+  ui.drafting = false;
+  if (screen === "summary") render();
+}
+
+function wireSummary() {
+  const sm = S.summary;
+  const pick = ui.sumPick ?? (sm.drafts.length ? sm.drafts.length - 1 : "current");
+  const shown = () => sumText(pick);
+  if ($("sumEdit")) $("sumEdit").oninput = () => { $("sumIssues").textContent = summaryIssues($("sumEdit").value).join(" "); };
+  if ($("retrySum")) $("retrySum").onclick = () => { ui.sumErr = ""; draftSummary(); };
+  if ($("moreSum")) $("moreSum").onclick = () => draftSummary();
+  if ($("writeOwn")) $("writeOwn").onclick = () => { ui.sumEdit = true; render(); $("sumEdit")?.focus(); };
+  on("[data-sumpick]", (el) => { const v = el.dataset.sumpick;
+    ui.sumPick = v === "current" || v === "own" ? v : +v; ui.sumEdit = false; render(); });
+  if ($("editSum")) $("editSum").onclick = () => {
+    if (ui.sumEdit) {   // done editing: what was typed becomes a version of its own, approved with Approve
+      const t = val("sumEdit");
+      if (t && t !== shown()) { ui.sumOwn = t; ui.sumPick = "own"; }
+      ui.sumEdit = false; return render();
+    }
+    ui.sumEdit = true; render(); $("sumEdit")?.focus();
+  };
+  if ($("approveSum")) $("approveSum").onclick = () => act(async () => {
+    const text = ui.sumEdit ? val("sumEdit") : shown();
+    const r = await send("POST", "/api/j/summary/approve", { text });
+    S = { ...S, ...r }; ui.sumEdit = false; ui.sumPick = undefined; go("complete");
+    return r;
+  });
+  $("skipSum").onclick = async () => { const r = await act(() => sec("/api/j/section", { name: "summary" })); if (r) go("complete"); };
+}
+
+function completeScreen() {
+  const f = S.finish, y = f.years, k = S.skills;
+  const left = [];
+  if (f.jobs_left) left.push(`${plural(f.jobs_left, "position")} still ${f.jobs_left === 1 ? "has" : "have"} something left for later`);
+  f.sections_left.forEach((x) => left.push(`${SECTION_NAMES[x].replace(/^Your /, "your ").toLowerCase()} ${x === "skills" || x === "summary" ? "is" : "are"} still open`));
+  const stats = [[`${f.complete} of ${f.positions}`, "positions complete"], [`${y.covered} of ${y.total}`, "years covered"],
+                 [(S.edu || []).length, "education and licences"], [k.mine, "skills"]];
+  return `${progress(f.record_complete ? `Record complete · ${f.complete} of ${plural(f.positions, "position")} · covers ${y.covered} of ${y.total} years` : "", 1, 4)}<div class="stack" style="padding-top:4px">
+    <h1 class="big">${f.record_complete ? "Your record is complete" : "You've been through your whole record"}</h1>
+    <p>${f.record_complete ? "You've been through every part of it once. From here on, every resume and cover letter is tailored from this record, and anything you add later makes all of them stronger."
+      : `Everything is saved. A few things are waiting for you: ${esc(left.join("; "))}. Finish them whenever you like from your record; nothing here holds you back.`}</p>
+    <div class="stats">${stats.map(([n, l]) => `<div class="stat"><div class="count" style="font-size:22px">${esc(n)}</div><div class="small muted">${l}</div></div>`).join("")}</div>
+    <div class="done stack-s"><h2 style="font-size:20px">See what it can do</h2>
+      <p>A sample resume drawn from your record, and one written for a job posting you paste, come in the next update.</p></div>
+    <div class="row" style="border-top:1px solid var(--line);padding-top:14px">
+      <button class="btn" data-go="record">Go to my record</button>
+      <button class="link" data-back>Back</button>
+    </div>
+  </div>`;
+}
+
+// ---------------------------------------------------------------- a later upload, as a review
+
+const REVIEW_GROUPS = [["contact", "Contact details"], ["job", "New jobs"], ["deleted_job", "Jobs you deleted earlier"],
+  ["line", "New lines under jobs on your record"], ["deleted_line", "Lines you deleted earlier"],
+  ["item", "Education, awards and the rest"], ["deleted_item", "Entries you deleted earlier"],
+  ["skill", "Skills"], ["summary", "A summary"]];
+
+function reviewScreen() {
+  const rv = S.review;
+  if (!rv) { setTimeout(() => go("record", { push: false })); return ""; }
+  if (!ui.picks) ui.picks = new Set(rv.items.filter((x) => x.pick).map((x) => x.id));
+  const tick = (x, text) => `<label class="tick"><input type="checkbox" data-pick="${esc(x.id)}" ${ui.picks.has(x.id) ? "checked" : ""}>
+    <span style="min-width:0">${text}</span></label>`;
+  const body = (x) => x.group === "job" ? `<b>${esc(x.text)}</b>${x.dates ? ` · ${esc(x.dates)}` : ""} · ${plural(x.lines, "line")}`
+    : x.group === "deleted_job" ? `This file includes <b>${esc(x.text)}</b>, which you deleted earlier. Add it back?`
+    : x.group === "line" || x.group === "deleted_line" ? `${esc(x.text)}<div class="small muted">${esc(x.job)}</div>`
+    : x.kind ? `${esc(x.text)}<div class="small muted">${esc(x.kind)}</div>` : esc(x.text);
+  const groups = REVIEW_GROUPS.map(([g, title]) => {
+    const list = rv.items.filter((x) => x.group === g);
+    if (!list.length) return "";
+    const hidden = g.startsWith("deleted_") && g !== "deleted_job";
+    const open = (ui.revOpen || []).includes(g);
+    return `<div class="card" style="gap:6px"><div class="label">${title}${hidden ? "" : ` (${list.length})`}</div>
+      ${hidden ? `<div>${plural(list.length, g === "deleted_line" ? "line" : "entry", g === "deleted_line" ? "lines" : "entries")} you deleted earlier ${list.length === 1 ? "is" : "are"} in this file. ${list.length === 1 ? "It's" : "They're"} left out unless you tick ${list.length === 1 ? "it" : "them"}.</div>
+        <div><button class="link tight" data-revopen="${g}">${open ? "Hide" : "Show"} ${list.length === 1 ? "it" : "them"}</button></div>` : ""}
+      ${!hidden || open ? list.map((x) => tick(x, body(x))).join("") : ""}</div>`;
+  }).join("");
+  const n = ui.picks.size;
+  return `<div class="stack">
+    <h1>${rv.items.length ? "Check what this file would add" : "Nothing new in this file"}</h1>
+    <p>${rv.items.length ? `We read ${esc(rv.file)}. Nothing is saved until you choose. New things are ticked; untick anything you don't want.`
+      : `We read ${esc(rv.file)}. Everything in it is already on your record, so there's nothing to add.`}</p>
+    ${groups}
+    <div class="row">
+      ${rv.items.length ? `<button class="btn" id="applyReview" ${n ? "" : "disabled"}>${n ? `Add ${plural(n, "ticked item")}` : "Nothing ticked"}</button>
+        <button class="btn2" id="dropReview">Don't add anything</button>`
+        : `<button class="btn" id="dropReview">Back to my record</button>`}
+    </div>
+  </div>`;
+}
+
+function wireReview() {
+  document.querySelectorAll("[data-pick]").forEach((el) => el.onchange = () => {
+    el.checked ? ui.picks.add(el.dataset.pick) : ui.picks.delete(el.dataset.pick); render(); });
+  on("[data-revopen]", (el) => { const g = el.dataset.revopen, o = ui.revOpen || [];
+    ui.revOpen = o.includes(g) ? o.filter((x) => x !== g) : [...o, g]; render(); });
+  if ($("applyReview")) $("applyReview").onclick = () => act(async () => {
+    const r = await send("POST", "/api/j/review/apply", { ids: [...ui.picks] });
+    S = { ...S, ...r }; uploads = [];
+    const a = r.added, bits = [a.jobs ? plural(a.jobs, "job") : "", a.lines ? plural(a.lines, "line") : "",
+                               a.other ? plural(a.other, "other entry", "other entries") : ""].filter(Boolean);
+    go("record"); ui.added = `Added ${_and(bits)} to your record.`; render();
+    return r;
+  });
+  $("dropReview").onclick = () => act(async () => {
+    const r = await send("POST", "/api/j/review/drop", {}); S = { ...S, ...r }; uploads = []; go("record"); return r; });
+}
+
+// ---------------------------------------------------------------- welcome back
+
+function welcomeBack() {
+  const f = S.finish, name = firstName();
+  const doneNames = ["edu", "skills", "summary"].filter((x) => S.sections[x]).map((x) => ({ edu: "education", skills: "skills", summary: "your summary" }[x]));
+  const leftNames = f.sections_left.map((x) => ({ edu: "education", skills: "skills", summary: "your summary" }[x]));
+  const where = `${f.complete} of ${plural(f.positions, "position")} complete${doneNames.length ? `, ${_and(doneNames)} done` : ""}.`
+    + (leftNames.length ? ` ${_and(leftNames).replace(/^./, (c) => c.toUpperCase())} ${leftNames.length === 1 && leftNames[0] !== "skills" ? "is" : "are"} still to go.` : "");
+  const long = (S.away_hours || 0) >= S.long_absence_days * 24;
+  return `<div class="stack" style="padding-top:12px">
+    <h1 class="big">Welcome back${name ? `, ${esc(name)}` : ""}.</h1>
+    <div class="card" style="gap:10px">
+      <div><div class="label">Where you are</div><div>${esc(where)}</div></div>
+      ${leftWords() ? `<div><div class="label">What's next</div><div>Next: ${esc(leftWords())}.</div></div>` : ""}
+      ${f.minutes_left ? `<div><div class="label">Time left</div><div>About ${f.minutes_left} minutes, and you can stop again any time.</div></div>` : ""}
+    </div>
+    <div class="row"><button class="btn" id="resumeLeft">Resume where I left off</button>
+      <button class="link" data-go="record">Look over what I've done so far</button></div>
+    ${long ? `<div class="card" style="gap:8px"><div style="font-weight:600">Has anything changed?</div>
+      <div class="muted" style="font-size:15px">A new job, or a newer resume, since you were last here.</div>
+      <div class="row"><button class="btn2" id="backAddJob">Add a new job</button><button class="btn2" data-go="upload">Upload a newer resume</button></div></div>` : ""}
+  </div>`;
+}
+
+// Where the person left off, in words: the step they were on when they went.
+const RESUMABLE = ["bg", "lines", "line", "more", "end", "edu", "skills", "beyond", "story", "summary", "targets"];
+function leftWords() {
+  const st = S.step || {};
+  if (st.screen === "bg") {
+    const x = (S.steps || []).find((y) => y.id === st.at);
+    if (x) return `${x.title} at ${x.employer}, ${x.kind === "q" ? "its background questions" : "its first questions"}`;
+  }
+  if (["lines", "line", "more", "end"].includes(st.screen)) {
+    const [jk, lk] = (st.at || "").split("\n"), j = jobByKey(jk);
+    if (j) {
+      const n = lk ? j.lines.findIndex((l) => l.key === lk) : -1;
+      return `${j.title} at ${j.employer}, ${st.screen === "line" && n >= 0 ? `line ${n + 1} of ${j.lines.length}`
+        : st.screen === "more" ? "anything else from it" : st.screen === "end" ? "how it now reads" : "its lines"}`;
+    }
+  }
+  if (["edu", "skills", "beyond", "story", "summary"].includes(st.screen))
+    return { edu: "education and licences", skills: "your skills", beyond: "anything outside paid work",
+             story: "your career in your own words", summary: "your summary" }[st.screen];
+  return nextWords();
+}
+function resumeLeft() {
+  const st = S.step || {};
+  RESUMABLE.includes(st.screen) && (st.screen !== "bg" || (S.steps || []).some((y) => y.id === st.at))
+    ? go(st.screen, { to: st.at || "" }) : resume();
+}
+function wireBack() {
+  $("resumeLeft").onclick = resumeLeft;
+  if ($("backAddJob")) $("backAddJob").onclick = () => { go("record"); ui.addJob = true; render(); $("n_emp")?.focus(); };
+}
+
+function wireHome() {
+  on("[data-sug]", (el) => { const x = S.suggestions[+el.dataset.sug]; go(x.screen, { to: x.at || "" }); });
+  on("[data-notnow]", (el) => act(() => send("POST", "/api/j/dismiss", { name: el.dataset.notnow })));
+  on("[data-openjob]", (el) => go("end", { to: el.dataset.openjob }));
 }
 
 // ---------------------------------------------------------------- actions
@@ -1056,6 +1434,11 @@ function wire() {
   if (screen === "edu") wireEdu();
   if (screen === "skills") wireSkills();
   if (screen === "beyond") wireBeyond();
+  if (screen === "record") wireHome();
+  if (screen === "story") wireStory();
+  if (screen === "summary") wireSummary();
+  if (screen === "review") wireReview();
+  if (screen === "back") wireBack();
   if ($("continueQs")) $("continueQs").onclick = resume;
   on("[data-answers]", (el) => go("bg", { to: el.dataset.answers }));
   wireFix();
@@ -1254,13 +1637,14 @@ function wireUpload() {
   drop.ondragover = (e) => { e.preventDefault(); drop.classList.add("over"); };
   drop.ondragleave = () => drop.classList.remove("over");
   drop.ondrop = (e) => { e.preventDefault(); drop.classList.remove("over"); readFiles([...e.dataTransfer.files]); };
-  $("liTip").onclick = () => { ui.li = !ui.li; render(); };
+  if ($("liTip")) $("liTip").onclick = () => { ui.li = !ui.li; render(); };
   if ($("skip")) $("skip").onclick = () => go("check");
 }
 
 async function readFiles(files) {
   if (!files.length || uploads.some((u) => u.busy)) return;
   say("");
+  if (reviewing()) return readForReview(files[0]);
   const mine = files.map((f) => ({ name: f.name, busy: true,
     msg: "Waiting its turn." }));
   uploads.push(...mine);
@@ -1290,6 +1674,23 @@ async function readFiles(files) {
       Object.assign(u, { busy: false, err: true,
         msg: e.message === "signed out" ? "Sign in, then choose the file again." : e.message });
     } finally { clearTimeout(slow); }
+    render();
+  }
+}
+
+async function readForReview(file) {
+  const u = { name: file.name, busy: true,
+    msg: "Reading it and checking every line against your file. This can take a minute; keep this page open." };
+  uploads.push(u); render();
+  try {
+    const fd = new FormData(); fd.append("file", file);
+    const r = await api("/api/j/import", { method: "POST", body: fd });
+    S = { ...S, ...r };
+    Object.assign(u, { busy: false, ok: true, msg: "" });
+    go("review");
+  } catch (e) {
+    Object.assign(u, { busy: false, err: true,
+      msg: e.message === "signed out" ? "Sign in, then choose the file again." : e.message });
     render();
   }
 }
@@ -1395,6 +1796,11 @@ async function boot() {
   screen = kept ? fromHash : S.screen;
   at = (kept ? h.at : S.step.at) || "";
   ui = { promo: kept && !!h.promo };
+  // After a real absence: welcome back to an unfinished build, or home once
+  // it's done. A refresh or a short break goes straight back to the step.
+  if (S.exists && S.step.seen_check && (S.away_hours || 0) >= S.absence_hours) {
+    screen = S.finish.first_build_done ? "record" : "back"; at = "";
+  }
   history.replaceState({ screen, at, promo: ui.promo, depth: h.depth || 0 }, "", "#" + screen);
   render();
 }
@@ -1409,9 +1815,11 @@ function wireUndoItem() {
     return sec("/api/j/item/restore", { section: g.section, index: g.index, text: g.text });
   });
 }
-async function finishSection(name, next) {
+async function finishSection(name) {
   const r = await act(() => sec("/api/j/section", { name }));
-  if (r) next ? go(next) : go("later");
+  if (!r) return;
+  const n = nextSection();
+  n ? go(SECTION_SCREEN[n]) : go("record");
 }
 
 function wireEdu() {
@@ -1435,7 +1843,7 @@ function wireEdu() {
     ui.eduOpen = null; ui.gone = r.result; return r;
   }));
   wireUndoItem();
-  $("eduDone").onclick = () => finishSection("edu", "skills");
+  $("eduDone").onclick = () => finishSection("edu");
 }
 
 async function buildSkills() {
@@ -1479,7 +1887,7 @@ function wireSkills() {
   const addSkill = () => { const n = val("newSkill"); if (n) act(() => sec("/api/j/skill/add", { name: n })); };
   $("addSkill").onclick = addSkill;
   $("newSkill").onkeydown = (e) => { if (e.key === "Enter") addSkill(); };
-  $("skillsDone").onclick = () => finishSection("skills", "beyond");
+  $("skillsDone").onclick = () => finishSection("skills");
 }
 
 function wireBeyond() {

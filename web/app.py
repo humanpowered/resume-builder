@@ -27,7 +27,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from resume_builder import export as X  # noqa: E402
-from resume_builder import health, importer, interview, journey, matching, sections, skills  # noqa: E402
+from resume_builder import finish, health, importer, interview, journey, matching, sections, skills  # noqa: E402
 from resume_builder import summary as summary_mod  # noqa: E402
 from resume_builder import record as mr  # noqa: E402
 from resume_builder.store import SqlStore  # noqa: E402
@@ -598,19 +598,30 @@ def _jstate(store: SqlStore, rec: mr.Record | None = None) -> dict:
     view = journey.view(rec)
     for job, bg in zip(view["jobs"], journey.background_view(rec)):
         job["background"] = bg
+    work = journey.work_view(store, rec)
+    skill_view = sections.skills_view(store, rec)
+    summary = finish.summary_view(store, rec)
     return {"exists": store.exists(), "screen": journey.start_screen(store),
             "step": journey.load_step(store), "targets": journey.targets_view(store, rec),
-            "steps": journey.steps(store, rec), "work": journey.work_view(store, rec),
+            "steps": journey.steps(store, rec), "work": work,
             "work_modes": list(journey.WORK_MODES),
             "max_targets": journey.MAX_TARGETS,
             "sections": sections.done(store), "edu": sections.education_view(store, rec),
-            "skills": sections.skills_view(store, rec), "beyond": sections.beyond_view(rec),
+            "skills": skill_view, "beyond": sections.beyond_view(rec),
+            "story": finish.story_view(store), "summary": summary,
+            "finish": finish.progress(store, rec, work),
+            "suggestions": finish.suggestions(store, rec, work, skill_view, summary),
+            "updated": store.updated(), "review": finish.review_view(store, rec),
             **view}
 
 
 @app.get("/api/j/state")
 def j_state(store: SqlStore = Depends(store_for)):
-    return _jstate(store)
+    """Also says how long the person was away, which decides whether a page
+    load opens on "welcome back"."""
+    away = finish.stamp(store)
+    return {**_jstate(store), "away_hours": round(away, 1),
+            "absence_hours": finish.ABSENCE_HOURS, "long_absence_days": finish.LONG_ABSENCE_DAYS}
 
 
 class JStep(BaseModel):
@@ -829,11 +840,17 @@ def j_line_remove(body: JLineRef, store: SqlStore = Depends(store_for)):
 @app.post("/api/j/import")
 async def j_import(file: UploadFile = File(...), store: SqlStore = Depends(store_for)):
     """Read one file into the record. Several files are sent one at a time,
-    so the page can say how each one went."""
+    so the page can say how each one went. Once the person has checked their
+    record, a file is a review instead: nothing is saved until they choose."""
     text = await _read_upload(file)
     from datetime import date
     incoming, rep = importer.to_record(importer.extract(text), text,
                                        file.filename or "upload", date.today().isoformat())
+    if store.exists() and journey.load_step(store).get("seen_check"):
+        rec = store.load_record()
+        finish.start_review(store, rec, incoming, file.filename or "your file")
+        return {"file": file.filename, "reviewing": True, "set_aside": len(rep["rejected"]),
+                **_jstate(store, rec)}
     left_out = journey.leave_out_deleted(store, incoming)
     left_out += sections.leave_out_deleted(store, incoming)
     if store.exists():
@@ -848,6 +865,51 @@ async def j_import(file: UploadFile = File(...), store: SqlStore = Depends(store
             "new_lines": sum(len(r.recorded_bullets) for r in rec.roles) - before_lines,
             "set_aside": len(rep["rejected"]), "left_out_deleted": left_out,
             **_jstate(store, rec)}
+
+
+class JReview(BaseModel):
+    ids: list[str] = Field(default_factory=list, max_length=2000)
+
+
+@app.post("/api/j/review/apply")
+def j_review_apply(body: JReview, store: SqlStore = Depends(store_for)):
+    rec = store.load_record()
+    added = _j(finish.apply_review, store, rec, body.ids)
+    store.save_record(rec)
+    return {"added": added, **_jstate(store, rec)}
+
+
+@app.post("/api/j/review/drop")
+def j_review_drop(store: SqlStore = Depends(store_for)):
+    finish.drop_review(store)
+    return _jstate(store)
+
+
+@app.put("/api/j/story")
+def j_story(body: JSec, store: SqlStore = Depends(store_for)):
+    return _sec(store, lambda rec: finish.save_story(store, rec, body.fields))
+
+
+@app.post("/api/j/summary/draft")
+def j_summary_draft(store: SqlStore = Depends(store_for)):
+    rec = store.load_record()
+    try:
+        out = finish.draft_summary(store, rec)
+    except Exception:
+        raise HTTPException(502, "We couldn't write a summary just now. Nothing was changed; "
+                                 "try again in a moment.")
+    return {"result": out, **_jstate(store, rec)}
+
+
+@app.post("/api/j/summary/approve")
+def j_summary_approve(body: JSec, store: SqlStore = Depends(store_for)):
+    return _sec(store, lambda rec: finish.approve_summary(store, rec, body.text))
+
+
+@app.post("/api/j/dismiss")
+def j_dismiss(body: JSec, store: SqlStore = Depends(store_for)):
+    finish.dismiss(store, body.name)
+    return _jstate(store)
 
 
 class JContact(BaseModel):
