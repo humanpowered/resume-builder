@@ -1134,8 +1134,7 @@ function nextWords() {
 
 function homeScreen() {
   const jobs = S.jobs || [], f = S.finish, name = firstName();
-  const main = f.record_complete
-    ? `${postingBox("Make a resume for a job", "Paste the posting and we'll choose what from your record fits it.", true)}`
+  const main = f.record_complete ? resumesCard()
     : jobs.length ? `<div class="done stack-s">
         ${nextWords() ? `<div>Next: ${esc(nextWords())}.</div>` : ""}
         <div><button class="btn" id="continueQs">Continue where you left off</button></div>
@@ -1448,16 +1447,35 @@ function draftOffer() {
 
 const making = (what) => ui.making === what ? `<div><span class="spin" aria-hidden="true"></span>${what === "general" ? "Choosing the strongest lines from your record…" : "Matching your record to the posting…"}</div>` : "";
 
-function postingBox(title, intro, main) {
+// Home's way back to every resume once the record is complete: the general
+// sample, a resume for a posting, and the ones already made.
+function resumesCard() {
+  const sm = S.samples, h = headline();
+  return `<div class="done stack" style="gap:14px">
+    <h2 style="font-size:20px">Your resumes</h2>
+    <div class="stack-s" style="gap:8px">
+      <div style="font-size:18px;font-weight:600">Sample resume</div>
+      <div class="muted" style="font-size:15px">A general resume${h ? ` for ${esc(h)}` : ""}, drawn from your record.</div>
+      <div class="row">${sm.general ? `<button class="btn" data-show="general">See your sample resume</button>
+        <button class="link" data-make="general">Make it again</button>` : `<button class="btn" data-make="general">See a sample resume</button>`}</div>
+      ${making("general")}</div>
+    ${postingBox("Make a resume for a job", "Paste the posting and we'll choose what from your record fits it.", true, true)}
+  </div>`;
+}
+
+function postingBox(title, intro, main, bare) {
   const sm = S.samples, left = sm.free_left;
   const list = sm.tailored.map((t, n) => `<div class="card-head" style="align-items:center;font-weight:400">
       <div>${esc(t.posting.title || "A posting")}${t.posting.company ? ` at ${esc(t.posting.company)}` : ""}</div>
       <button class="link tight" data-show="t${n}">Open</button></div>`).join("");
-  return `<div class="${main ? "done" : "card"} stack-s" style="gap:8px">
-    <label for="posting" style="font-size:18px">${title}</label>
-    <div class="muted" style="font-size:15px">${intro} ${left ? `${left} of ${sm.free} free samples left.` : `You've used your ${sm.free} free samples.`}</div>
-    ${left ? `<textarea id="posting" placeholder="Paste the job posting here" style="min-height:120px">${esc(ui.posting || "")}</textarea>
-      <div><button class="${main ? "btn" : "btn2"}" data-make="tailor" ${ui.making ? "disabled" : ""}>Write one for this job</button></div>${making("tailor")}` : ""}
+  // Once the free ones are used the box stays, so the person can still see
+  // where resumes for a posting are made, and says why it's closed.
+  const wrap = bare ? `stack-s" style="gap:8px;border-top:1px solid var(--line);padding-top:14px` : `${main ? "done" : "card"} stack-s" style="gap:8px`;
+  return `<div class="${wrap}">
+    <label for="posting" style="font-size:18px${bare ? ";font-weight:600" : ""}">${title}</label>
+    <div class="muted" style="font-size:15px">${intro} ${left ? `${left} of ${sm.free} free ${sm.free === 1 ? "resume" : "resumes"} for a posting left.` : `You've used your ${sm.free} free resumes for a posting, so this is closed for now.`}</div>
+    <textarea id="posting" placeholder="Paste the job posting here" style="min-height:120px" ${left ? "" : "disabled"}>${esc(ui.posting || "")}</textarea>
+    <div><button class="${main ? "btn" : "btn2"}" data-make="tailor" ${ui.making || !left ? "disabled" : ""}>Write one for this job</button></div>${making("tailor")}
     ${list ? `<div class="stack-s" style="gap:4px;padding-top:4px"><div class="label">Written for a posting</div>${list}</div>` : ""}
   </div>`;
 }
