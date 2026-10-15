@@ -1305,7 +1305,7 @@ function completeScreen() {
       <div class="row">${S.samples.general ? `<button class="btn" data-show="general">See your sample resume</button>
         <button class="link" data-make="general">Make it again</button>` : `<button class="btn" data-make="general">See a sample resume</button>`}</div>
       ${making("general")}</div>
-    ${postingBox("Have a posting in mind?", "Paste it and see a resume written for that job.")}
+    ${postingBox("Have a posting in mind?", "Paste it, or a link to it, and see a resume written for that job.")}
     <div class="row" style="border-top:1px solid var(--line);padding-top:14px">
       <button class="btn" data-go="record">Go to my record</button>
       <button class="link" data-back>Back</button>
@@ -1445,7 +1445,9 @@ function draftOffer() {
     <div><button class="btn2" data-show="draft">See the draft</button></div></div>`;
 }
 
-const making = (what) => ui.making === what ? `<div><span class="spin" aria-hidden="true"></span>${what === "general" ? "Choosing the strongest lines from your record…" : "Matching your record to the posting…"}</div>` : "";
+const linkHost = (t) => { try { return /^https?:\/\/\S+$/i.test((t || "").trim()) ? new URL(t.trim()).hostname.replace(/^www\./, "") : ""; } catch (e) { return ""; } };
+const making = (what) => ui.making === what ? `<div><span class="spin" aria-hidden="true"></span>${what === "general" ? "Choosing the strongest lines from your record…"
+  : ui.reading ? `Reading the posting at ${esc(ui.reading)}, then matching your record to it…` : "Matching your record to the posting…"}</div>` : "";
 
 // Home's way back to every resume once the record is complete: the general
 // sample, a resume for a posting, and the ones already made.
@@ -1459,7 +1461,7 @@ function resumesCard() {
       <div class="row">${sm.general ? `<button class="btn" data-show="general">See your sample resume</button>
         <button class="link" data-make="general">Make it again</button>` : `<button class="btn" data-make="general">See a sample resume</button>`}</div>
       ${making("general")}</div>
-    ${postingBox("Make a resume for a job", "Paste the posting and we'll choose what from your record fits it.", true, true)}
+    ${postingBox("Make a resume for a job", "Paste the posting, or a link to it, and we'll choose what from your record fits it.", true, true)}
   </div>`;
 }
 
@@ -1474,7 +1476,7 @@ function postingBox(title, intro, main, bare) {
   return `<div class="${wrap}">
     <label for="posting" style="font-size:18px${bare ? ";font-weight:600" : ""}">${title}</label>
     <div class="muted" style="font-size:15px">${intro} ${left ? `${left} of ${sm.free} free ${sm.free === 1 ? "resume" : "resumes"} for a posting left.` : `You've used your ${sm.free} free resumes for a posting, so this is closed for now.`}</div>
-    <textarea id="posting" placeholder="Paste the job posting here" style="min-height:120px" ${left ? "" : "disabled"}>${esc(ui.posting || "")}</textarea>
+    <textarea id="posting" placeholder="Paste the job posting, or a link to it" style="min-height:120px" ${left ? "" : "disabled"}>${esc(ui.posting || "")}</textarea>
     <div><button class="${main ? "btn" : "btn2"}" data-make="tailor" ${ui.making || !left ? "disabled" : ""}>Write one for this job</button></div>${making("tailor")}
     ${list ? `<div class="stack-s" style="gap:4px;padding-top:4px"><div class="label">Written for a posting</div>${list}</div>` : ""}
   </div>`;
@@ -1495,6 +1497,7 @@ function sampleScreen() {
       <h1>${res.kind === "draft" ? "A draft of your resume" : res.kind === "general" ? "Your sample resume" : "A resume for this job"}</h1>
       <p>${intro}</p></div>
     ${gaps}
+    ${res.posting && res.posting.url ? `<div class="small muted noprint" style="overflow-wrap:anywhere">From the posting at <a href="${esc(res.posting.url)}" target="_blank" rel="noopener noreferrer">${esc(linkHost(res.posting.url) || res.posting.url)}</a></div>` : ""}
     ${paper(res)}
     <div class="row noprint">
       <button class="btn2" id="printSample">Print or save as PDF</button>
@@ -1557,7 +1560,7 @@ function wireMakers() {
     const what = el.dataset.make;
     if (ui.making) return;
     const text = what === "tailor" ? val("posting") : "";
-    ui.making = what; render(); say("");
+    ui.making = what; ui.reading = what === "tailor" ? linkHost(text) : ""; render(); say("");
     try {
       const r = await send("POST", `/api/j/sample/${what === "tailor" ? "tailor" : "general"}`, what === "tailor" ? { text } : {});
       S = { ...S, ...r }; ui.making = null; ui.posting = "";

@@ -13,7 +13,7 @@ the record, and a sample can't claim anything the person didn't say.
 """
 from datetime import datetime, timezone
 
-from . import journey, llm, skills
+from . import journey, llm, posting as postings, skills
 from . import record as mr
 
 SAMPLES = "journey.samples"
@@ -188,16 +188,22 @@ def general(store, rec: mr.Record) -> dict:
 def tailored(store, rec: mr.Record, posting: str) -> dict:
     """One paid call: a resume for one posting. A few are free."""
     posting = (posting or "").strip()
-    if len(posting) < 80:
-        raise ValueError("Paste the whole job posting, so there's enough to match your record against")
     st = _state(store)
     if len(st["tailored"]) >= FREE_TAILORED:
         raise ValueError(f"You've used your {FREE_TAILORED} free samples written for a posting")
+    # A link is read before anything is spent; one that can't be read raises
+    # with words for the person, and the free sample isn't used.
+    link = ""
+    if postings.is_link(posting):
+        got = postings.read(posting)
+        link, posting = got["url"], postings.as_posting(got)
+    if len(posting) < 80:
+        raise ValueError("Paste the whole job posting, or a link to it, so there's enough to match your record against")
     chosen, picked, out = _choose(store, rec, "for the job posting below",
                                   "what the posting asks for", f"POSTING\n{posting[:MAX_POSTING]}")
     title = (out.get("posting_title") or "").strip()[:120]
     res = _layout(rec, chosen, picked, "tailored", title or _headline(store, rec))
-    res["posting"] = {"title": title, "company": (out.get("posting_company") or "").strip()[:120]}
+    res["posting"] = {"title": title, "company": (out.get("posting_company") or "").strip()[:120], "url": link}
     res["gaps"] = [g.strip()[:120] for g in (out.get("gaps") or []) if g.strip()][:4]
     st["tailored"].append(res)
     store.save_state(SAMPLES, st)
