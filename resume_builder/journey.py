@@ -48,13 +48,13 @@ def line_text(acc: mr.Accomplishment) -> str:
 
 
 def view(rec: mr.Record) -> dict:
-    jobs = []
+    jobs, groups = [], {k: idx for k, idx in _groups(rec)}
     for i, role in enumerate(rec.roles):
         lines = [{"kind": RESUME, "index": j, "text": b}
                  for j, b in enumerate(role.recorded_bullets)]
         lines += [{"kind": STORY, "index": j, "text": line_text(a)}
                   for j, a in enumerate(role.accomplishments) if not a.is_empty()]
-        same = [r for r in rec.roles if mr._squash(r.employer) == mr._squash(role.employer)]
+        same = [rec.roles[n] for n in groups[emp_key(role)]]
         jobs.append({
             "index": i, "label": role.label(),
             "employer": role.employer, "title": role.title,
@@ -66,7 +66,7 @@ def view(rec: mr.Record) -> dict:
             "titles_at_employer": len(same),
         })
     contact = {k: clean(rec.contact.get(k, "")) for k in CONTACT_FIELDS}
-    return {"jobs": jobs, "contact": contact,
+    return {"jobs": jobs, "shown": shown_order(rec), "contact": contact,
             "line_count": sum(len(j["lines"]) for j in jobs)}
 
 
@@ -412,7 +412,8 @@ def job_key(role: mr.Role) -> str:
 
 def _groups(rec: mr.Record) -> list:
     """Jobs by employer, in the order the employers first appear (newest
-    first), each employer's titles in record order."""
+    first), each employer's titles newest first by start date. A title
+    without readable dates keeps its place after the dated ones."""
     order, by = [], {}
     for i, role in enumerate(rec.roles):
         k = emp_key(role)
@@ -420,7 +421,16 @@ def _groups(rec: mr.Record) -> list:
             by[k] = []
             order.append(k)
         by[k].append(i)
-    return [(k, by[k]) for k in order]
+
+    def newest(i):
+        s = _start(rec.roles[i])
+        return (0, -(s[0] * 12 + s[1])) if s else (1, 0)
+    return [(k, sorted(by[k], key=newest)) for k in order]
+
+
+def shown_order(rec: mr.Record) -> list:
+    """Every job's index in the order the person sees them."""
+    return [i for _, idx in _groups(rec) for i in idx]
 
 
 def steps(store, rec: mr.Record) -> list:

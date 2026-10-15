@@ -27,7 +27,9 @@ EXTRA_HEADINGS = (("awards", "Awards"), ("publications", "Talks and publications
 # ---------------------------------------------------------------- what a sample is built from
 
 def _paid(rec: mr.Record) -> list:
-    return [(i, r) for i, r in enumerate(rec.roles) if not r.outside()]
+    """Paid jobs in the order the person sees them: employers newest first,
+    each employer's titles newest first."""
+    return [(i, rec.roles[i]) for i in journey.shown_order(rec) if not rec.roles[i].outside()]
 
 
 def _pool(rec: mr.Record) -> tuple:

@@ -432,7 +432,7 @@ function recordScreen(isCheck) {
     ${head}
     ${contactCard()}
     ${none ? "" : `<div class="label" style="padding-top:4px">Jobs, newest first</div>${counts}`}
-    ${jobs.map(jobCard).join("")}
+    ${shownJobs().map((j) => jobCard(j)).join("")}
     ${addJobBlock(none)}
     ${isCheck || !S.skills ? "" : sectionCards()}
     ${undoBar()}
@@ -1156,7 +1156,7 @@ function homeScreen() {
     ${contactCard()}
     ${jobs.length ? `<div class="label" style="padding-top:4px">Jobs, newest first</div>
       <p class="small muted">${plural(jobs.length, "job")} · ${plural(S.line_count, "line")}</p>` : ""}
-    ${jobs.map((j) => jobCard(j, true)).join("")}
+    ${shownJobs().map((j) => jobCard(j, true)).join("")}
     ${addJobBlock(!jobs.length)}
     ${S.skills ? sectionCards() : ""}
     ${undoBar()}
@@ -1573,6 +1573,8 @@ function wireMakers() {
 const on = (sel, fn) => document.querySelectorAll(sel).forEach((el) => el.onclick = () => fn(el));
 const val = (id) => ($(id)?.value || "").trim();
 const job = (i) => S.jobs[i];
+// Jobs as the person sees them: each employer's titles newest first.
+const shownJobs = () => (S.shown || (S.jobs || []).map((_, i) => i)).map((i) => S.jobs[i]).filter(Boolean);
 const lineAt = (key) => { const [i, k] = key.split(":").map(Number); return [i, k, job(i).lines[k]]; };
 
 function wire() {

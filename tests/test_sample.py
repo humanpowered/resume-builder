@@ -81,3 +81,16 @@ class Samples(unittest.TestCase):
         self.assertEqual(s["samples"]["free_left"], 0)
         r = self.c.post("/api/j/sample/tailor", json={"text": POSTING})
         self.assertEqual(r.status_code, 400)
+
+    def test_titles_at_one_employer_read_newest_first_wherever_they_were_stored(self):
+        jobs = self.c.get("/api/j/state").json()["jobs"]
+        rn = next(j for j in jobs if j["title"] == "Registered Nurse")
+        r = self.c.patch(f"/api/j/jobs/{rn['index']}", json={"expect": rn["label"], "dates": "Mar 2022 - Present"})
+        self.assertEqual(r.status_code, 200, r.text)
+        s = self.c.get("/api/j/state").json()
+        self.assertEqual([s["jobs"][i]["title"] for i in s["shown"]],
+                         ["Registered Nurse", "Charge Nurse", "Nurse Intern"])
+        self.assertEqual([j["title"] for j in s["jobs"] if j["last_at_employer"]], ["Charge Nurse", "Nurse Intern"])
+        llm.use_backend(FakeBackend())
+        d = self.post("/api/j/sample/draft")["sample"]
+        self.assertEqual([r["title"] for r in d["employers"][0]["roles"]], ["Registered Nurse", "Charge Nurse"])
