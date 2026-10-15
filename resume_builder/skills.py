@@ -19,6 +19,7 @@ infusions". A list drawn only from what someone wrote can't contain the term
 they never thought to use.
 """
 import json
+import re
 from datetime import date
 
 from . import health, llm
@@ -101,11 +102,15 @@ def field_hint(rec: mr.Record) -> str:
     return "; ".join(p for p in parts if p)
 
 
-def build(rec: mr.Record, field: str = "") -> dict:
+def build(rec: mr.Record, field: str = "", levels: bool = True, named_text: str = None) -> dict:
     """
     Fill the record's skills from the standard list for the person's field.
     Only blanks are filled: an answer, level or group the person set is never
     changed. Returns what happened, for the person to read.
+
+    `levels=False` leaves every level blank for the person to set. A skill
+    counts as named (theirs, not a suggestion) only if `named_text`, when
+    given, uses its name; otherwise the whole record is searched.
     """
     titles = {a.title for _, a in rec.all_accomplishments()}
     text = mr.render(rec)
@@ -115,16 +120,19 @@ def build(rec: mr.Record, field: str = "") -> dict:
             record=text[:60000],
             listed=json.dumps([s.name for s in rec.skills]))}],
         12000, "skills", schema=BUILD_SCHEMA)
-    plain = mr._squash(text)
-    out = {"field": reply.get("field", "") or field, "added": [], "filled": [], "yours": []}
+    plain = text if named_text is None else named_text
+    out = {"field": reply.get("field", "") or field, "added": [], "filled": [], "yours": [],
+           "also": []}
     for item in reply.get("skills") or []:
         name = (item.get("name") or "").strip()
         if not name:
             continue
         because = [t for t in item.get("because") or [] if t in titles]
-        level = item.get("level") if item.get("level") in mr.LEVELS else ""
+        level = item.get("level") if levels and item.get("level") in mr.LEVELS else ""
         category = (item.get("category") or "").strip() or "Other"
         s = rec.skill(item.get("same_as") or "") or rec.skill(name)
+        if s is not None and mr._squash(s.name) != mr._squash(name):
+            out["also"].append([s.name, name])       # the same skill by another name
         if s is not None:
             if _fill(s, category, level, because):
                 out["filled"].append(s.name)
@@ -233,11 +241,53 @@ def estimate_use(rec: mr.Record, today=None) -> list:
     return dated
 
 
-def _named_in(name: str, plain: str) -> bool:
+def _named_in(name: str, text: str) -> bool:
     """The record uses the skill's name, or one of its forms: "Electronic
     Health Records, EHR" is named by either half."""
-    return any(len(k) > 2 and k in plain
-               for k in (mr._squash(part) for part in [name, *name.split(",")]))
+    return names_in([name], text)
+
+
+# Word endings that don't change what a skill is: "precepting" is named by
+# "precepted", "A/B testing" by "ran A/B tests".
+_ENDINGS = ("ations", "ation", "ments", "ment", "ings", "ing", "ers", "er", "ed", "es", "s")
+
+
+def _stem(word: str) -> str:
+    for end in _ENDINGS:
+        if word.endswith(end) and len(word) - len(end) >= 4:
+            word = word[: -len(end)]
+            break
+    return word[:-1] if word.endswith("e") and len(word) > 4 else word
+
+
+def _words(text: str) -> list:
+    return [_stem(w) for w in re.findall(r"[a-z0-9]+(?:[/+#&.][a-z0-9]+)*[+#]*", (text or "").lower())]
+
+
+def forms(name: str) -> list:
+    """The ways a skill's name can be written: the whole name and each part
+    of "Electronic Health Records, EHR" or "Electronic Health Records (EHR)"."""
+    parts = [name, *re.split(r"[,()]", name or "")]
+    out = []
+    for p in parts:
+        w = _words(p)
+        if w and (len(w) > 1 or len(w[0]) > 1) and w not in out:
+            out.append(w)
+    return out
+
+
+def names_in(names: list, text: str) -> bool:
+    """Whether the text names the skill by any of its names, in any word
+    form: capitals, plurals, hyphens and endings like -ing or -ed don't
+    matter, but the words must be there, in order. A line that only implies
+    a skill doesn't name it."""
+    words = _words(text)
+    for name in names:
+        for f in forms(name):
+            n = len(f)
+            if any(words[i:i + n] == f for i in range(len(words) - n + 1)):
+                return True
+    return False
 
 
 def _fill(s, category, level, because) -> bool:
@@ -275,8 +325,9 @@ def set_skill(rec: mr.Record, name: str, have: str | None = None, level: str | N
         raise LookupError(f"No skill called {name!r}")
     if have is not None and have not in HAVE:
         raise ValueError(f"have must be one of {', '.join(HAVE)}")
-    if level and level not in mr.LEVELS:
-        raise ValueError(f"Level must be one of {', '.join(mr.LEVELS)}")
+    allowed = mr.levels_for(s.name, s.category)
+    if level and level not in allowed:
+        raise ValueError(f"Level must be one of {', '.join(allowed)}")
     if rename is not None and rename.strip() and rename.strip() != s.name:
         other = rec.skill(rename)
         if other is not None and other is not s:
@@ -304,10 +355,12 @@ def add_skill(rec: mr.Record, name: str, category: str = "", level: str = ""):
     name = (name or "").strip()
     if not name:
         raise ValueError("A skill needs a name")
-    if level and level not in mr.LEVELS:
-        raise ValueError(f"Level must be one of {', '.join(mr.LEVELS)}")
+    if level and level not in mr.levels_for(name, category):
+        raise ValueError(f"Level must be one of {', '.join(mr.levels_for(name, category))}")
     if rec.skill(name) is not None:
         return set_skill(rec, name, have=YES, level=level or None, category=category or None)
+    if not category and mr.is_language(name):
+        category = "Languages"
     s = mr.Skill(name=name, category=category.strip() or "Other", level=level,
                  have=YES, source=FROM_YOU)
     rec.skills.append(s)
