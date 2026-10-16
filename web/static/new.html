@@ -1188,7 +1188,7 @@ function homeScreen() {
 function storyScreen() {
   return `${progress("Summary · your career in your own words", 0.2, 4)}<div class="stack">
     <h1>Your career in your own words</h1>
-    <p>Three optional questions. Your answers shape your summary and give cover letters something no list of jobs can: what you're like to work with and where you're heading. Answer any, all or none.</p>
+    <p>Three optional questions. Your answers shape your summary and give cover letters something no list of jobs can: what you're like to work with and where you're heading. Give each one a few sentences and a real example if you can. Tell us what you do that others in your line of work don't, and why an employer would be glad to have you. A one-line answer gives us little to work with. Answer any, all or none.</p>
     ${S.story.questions.map((q) => `<div class="stack-s" style="gap:6px">
       <label for="story_${q.key}" style="font-size:18px">${esc(q.q)}</label>
       <div class="small muted" style="font-size:15px">For example: ${esc(q.ex)}</div>
