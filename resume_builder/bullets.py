@@ -90,7 +90,9 @@ RULES
 - No first person. No "responsible for", "helped", "assisted with".
 - Every number must appear in the source below. Do not derive, round, combine
   or estimate one. If the source has no number, write the bullet without one.
-- Do not name the employer; the resume shows it above the bullet.
+- Don't repeat the employer's name; the resume shows it above the bullet.
+  Keep every other name in the source: clients, brands, products, tools,
+  places. A named client reads stronger than "the brand" or "a client".
 - Plain words. No "spearheaded", "leveraged", "utilized", no em dashes.
 - If "My part" is filled, the result was a team's: the bullet says what this
   person did and credits the outcome to the team or the effort, never to

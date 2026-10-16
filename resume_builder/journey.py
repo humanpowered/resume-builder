@@ -767,8 +767,10 @@ RULES
   derive, round, combine or estimate one.
 - If the answers say "we" or a team did it, say what this person did and
   credit the outcome to the team or the effort.
-- Do not name the employer. Plain words. No "spearheaded", "leveraged",
-  "utilized", no em dashes.
+- Don't repeat the employer's name; the resume shows it above the line.
+  Keep every other name the person gave: clients, brands, products, tools,
+  places. A named client reads stronger than "the brand" or "a client".
+- Plain words. No "spearheaded", "leveraged", "utilized", no em dashes.
 
 JOB: {title}
 ORIGINAL LINE: {original}
