@@ -195,6 +195,18 @@ class Sections(unittest.TestCase):
         s = self.post("/api/j/item/delete", section="awards", index=0, expect="DAISY Award, 2022")
         self.assertEqual(len(s["beyond"]["items"]), 1)
 
+    def test_something_said_about_your_work_is_kept_as_a_testimonial(self):
+        self.upload()
+        s = self.post("/api/j/tile", name="said", fields={
+            "quote": "\u201cThe first person I call when a site is falling behind.\u201d",
+            "who": "Dana Ruiz, VP Operations", "relation": "My manager at Northwind Freight"})
+        line = ('"The first person I call when a site is falling behind." \u2014 '
+                "Dana Ruiz, VP Operations, My manager at Northwind Freight")
+        self.assertEqual(s["result"], line)
+        self.assertIn(("Something said about your work", line),
+                      [(i["kind"], i["text"]) for i in s["beyond"]["items"]])
+        self.assertIn(line, self.c.get("/api/record").json()["markdown"])
+
     def test_volunteering_becomes_a_job_outside_paid_work(self):
         self.upload()
         s = self.post("/api/j/joblike", name="volunteer", fields={

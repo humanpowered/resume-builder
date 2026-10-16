@@ -391,13 +391,14 @@ TILES = {
     "training": ("training", "Training or course"),
     "talk": ("publications", "Talk or publication"),
     "break": ("career_breaks", "Career break"),
+    "said": ("testimonials", "Something said about your work"),
 }
 BEYOND_SECTIONS = ("awards", "memberships", "training", "publications", "career_breaks",
-                   "volunteer", "projects")
+                   "testimonials", "volunteer", "projects")
 KIND_NAMES = {"awards": "Award", "memberships": "Board or membership",
               "training": "Training or course", "publications": "Talk or publication",
               "career_breaks": "Career break", "volunteer": "Volunteering",
-              "projects": "Project"}
+              "projects": "Project", "testimonials": "Something said about your work"}
 JOB_LIKE = {"volunteer": "Volunteer", "side": "Personal or side project"}
 
 
@@ -414,6 +415,11 @@ def tile_line(tile: str, f: dict) -> str:
         span = " to ".join(x for x in (g("from"), g("to")) if x)
         return f"Career break, {span}: {g('reason')}" if g("reason") else \
             (f"Career break, {span}" if span else "")
+    if tile == "said":
+        # The record's testimonial line: '"Quote" — Who, how they knew you'.
+        quote = g("quote").strip('"\u201c\u201d ')
+        who = _join(g("who"), g("relation"))
+        return (f'"{quote}" \u2014 {who}' if who else f'"{quote}"') if quote else ""
     raise ValueError(f"No such kind: {tile}")
 
 

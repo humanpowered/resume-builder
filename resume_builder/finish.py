@@ -28,10 +28,15 @@ STORY_QUESTIONS = (
     ("thread", "What thread runs through your career?",
      "Every job has been about making a busy place run on time · "
      "I keep getting handed the sites that are struggling"),
+    ("rare", "What do you bring that most people with your title don't?",
+     "A nurse who spent five years building the hospital's scheduling system · "
+     "An accountant who started on the warehouse floor and knows where the costs hide · "
+     "A teacher who also runs the district's data reporting"),
     ("next", "What's your next move?",
      "Run a regional distribution network · Move from operations into supply chain planning"),
 )
-STORY_LABELS = {"best": "Best at", "thread": "The thread through my career", "next": "Next move"}
+STORY_LABELS = {"best": "Best at", "thread": "The thread through my career",
+                "rare": "What I bring that most in my role don't", "next": "Next move"}
 
 ABSENCE_HOURS = 12        # away this long, an unfinished build opens on "welcome back"
 LONG_ABSENCE_DAYS = 60    # away this long, welcome back also asks what has changed

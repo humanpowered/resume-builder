@@ -1070,6 +1070,9 @@ const TILES = [
   { key: "break", label: "Career break", hint: "Dates, optional reason",
     fields: [["from", "From", "e.g. 2016"], ["to", "To", "e.g. 2017"], ["reason", "Reason, if you'd like to give one", "e.g. Caring for a parent, study, travel"]],
     note: "The reason is optional. A single line explains a gap better than leaving it unexplained." },
+  { key: "said", label: "Something said about your work", hint: "A quote, who said it",
+    fields: [["quote", "What they said", "e.g. The first person I call when a site is falling behind."], ["who", "Who said it", "e.g. Dana Ruiz, VP Operations"], ["relation", "How they knew you", "e.g. My manager at Northwind Freight"]],
+    note: "Paste it the way they put it: a performance review, a LinkedIn recommendation or a thank-you email all count. We use it to show what makes you stand out, and it isn't printed on your resume." },
 ];
 
 function beyondScreen() {
@@ -1188,7 +1191,7 @@ function homeScreen() {
 function storyScreen() {
   return `${progress("Summary · your career in your own words", 0.2, 4)}<div class="stack">
     <h1>Your career in your own words</h1>
-    <p>Three optional questions. Your answers shape your summary and give cover letters something no list of jobs can: what you're like to work with and where you're heading. Answer any, all or none.</p>
+    <p>Four optional questions. Your answers shape your summary and give cover letters something no list of jobs can: what you're like to work with and where you're heading. Give each one a few sentences and a real example if you can. Tell us what you do that others in your line of work don't, and why an employer would be glad to have you. A one-line answer gives us little to work with. Answer any, all or none.</p>
     ${S.story.questions.map((q) => `<div class="stack-s" style="gap:6px">
       <label for="story_${q.key}" style="font-size:18px">${esc(q.q)}</label>
       <div class="small muted" style="font-size:15px">For example: ${esc(q.ex)}</div>
