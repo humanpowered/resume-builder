@@ -13,7 +13,7 @@ from unittest import mock
 import helpers  # noqa: F401
 
 from fakes import FakeBackend
-from resume_builder import llm
+from resume_builder import journey, llm, sample
 from test_journey import SOURCE, TestClient, extract_reply
 
 POSTING = ("Nurse Manager, Lakeside Health. We need a nurse leader to run a 30-bed unit, "
@@ -152,3 +152,96 @@ class SampleFromLink(unittest.TestCase):
             s = self.post("/api/j/sample/tailor", text="https://jobs.example.com/1")
         self.assertEqual(s["sample"]["posting"]["url"], "https://jobs.example.com/1")
         self.assertEqual(s["samples"]["free_left"], 2)
+
+
+@unittest.skipIf(TestClient is None, "fastapi not installed")
+class StageAndChoices(unittest.TestCase):
+    """The sample's order follows the person's career stage, and what goes on
+    every resume (phone, old graduation years) is theirs to choose."""
+    setUp, tearDown, post = Samples.setUp, Samples.tearDown, Samples.post
+
+    def draft(self):
+        llm.use_backend(FakeBackend())          # the draft never calls the model
+        return self.post("/api/j/sample/draft")["sample"]
+
+    def put(self, path, **body):
+        r = self.c.put(path, json=body)
+        self.assertEqual(r.status_code, 200, r.text)
+        return r.json()
+
+    def edu(self, section, **fields):
+        return self.post("/api/j/edu", section=section, index=-1, fields=fields)
+
+    def keys(self, s):
+        return [x["key"] for x in s["sections"]]
+
+    def test_contact_shows_the_website_and_the_phone_only_if_wanted(self):
+        self.c.patch("/api/j/contact", json={"fields": {"Telephone": "614-555-0100",
+                                                        "Website": "patlee.dev"}})
+        self.assertEqual(self.draft()["contact"], "Columbus, OH · pat@example.com · 614-555-0100 · patlee.dev")
+        s = self.put("/api/j/sample/prefs", phone=False)
+        self.assertFalse(s["samples"]["prefs"]["phone"])
+        self.assertEqual(self.draft()["contact"], "Columbus, OH · pat@example.com · patlee.dev")
+
+    def test_dates_print_one_way_and_the_company_line_shows(self):
+        steps = self.c.get("/api/j/state").json()["steps"]
+        company = next(x for x in steps if x["kind"] == "company" and x["employer"] == "Riverside Hospital")
+        self.post("/api/j/answer", id=company["id"], status="answered",
+                  text="Regional hospital, 300 beds and 2,500 staff")
+        s = self.draft()
+        self.assertEqual(s["employers"][0]["about"], "Regional hospital, 300 beds and 2,500 staff")
+        self.assertEqual(s["employers"][0]["roles"][0]["dates"], "2021 to Present")
+        self.assertIn("Regional hospital, 300 beds and 2,500 staff", sample.as_text(s))
+
+    def test_a_student_gets_education_first_with_a_good_gpa(self):
+        now = journey.today()[0]
+        self.edu("education", degree="BSN", field="Nursing", school="Ohio State", year=str(now), gpa="3.6")
+        s = self.draft()
+        self.assertEqual(self.keys(s)[:2], ["experience", "education"])
+        self.assertEqual(s["education"], [f"BSN, Nursing, Ohio State, {now}, GPA 3.6"])  # recent: GPA stays
+        self.put("/api/j/targets", titles=[], where="", modes=[], stage="Student or new graduate")
+        self.assertEqual(self.keys(self.draft())[:2], ["education", "experience"])
+
+    def test_a_low_gpa_and_an_old_graduation_year_are_left_off_unless_asked(self):
+        old = journey.today()[0] - 20
+        self.edu("education", degree="BSN", school="Ohio State", year=str(old), gpa="2.8")
+        self.assertEqual(self.draft()["education"], ["BSN, Ohio State"])
+        self.put("/api/j/sample/prefs", old_years=True)
+        self.assertEqual(self.draft()["education"], [f"BSN, Ohio State, {old}"])
+        rec_line = self.c.get("/api/j/state").json()["edu"][0]["line"]
+        self.assertEqual(rec_line, f"BSN, Ohio State, {old}, GPA 2.8")     # the record keeps it all
+
+    def test_a_licence_goes_above_experience(self):
+        self.edu("certifications", name="Registered Nurse (RN)", issuer="Ohio Board of Nursing", year="2018",
+                 expires="Mar 2027", multistate=True)
+        s = self.draft()
+        self.assertEqual(self.keys(s)[:2], ["credentials", "experience"])
+        self.assertEqual(s["sections"][0]["lines"],
+                         ["Registered Nurse (RN), Ohio Board of Nursing, 2018, multistate (compact) licence, expires Mar 2027"])
+
+    def test_jobs_that_ended_long_ago_become_one_line_each(self):
+        old = journey.today()[0] - 20
+        jobs = self.c.get("/api/j/state").json()["jobs"]
+        intern = next(j for j in jobs if j["title"] == "Nurse Intern")
+        self.c.patch(f"/api/j/jobs/{intern['index']}", json={"expect": intern["label"],
+                                                             "dates": f"{old - 1} - {old}"})
+        s = self.draft()
+        self.assertEqual([e["employer"] for e in s["employers"]], ["Riverside Hospital"])
+        self.assertEqual(next(x for x in s["sections"] if x["key"] == "earlier")["lines"],
+                         ["Nurse Intern, Mercy Clinic"])
+
+    def test_languages_and_clearance_get_their_own_sections(self):
+        self.post("/api/j/skill/add", name="Spanish")
+        self.post("/api/j/skill", name="Spanish", have="yes", level="Fluent")
+        s = self.draft()
+        self.assertNotIn("Spanish", s["skills"])
+        self.assertEqual(next(x for x in s["sections"] if x["key"] == "languages")["lines"], ["Spanish (Fluent)"])
+
+    def test_choices_redraw_samples_already_made_without_a_model_call(self):
+        llm.use_backend(FakeBackend(choice()))
+        self.post("/api/j/sample/general")
+        self.c.patch("/api/j/contact", json={"fields": {"Telephone": "614-555-0100"}})
+        self.assertIn("614-555-0100", self.c.get("/api/j/state").json()["samples"]["general"]["contact"])
+        llm.use_backend(FakeBackend())
+        s = self.put("/api/j/sample/prefs", phone=False)
+        self.assertNotIn("614-555-0100", s["samples"]["general"]["contact"])

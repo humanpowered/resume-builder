@@ -110,8 +110,12 @@ YEAR = re.compile(r"\b(19|20)\d\d\b")
 SCHOOL = re.compile(r"universit|college|institut|school|academy|polytechnic|conservatory", re.I)
 QUALIFICATION = re.compile(r"degree|diploma|certificate|associate|bachelor|master|doctor|"
                            r"\bGED\b|high school", re.I)
-DEGREE_FIELDS = ("degree", "field", "school", "year", "studying", "extra")
-LICENCE_FIELDS = ("name", "issuer", "year", "current")
+DEGREE_FIELDS = ("degree", "field", "school", "year", "studying", "gpa", "extra")
+LICENCE_FIELDS = ("name", "issuer", "year", "current", "expires", "multistate")
+TICKS = ("studying", "multistate")         # yes/no fields, kept as True or False
+GPA = re.compile(r"\bGPA:?\s*(\d(?:\.\d+)?)(?:\s*(?:/|out of)\s*(\d(?:\.\d+)?))?", re.I)
+EXPIRES = re.compile(r",?\s*\bexpires?:?\s+([A-Za-z]{3,9}\.?\s+\d{4}|\d{1,2}/\d{4}|\d{4})", re.I)
+MULTISTATE = re.compile(r",?\s*\bmultistate(?: \(compact\))?(?: licen[cs]e)?", re.I)
 CURRENT = ("Yes", "No, it lapsed", "Not sure")
 
 
@@ -128,10 +132,13 @@ def _parts(text: str) -> list:
 def _guess_degree(line: str) -> dict:
     """Best guess at a degree line's parts, for the person to correct. The
     line itself is only rewritten when they save."""
+    gpa = GPA.search(line)
+    line = GPA.sub("", line) if gpa else line
     years = [m.group(0) for m in YEAR.finditer(line)]
     year = years[-1] if years else ""
     parts = [p for p in _parts(YEAR.sub("", line)) if p.lower() not in ("expected", "in")]
     out = {k: "" for k in DEGREE_FIELDS}
+    out["gpa"] = gpa.group(0).split(None, 1)[-1].lstrip(": ") if gpa else ""
     out["year"] = year or ""
     out["studying"] = bool(re.search(r"expected|in progress|current", line, re.I))
     for p in parts:
@@ -154,28 +161,50 @@ def _guess_degree(line: str) -> dict:
 
 
 def _guess_licence(line: str) -> dict:
+    exp = EXPIRES.search(line)
+    multistate = bool(MULTISTATE.search(line))
+    line = MULTISTATE.sub("", EXPIRES.sub("", line))
     years = [m.group(0) for m in YEAR.finditer(line)]
     parts = _parts(YEAR.sub("", line))
     lapsed = bool(re.search(r"lapsed|expired", line, re.I))
     parts = [p for p in parts if not re.fullmatch(r"(?i)lapsed|expired", p)]
     return {"name": parts[0] if parts else line, "issuer": _join(*parts[1:]),
-            "year": years[0] if years else "", "current": "No, it lapsed" if lapsed else ""}
+            "year": years[0] if years else "", "current": "No, it lapsed" if lapsed else "",
+            "expires": exp.group(1) if exp else "", "multistate": multistate}
 
 
-def _degree_line(f: dict) -> str:
-    year = (f.get("year") or "").strip()
+def gpa_value(text: str):
+    """A GPA as a share of its scale's top (3.6 of 4.0 -> 0.9), or None. A
+    figure with no scale is read as out of 4."""
+    m = re.fullmatch(r"\s*(\d(?:\.\d+)?)\s*(?:(?:/|out of)\s*(\d(?:\.\d+)?))?\s*", text or "")
+    if not m:
+        return None
+    top = float(m.group(2) or 4)
+    return float(m.group(1)) / top if top and float(m.group(1)) <= top else None
+
+
+def _degree_line(f: dict, show_year: bool = True, show_gpa: bool = True) -> str:
+    """The degree as one line. The record keeps everything; a resume can
+    leave the year or the GPA off."""
+    year = (f.get("year") or "").strip() if show_year or f.get("studying") else ""
     if year and f.get("studying"):
         year = f"expected {year}"
     elif f.get("studying"):
         year = "in progress"
-    line = _join(f.get("degree", ""), f.get("field", ""), f.get("school", ""), year)
+    gpa = (f.get("gpa") or "").strip()
+    line = _join(f.get("degree", ""), f.get("field", ""), f.get("school", ""), year,
+                 f"GPA {gpa}" if gpa and show_gpa else "")
     extra = (f.get("extra") or "").strip().rstrip(".")
     return f"{line}. {extra[:1].upper()}{extra[1:]}" if line and extra else line or extra
 
 
 def _licence_line(f: dict) -> str:
-    line = _join(f.get("name", ""), f.get("issuer", ""), f.get("year", ""))
-    return f"{line} (lapsed)" if line and f.get("current") == CURRENT[1] else line
+    lapsed = f.get("current") == CURRENT[1]
+    expires = (f.get("expires") or "").strip()
+    line = _join(f.get("name", ""), f.get("issuer", ""), f.get("year", ""),
+                 "multistate (compact) licence" if f.get("multistate") else "",
+                 f"expires {expires}" if expires and not lapsed else "")
+    return f"{line} (lapsed)" if line and lapsed else line
 
 
 def education_view(store, rec: mr.Record) -> list:
@@ -199,7 +228,7 @@ def save_education(store, rec: mr.Record, section: str, i: int, expect: str, fie
     if section not in ("education", "certifications"):
         raise ValueError(f"No such section: {section}")
     names = DEGREE_FIELDS if section == "education" else LICENCE_FIELDS
-    f = {k: (fields.get(k) if k == "studying" else (fields.get(k) or "").strip()) for k in names}
+    f = {k: (bool(fields.get(k)) if k in TICKS else str(fields.get(k) or "").strip()) for k in names}
     if section == "certifications" and f["current"] not in ("",) + CURRENT:
         raise ValueError("Still current? Pick Yes, No or Not sure")
     line = _degree_line(f) if section == "education" else _licence_line(f)
