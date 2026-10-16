@@ -4,23 +4,29 @@ behind a per-user API and one page.
 
   RB_DEV=1 uvicorn web.app:app --reload        # local development
 
-Sign-in is deliberately not built here. In development a dev login sets a
-cookie naming the user; in production `current_user` must be replaced by the
-chosen identity provider's check. Until it is, the service refuses every
-request rather than run without real authentication: a career record holds
-someone's address, phone and employment history.
+Sign-in: in development a dev login sets a cookie naming the user. For a
+tester round, set RB_FIREBASE_PROJECT, RB_FIREBASE_API_KEY, RB_SESSION_SECRET
+and RB_INVITE_EMAILS: Firebase emails each invited tester a one-time sign-in
+link, and the service keeps them signed in with its own signed cookie. With
+neither set up, the service refuses every request rather than run without
+real authentication: a career record holds someone's address, phone and
+employment history.
 """
+import base64
 import csv
+import hashlib
+import hmac
 import io
 import json
 import os
 import sqlite3
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, File, HTTPException, Request, Response, UploadFile
-from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, RedirectResponse
 from pydantic import BaseModel, Field
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -39,6 +45,21 @@ DEV = os.environ.get("RB_DEV") == "1"
 # testers get in. Unset, local development works as before.
 INVITES = {c.strip() for c in os.environ.get("RB_INVITE_CODES", "").split(",") if c.strip()}
 MAX_UPLOAD = 5 * 1024 * 1024
+
+# Real sign-in for testers: Firebase Authentication emails a one-time link,
+# the page trades the token Firebase gives back for our own signed session
+# cookie, and only emails on the invite list get in. It is on when the
+# Firebase project and a session secret are both set.
+FIREBASE = {"apiKey": os.environ.get("RB_FIREBASE_API_KEY", ""),
+            "projectId": os.environ.get("RB_FIREBASE_PROJECT", "")}
+FIREBASE["authDomain"] = os.environ.get("RB_FIREBASE_AUTH_DOMAIN", "") or (
+    f"{FIREBASE['projectId']}.firebaseapp.com" if FIREBASE["projectId"] else "")
+SESSION_SECRET = os.environ.get("RB_SESSION_SECRET", "")
+AUTH_ON = bool(FIREBASE["projectId"] and FIREBASE["apiKey"] and SESSION_SECRET)
+INVITED = {e.strip().lower() for e in os.environ.get("RB_INVITE_EMAILS", "").split(",")
+           if e.strip()}
+SESSION_COOKIE = "rb_session"
+SESSION_DAYS = 14
 
 app = FastAPI(title="Resume Builder")
 
@@ -71,7 +92,18 @@ def db():
         conn.close()
 
 
-def current_user(request: Request) -> str:
+def current_user(request: Request, response: Response) -> str:
+    if AUTH_ON:
+        user, issued = _read_session(request.cookies.get(SESSION_COOKIE, ""))
+        if user:
+            # Sliding expiry: anyone active stays signed in; a session left
+            # alone for SESSION_DAYS ends. Re-issued at most once a day.
+            if time.time() - issued > 86400:
+                _set_session(response, user)
+            return user
+        # Real sign-in is on, so the development sign-in is off, whatever
+        # RB_DEV says: a test site must never take an email on trust.
+        raise HTTPException(401, "Not signed in")
     if not DEV:
         raise HTTPException(503, "Sign-in is not configured; this service will not run "
                                  "without it.")
@@ -86,6 +118,98 @@ def store_for(user: str = Depends(current_user), conn=Depends(db)) -> SqlStore:
 
 
 # --------------------------------------------------------------------------
+# Sign-in
+
+
+def _sign(text: str) -> str:
+    return hmac.new(SESSION_SECRET.encode(), text.encode(), hashlib.sha256).hexdigest()
+
+
+def _set_session(response: Response, email: str) -> None:
+    body = f"{base64.urlsafe_b64encode(email.encode()).decode()}.{int(time.time())}"
+    response.set_cookie(SESSION_COOKIE, f"{body}.{_sign(body)}", max_age=SESSION_DAYS * 86400,
+                        httponly=True, secure=True, samesite="lax")
+
+
+def _read_session(cookie: str) -> tuple:
+    """(email, issued) for a cookie we signed that hasn't run out, else ("", 0)."""
+    try:
+        enc, issued, sig = cookie.split(".")
+        if not hmac.compare_digest(sig, _sign(f"{enc}.{issued}")):
+            return "", 0
+        if time.time() - int(issued) > SESSION_DAYS * 86400:
+            return "", 0
+        email = base64.urlsafe_b64decode(enc.encode()).decode()
+    except (ValueError, UnicodeDecodeError):
+        return "", 0
+    # Taken off the invite list = signed out at the next request.
+    return (email, int(issued)) if email in INVITED else ("", 0)
+
+
+def verify_token(token: str) -> dict:
+    """The claims in a Firebase ID token, checked against Google's keys and
+    this project. Tests replace this function."""
+    from google.auth.transport import requests as g_requests
+    from google.oauth2 import id_token
+    return id_token.verify_firebase_token(token, g_requests.Request(),
+                                          audience=FIREBASE["projectId"])
+
+
+NOT_INVITED = ("That email isn't on the tester list. Use the address your invitation "
+               "was sent to.")
+
+
+@app.get("/auth/config")
+def auth_config():
+    return {"mode": "firebase" if AUTH_ON else "dev" if DEV else "off",
+            "firebase": FIREBASE if AUTH_ON else None}
+
+
+class Invited(BaseModel):
+    email: str
+
+
+@app.post("/auth/invited")
+def auth_invited(body: Invited):
+    """Checked before the page asks Firebase to send a link, so nobody off
+    the list is emailed."""
+    if not AUTH_ON:
+        raise HTTPException(404)
+    if body.email.strip().lower() not in INVITED:
+        raise HTTPException(403, NOT_INVITED)
+    return {"ok": True}
+
+
+class Session(BaseModel):
+    id_token: str
+
+
+@app.post("/auth/session")
+def auth_session(body: Session, response: Response):
+    if not AUTH_ON:
+        raise HTTPException(404)
+    try:
+        claims = verify_token(body.id_token)
+    except Exception:
+        raise HTTPException(401, "That sign-in link has expired or was already used. "
+                                 "Ask for a new one.")
+    email = (claims.get("email") or "").strip().lower()
+    if not email or not claims.get("email_verified"):
+        raise HTTPException(401, "That sign-in didn't include a confirmed email address.")
+    if email not in INVITED:
+        raise HTTPException(403, NOT_INVITED)
+    _set_session(response, email)
+    return {"user": email}
+
+
+@app.post("/auth/signout")
+def auth_signout(response: Response):
+    response.delete_cookie(SESSION_COOKIE)
+    response.delete_cookie("rb_user")
+    return {"signed_out": True}
+
+
+# --------------------------------------------------------------------------
 # Development sign-in
 
 
@@ -96,7 +220,7 @@ class DevLogin(BaseModel):
 
 @app.post("/dev/login")
 def dev_login(body: DevLogin, response: Response):
-    if not DEV:
+    if not DEV or AUTH_ON:
         raise HTTPException(404)
     email = body.email.strip().lower()
     if "@" not in email:
@@ -571,6 +695,7 @@ def download_everything(store: SqlStore = Depends(store_for)):
 def delete_me(response: Response, store: SqlStore = Depends(store_for)):
     store.delete_everything()
     response.delete_cookie("rb_user")
+    response.delete_cookie(SESSION_COOKIE)
     return {"deleted": True}
 
 
@@ -1039,4 +1164,7 @@ def new_page():
 
 @app.get("/")
 def index():
+    # The old page only knows the development sign-in, so testers go to the new one.
+    if AUTH_ON:
+        return RedirectResponse("/new")
     return FileResponse(Path(__file__).parent / "static" / "index.html")
