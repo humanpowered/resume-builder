@@ -73,7 +73,7 @@ class Finish(unittest.TestCase):
                                                          "next": "Nurse manager"}})
         self.assertEqual(r.status_code, 200, r.text)
         self.assertEqual([q["answer"] for q in r.json()["story"]["questions"]],
-                         ["Calming a chaotic night shift", "", "Nurse manager"])
+                         ["Calming a chaotic night shift", "", "", "Nurse manager"])
         md = self.c.get("/api/record").json()["markdown"]
         self.assertIn("Best at: Calming a chaotic night shift", md)
         self.c.put("/api/j/story", json={"fields": {"best": ""}})

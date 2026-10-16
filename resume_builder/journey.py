@@ -14,6 +14,7 @@ shows both the same way; `kind` says which list it lives in.
 """
 import re
 from dataclasses import asdict
+from datetime import date
 
 from . import health, importer, llm
 from . import record as mr
@@ -60,6 +61,7 @@ def view(rec: mr.Record) -> dict:
             "employer": role.employer, "title": role.title,
             "dates": clean(role.fields.get("Dates", "")),
             "outside": role.outside(),
+            "needs_month": not role.outside() and health.needs_month(role.fields.get("Dates", "")),
             "lines": lines,
             "first_at_employer": same[0] is role,
             "last_at_employer": same[-1] is role,
@@ -176,7 +178,7 @@ def add_job(rec: mr.Record, employer: str, title: str, dates: str = "") -> int:
         raise ValueError(f"{title} at {employer} is already on your record")
     role = mr.Role(employer=employer, title=title)
     if dates.strip():
-        role.fields["Dates"] = dates.strip()
+        role.fields["Dates"] = health.tidy_range(dates)
     start = _start(role)
     at = len(rec.roles)
     if start:
@@ -198,7 +200,7 @@ def edit_job(rec: mr.Record, i: int, expect: str, employer=None, title=None, dat
             setattr(role, name, value.strip())
     if dates is not None:
         if dates.strip():
-            role.fields["Dates"] = dates.strip()
+            role.fields["Dates"] = health.tidy_range(dates)
         else:
             role.fields.pop("Dates", None)
     return role
@@ -338,13 +340,61 @@ def targets_view(store, rec: mr.Record) -> dict:
             suggest.append(role.title)
     return {"titles": titles, "where": clean(rec.target.get("Locations", "")),
             "modes": [m for m in _split(rec.target.get(WORK_ARRANGEMENT, "")) if m in WORK_MODES],
-            "status": answers(store).get("targets", ""), "suggest": suggest[:6]}
+            "status": answers(store).get("targets", ""), "suggest": suggest[:6],
+            "stage": stage(rec), "stage_guess": guess_stage(rec), "stages": list(STAGES),
+            "field": clean(rec.target.get(FIELD, ""))}
+
+
+# Where the person is in their career, and their field. Asked once, beside
+# the targets; the sample resume's order follows the stage, and the field
+# goes where the skills list already looks for it.
+STAGES = ("Student or new graduate", "Early career", "Mid-career", "Senior or executive",
+          "Changing fields", "Returning after a break", "Leaving the military")
+STUDENT = STAGES[0]
+STAGE = "Career stage"
+FIELD = "Industries"
+SENIOR = re.compile(r"\b(chief|c[a-z]o|s?vp|evp|vice president|president|director|"
+                    r"head of|partner|general manager|managing director|executive director)\b", re.I)
+STUDYING = re.compile(r"expected|in progress|current(?:ly)? (?:studying|enrolled)", re.I)
+
+
+def today() -> tuple:
+    t = date.today()
+    return t.year, t.month
+
+
+def stage(rec: mr.Record) -> str:
+    s = clean(rec.target.get(STAGE, ""))
+    return s if s in STAGES else ""
+
+
+def guess_stage(rec: mr.Record, now=None) -> str:
+    """A first guess from the record, for the person to confirm or change.
+    Never saved until they save it."""
+    now = now or today()
+    paid = [rec.roles[i] for i in shown_order(rec) if not rec.roles[i].outside()]
+    ranges = [r for r in (health.parse_range(x.fields.get("Dates", ""), today=now) for x in paid) if r]
+    years = _months(ranges) / 12 if ranges else 0
+    newest = paid[0] if paid else None
+    grad = [int(m.group(0)) for line in rec.education for m in re.finditer(r"\b(19|20)\d\d\b", line)]
+    if any(STUDYING.search(line) for line in rec.education) or (years < 3 and grad and max(grad) >= now[0] - 1):
+        return STUDENT
+    if newest is not None and newest.fields.get("Employment type", "") == "Military":
+        return "Leaving the military"
+    if ranges and health.months_between(max(e for _, e in ranges), now) > 12:
+        return "Returning after a break"
+    if newest is not None and SENIOR.search(newest.title):
+        return "Senior or executive"
+    return "Early career" if years < 5 else "Mid-career"
 
 
 def save_targets(store, rec: mr.Record, titles: list, where: str, modes: list,
-                 not_sure: bool = False) -> None:
+                 not_sure: bool = False, career_stage: str | None = None,
+                 field: str | None = None) -> None:
     """One list of up to three titles for the whole tool. Saving never resets
     an answer anywhere else."""
+    if career_stage is not None and career_stage and career_stage not in STAGES:
+        raise ValueError(f"Not a career stage: {career_stage}")
     out, seen = [], set()
     for t in titles:
         t = (t or "").strip()
@@ -359,6 +409,13 @@ def save_targets(store, rec: mr.Record, titles: list, where: str, modes: list,
     for key, value in (("Titles", "; ".join(out)), ("Locations", (where or "").strip()),
                        (WORK_ARRANGEMENT, "; ".join(m for m in WORK_MODES if m in modes))):
         if value:
+            rec.target[key] = value
+        else:
+            rec.target.pop(key, None)
+    for key, value in ((STAGE, career_stage), (FIELD, field)):
+        if value is None:
+            continue
+        if value.strip():
             rec.target[key] = value
         else:
             rec.target.pop(key, None)
@@ -394,9 +451,12 @@ QUESTIONS = (
       "Picked to lead the system rollout"]),
 )
 QUESTION_FIELDS = tuple(q[0] for q in QUESTIONS)
-COMPANY_HELP = ("A line a stranger would understand. Asked once for each employer.",
-                ["Member-owned grocery store, two locations", "Regional hospital, 300 beds",
-                 "Software company selling payroll tools to small businesses"])
+COMPANY_HELP = ("What it does, plus a figure or two that shows its size: staff, locations, customers, "
+                "beds, a revenue range, or where it ranks. A rough figure or a range is fine; skip anything "
+                "your employer keeps confidential. This line goes under the company's name on your resume, "
+                "so a reader who's never heard of it can judge it. Asked once for each employer.",
+                ["Member-owned grocery chain, 2 stores and 120 staff", "Regional hospital, 300 beds and 2,500 staff",
+                 "Payroll software for small businesses, about 8,000 customers and $40M to $50M in revenue"])
 # What a step can be marked: answered, skipped (the employer line), doesn't
 # apply (a background question), or done (the promotions question).
 STATUSES = ("answered", "skipped", "na", "done")
@@ -655,6 +715,7 @@ def work_view(store, rec: mr.Record) -> dict:
         jobs.append({"key": job_key(role), "index": i, "label": role.label(),
                      "number": number.get(i, 0), "total": len(paid),
                      "dates": clean(role.fields.get("Dates", "")),
+                     "needs_month": not role.outside() and health.needs_month(role.fields.get("Dates", "")),
                      "title": role.title, "employer": role.employer,
                      "outside": role.outside(), "lines": lines, "suggested": [l["key"] for l in todo[:SUGGEST]],
                      "next_line": todo[0]["key"] if todo else "",

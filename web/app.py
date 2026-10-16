@@ -612,7 +612,7 @@ def _jstate(store: SqlStore, rec: mr.Record | None = None) -> dict:
             "finish": finish.progress(store, rec, work),
             "suggestions": finish.suggestions(store, rec, work, skill_view, summary),
             "updated": store.updated(), "review": finish.review_view(store, rec),
-            "samples": sample.view(store),
+            "samples": sample.view(store, rec),
             **view}
 
 
@@ -640,13 +640,15 @@ class JTargets(BaseModel):
     where: str = Field("", max_length=200)
     modes: list[str] = Field(default_factory=list, max_length=3)
     not_sure: bool = False
+    stage: str | None = Field(None, max_length=40)
+    field: str | None = Field(None, max_length=200)
 
 
 @app.put("/api/j/targets")
 def j_targets(body: JTargets, store: SqlStore = Depends(store_for)):
     rec = store.load_record()
     _j(journey.save_targets, store, rec, [t[:120] for t in body.titles], body.where,
-       body.modes, body.not_sure)
+       body.modes, body.not_sure, body.stage, body.field)
     store.save_record(rec)
     return _jstate(store, rec)
 
@@ -939,6 +941,18 @@ def j_sample_general(store: SqlStore = Depends(store_for)):
 @app.post("/api/j/sample/tailor")
 def j_sample_tailor(body: JPosting, store: SqlStore = Depends(store_for)):
     return _paid_sample(store, lambda rec: sample.tailored(store, rec, body.text))
+
+
+class JPrefs(BaseModel):
+    phone: bool | None = None
+    old_years: bool | None = None
+
+
+@app.put("/api/j/sample/prefs")
+def j_sample_prefs(body: JPrefs, store: SqlStore = Depends(store_for)):
+    """What goes on every resume: the phone number, and old graduation years."""
+    sample.save_prefs(store, body.phone, body.old_years)
+    return _jstate(store)
 
 
 @app.post("/api/j/dismiss")

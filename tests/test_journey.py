@@ -16,7 +16,8 @@ except ImportError:          # the web layer is optional for the engine
     TestClient = None
 
 from fakes import FakeBackend
-from resume_builder import llm
+from resume_builder import health, journey, llm
+from resume_builder import record as mr
 
 SOURCE = ("PAT LEE\nColumbus, OH | pat@example.com\nEXPERIENCE\n"
           "Riverside Hospital\nCharge Nurse   2021 - Present\n"
@@ -140,7 +141,7 @@ class RecordPage(unittest.TestCase):
         jobs = self.upload()["jobs"]
         s = self.c.patch("/api/j/jobs/2", json={"expect": jobs[2]["label"],
                                                 "dates": "2016 - 2018"}).json()
-        self.assertEqual(s["jobs"][2]["dates"], "2016 - 2018")
+        self.assertEqual(s["jobs"][2]["dates"], "2016 to 2018")
 
     def test_an_added_job_goes_in_date_order_newest_first(self):
         self.upload()
@@ -445,7 +446,7 @@ class RecordPage(unittest.TestCase):
                                                  "title": "Nurse Manager", "dates": "2020 - Present"})
         self.assertEqual(r.status_code, 200, r.text)
         w = self.work(r.json())
-        self.assertEqual((w["title"], w["dates"], w["counts"]["kept"]), ("Nurse Manager", "2020 - Present", 1))
+        self.assertEqual((w["title"], w["dates"], w["counts"]["kept"]), ("Nurse Manager", "2020 to Present", 1))
         q2 = next(x for x in r.json()["steps"] if x["job"] == 0 and x["field"] == q["field"])
         self.assertEqual((q2["status"], q2["answer"]), ("answered", "Fix the night shift"))
         a = self.post("/api/j/line/answers/get", job=w["key"], line=w["lines"][1]["key"])
@@ -458,3 +459,39 @@ class RecordPage(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class StageAndDates(unittest.TestCase):
+    """A first guess at the career stage, and dates written one way."""
+    NOW = (2026, 10)
+
+    def rec(self, *jobs, education=()):
+        r = mr.Record()
+        for title, dates, kind in jobs:
+            role = mr.Role(employer=f"Co {title}", title=title)
+            role.fields["Dates"] = dates
+            if kind:
+                role.fields["Employment type"] = kind
+            r.roles.append(role)
+        r.education = list(education)
+        return r
+
+    def guess(self, *jobs, education=()):
+        return journey.guess_stage(self.rec(*jobs, education=education), now=self.NOW)
+
+    def test_the_guess_reads_the_record(self):
+        self.assertEqual(self.guess(("Barista", "2025 - Present", ""), education=["BA, History, expected 2027"]),
+                         "Student or new graduate")
+        self.assertEqual(self.guess(("Sergeant", "2015 - Present", "Military")), "Leaving the military")
+        self.assertEqual(self.guess(("Analyst", "2010 - 2023", "")), "Returning after a break")
+        self.assertEqual(self.guess(("Director of Operations", "2012 - Present", "")), "Senior or executive")
+        self.assertEqual(self.guess(("Analyst", "2023 - Present", "")), "Early career")
+        self.assertEqual(self.guess(("Analyst", "2015 - Present", "")), "Mid-career")
+
+    def test_dates_are_tidied_only_when_read_with_certainty(self):
+        self.assertEqual(health.tidy_range("01/2019 - now"), "Jan 2019 to Present")
+        self.assertEqual(health.tidy_range("Sept. 2019 – Dec 2020"), "Sep 2019 to Dec 2020")
+        self.assertEqual(health.tidy_range("Summer 2019 - 2020"), "Summer 2019 - 2020")
+        self.assertTrue(health.needs_month("2018 - 2021"))
+        self.assertFalse(health.needs_month("Mar 2018 - Present"))
+        self.assertFalse(health.needs_month("Summer 2019 - 2020"))

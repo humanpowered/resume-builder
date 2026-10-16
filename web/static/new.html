@@ -426,7 +426,8 @@ function recordScreen(isCheck) {
        : `<h1>Check what we read</h1>
          <p class="muted">Fix anything that's wrong before we start. You can change all of it later too.</p>`)
     : `<h1>Your record</h1>${continueNote()}${targetsCard()}`;
-  const counts = none ? "" : `<p class="small muted">${plural(jobs.length, "job")} · ${plural(S.line_count, "line")}</p>`;
+  const counts = none ? "" : `<p class="small muted">${plural(jobs.length, "job")} · ${plural(S.line_count, "line")}</p>
+    ${jobs.some((j) => j.needs_month) ? `<p class="small muted">Some dates give only years. Add the months if you know them; many application forms ask for month and year.</p>` : ""}`;
   return `
   <div class="stack">
     ${head}
@@ -501,6 +502,7 @@ function jobCard(j, home) {
   return `<div class="card">
     <div class="card-head"><div>${esc(j.title)}, ${esc(j.employer)}</div>
       <div class="dates">${esc(j.dates) || "<span class='muted'>no dates</span>"}</div></div>
+    ${j.needs_month ? `<div><button class="link tight" style="font-size:14px" data-editjob="${i}">Add the months</button></div>` : ""}
     ${home ? jobStatus(j) : ""}
     <div class="row" style="gap:16px">
       <button class="link" data-toggle="${i}" aria-expanded="${open}">${open ? "Hide lines" : "Show lines"} (${plural(n, "line")})</button>
@@ -540,6 +542,7 @@ function targetsCard() {
   return `<div class="card" style="gap:4px"><div class="label">Jobs you're aiming for</div>
     <div>${t.titles.length ? t.titles.map(esc).join(" · ") : `<span class="muted">${t.status === "not_sure" ? "Not sure yet" : "None yet"}</span>`}</div>
     ${t.where || t.modes.length ? `<div class="muted" style="font-size:15px">${[t.where, ...t.modes].filter(Boolean).map(esc).join(" · ")}</div>` : ""}
+    ${t.stage || t.field ? `<div class="muted" style="font-size:15px">${[t.stage, t.field].filter(Boolean).map(esc).join(" · ")}</div>` : ""}
     <div><button class="link" data-go="targets">Change</button></div></div>`;
 }
 
@@ -581,6 +584,12 @@ function targets() {
       ${t.titles.length ? t.titles.map((x, n) => `<div class="card-head" style="align-items:center"><div style="font-size:17px">${esc(x)}</div>
         <button class="link tight" data-rmtarget="${n}">Remove</button></div>`).join("") : `<div class="muted">None yet.</div>`}
     </div>
+    <div class="stack-s"><div style="font-size:14px;font-weight:600" id="stageLabel">Where are you in your career?</div>
+      <div class="small muted">This decides how your resume is laid out: a student's education goes first, for example. ${t.stage ? "" : `We've picked ${esc(t.stage_guess)} from your record. Tap another if that's not you.`}</div>
+      <div class="row" style="gap:8px" role="group" aria-labelledby="stageLabel">${t.stages.map((x) => `<button class="chip" data-stage="${esc(x)}" aria-pressed="${(t.stage || t.stage_guess) === x}">${esc(x)}</button>`).join("")}</div></div>
+    <div class="stack-s"><label for="targetField">What field do you work in, or want to? (optional)</label>
+      <input type="text" id="targetField" placeholder="e.g. Hospital nursing, retail banking, logistics" value="${esc(t.field)}">
+      <div class="small muted">Helps us suggest the skills your field asks for.</div></div>
     <div class="stack-s"><label for="targetWhere">Where do you want to work? (optional)</label>
       <input type="text" id="targetWhere" placeholder="e.g. Columbus, Ohio" value="${esc(t.where)}">
       <div class="row" style="gap:8px">${S.work_modes.map((m) => `<button class="chip" data-mode="${esc(m)}" aria-pressed="${t.modes.includes(m)}">${esc(m)}</button>`).join("")}</div></div>
@@ -610,7 +619,7 @@ function bg() {
   if (x.kind === "company") {
     return `${progress(caption, frac)}<div class="stack">
       ${jobHead(jobByIndex(x.job))}
-      <h1>First, in one line: what did ${esc(x.employer)} do?</h1>
+      <h1>First, in one line: what did ${esc(x.employer)} do, and how big was it?</h1>
       <p class="muted">${esc(Q.company.help)}</p>
       ${examples(Q.company.examples)}
       ${box}
@@ -661,7 +670,7 @@ function jobHead(j) {
   return fixForm(j) || `<div class="small muted">${esc(j.title)}, ${esc(j.employer)}${j.dates ? ` · ${esc(j.dates)}` : ""}
     ${fixLink(j)}</div>`;
 }
-const fixLink = (j) => !j ? "" : `<button class="link tight" style="font-size:14px;margin-left:6px" data-fixjob="${j.index}">Fix title or dates</button>`;
+const fixLink = (j) => !j ? "" : `<button class="link tight" style="font-size:14px;margin-left:6px" data-fixjob="${j.index}">${j.needs_month ? "Add the months to these dates" : "Fix title or dates"}</button>`;
 function fixForm(j) {
   if (!j || ui.fixJob !== j.index) return "";
   return `<div class="card">
@@ -871,7 +880,8 @@ function jobFields(p, j, noEmployer) {
     <div class="stack-s"><label for="${p}_title">Your title</label>
       <input type="text" id="${p}_title" value="${esc(j.title)}"></div>
     <div class="stack-s"><label for="${p}_dates">Dates</label>
-      <input type="text" id="${p}_dates" value="${esc(j.dates)}" placeholder="e.g. Mar 2019 to now"></div>`;
+      <input type="text" id="${p}_dates" value="${esc(j.dates)}" placeholder="e.g. Mar 2019 to now">
+      <div class="small muted">Month and year if you know them, like Mar 2019 to Jun 2022.</div></div>`;
 }
 
 function addJobBlock(none) {
@@ -907,14 +917,19 @@ function itemUndo() {
 const EDU_FORMS = {
   education: [["degree", "Degree or course", "e.g. BS, or Welding certificate"], ["field", "Field of study", "e.g. Business Administration"],
               ["school", "School", "e.g. Portland State University"],
-              ["year", "Year", "e.g. 2009", "Optional. Some people leave the year off older degrees. Your choice."]],
-  certifications: [["name", "Name", "e.g. Certified Supply Chain Professional (CSCP)"], ["issuer", "Issued by", "e.g. APICS"],
-                   ["year", "Year earned", "e.g. 2019"]],
+              ["year", "Year", "e.g. 2009", "Your record keeps it. Resumes leave off a year more than 15 years old unless you choose to show it."],
+              ["gpa", "GPA (optional)", "e.g. 3.6", "Shown on resumes only while you're a student or a recent graduate, and only if it's 3.0 or higher."]],
+  certifications: [["name", "Name", "e.g. Certified Supply Chain Professional (CSCP)"], ["issuer", "Issued by", "e.g. APICS, or Ohio Board of Nursing"],
+                   ["year", "Year earned", "e.g. 2019"],
+                   ["expires", "Expires (optional)", "e.g. Mar 2027", "Many employers check that a licence is current. The licence number itself is never asked for."]],
 };
+// A nursing licence can be multistate under the Nurse Licensure Compact,
+// which employers in other compact states look for.
+const NURSING = /nurs|\b(RN|LPN|LVN|APRN)\b/i;
 const CURRENT = ["Yes", "No, it lapsed", "Not sure"];
 
 function eduForm(section, e) {
-  const f = e ? e.fields : {};
+  const f = { ...(e ? e.fields : {}), ...(ui.eduDraft || {}) };
   const id = e ? `${section}:${e.index}` : `new:${section}`;
   if (ui.cur === undefined) ui.cur = f.current || "";
   const inputs = EDU_FORMS[section].map(([k, label, ph, note]) => `<div class="stack-s" style="gap:4px">
@@ -926,7 +941,8 @@ function eduForm(section, e) {
        <div class="small muted">For example: graduated with honours · thesis on warehouse routing · captain of the debate team · paid my own way working nights</div>
        <textarea id="ef_extra" style="min-height:64px">${esc(f.extra || "")}</textarea></div>`
     : `<div class="stack-s" style="gap:4px"><div style="font-size:14px;font-weight:600">Still current?</div>
-       <div class="row" style="gap:8px">${CURRENT.map((c) => `<button class="chip" data-cur="${esc(c)}" aria-pressed="${ui.cur === c}">${c}</button>`).join("")}</div></div>`;
+       <div class="row" style="gap:8px">${CURRENT.map((c) => `<button class="chip" data-cur="${esc(c)}" aria-pressed="${ui.cur === c}">${c}</button>`).join("")}</div></div>
+       ${f.multistate || NURSING.test([f.name, S.targets.field, ...S.targets.titles].join(" ")) ? `<label class="row" style="gap:8px;font-weight:400;font-size:15px"><input type="checkbox" id="ef_multistate" ${f.multistate ? "checked" : ""}> This is a multistate (compact) nursing licence</label>` : ""}`;
   return `<div class="stack" style="gap:12px;border-top:1px solid var(--soft-line);padding-top:12px">${inputs}${more}
     <div class="row"><button class="btn" data-saveedu="${esc(id)}">Save</button>
     ${e ? `<button class="link danger" data-deledu="${esc(id)}">Delete this</button>` : ""}
@@ -1054,6 +1070,9 @@ const TILES = [
   { key: "break", label: "Career break", hint: "Dates, optional reason",
     fields: [["from", "From", "e.g. 2016"], ["to", "To", "e.g. 2017"], ["reason", "Reason, if you'd like to give one", "e.g. Caring for a parent, study, travel"]],
     note: "The reason is optional. A single line explains a gap better than leaving it unexplained." },
+  { key: "said", label: "Something said about your work", hint: "A quote, who said it",
+    fields: [["quote", "What they said", "e.g. The first person I call when a site is falling behind."], ["who", "Who said it", "e.g. Dana Ruiz, VP Operations"], ["relation", "How they knew you", "e.g. My manager at Northwind Freight"]],
+    note: "Paste it the way they put it: a performance review, a LinkedIn recommendation or a thank-you email all count. We use it to show what makes you stand out, and it isn't printed on your resume." },
 ];
 
 function beyondScreen() {
@@ -1172,7 +1191,7 @@ function homeScreen() {
 function storyScreen() {
   return `${progress("Summary · your career in your own words", 0.2, 4)}<div class="stack">
     <h1>Your career in your own words</h1>
-    <p>Three optional questions. Your answers shape your summary and give cover letters something no list of jobs can: what you're like to work with and where you're heading. Answer any, all or none.</p>
+    <p>Four optional questions. Your answers shape your summary and give cover letters something no list of jobs can: what you're like to work with and where you're heading. Give each one a few sentences and a real example if you can. Tell us what you do that others in your line of work don't, and why an employer would be glad to have you. A one-line answer gives us little to work with. Answer any, all or none.</p>
     ${S.story.questions.map((q) => `<div class="stack-s" style="gap:6px">
       <label for="story_${q.key}" style="font-size:18px">${esc(q.q)}</label>
       <div class="small muted" style="font-size:15px">For example: ${esc(q.ex)}</div>
@@ -1499,6 +1518,7 @@ function sampleScreen() {
     ${gaps}
     ${res.posting && res.posting.url ? `<div class="small muted noprint" style="overflow-wrap:anywhere">From the posting at <a href="${esc(res.posting.url)}" target="_blank" rel="noopener noreferrer">${esc(linkHost(res.posting.url) || res.posting.url)}</a></div>` : ""}
     ${paper(res)}
+    ${samplePrefs(res)}
     <div class="row noprint">
       <button class="btn2" id="printSample">Print or save as PDF</button>
       <button class="btn2" id="copySample">${ui.copied ? "Copied" : "Copy as text"}</button>
@@ -1507,32 +1527,46 @@ function sampleScreen() {
   </div>`;
 }
 
+// The sections come in the order the server chose for the person's career
+// stage: a student's education first, a licence above the experience.
 function paper(r) {
-  const head = (t) => `<div class="rh">${t}</div>`;
+  const head = (t) => `<div class="rh">${esc(t.toUpperCase())}</div>`;
+  const body = (x) => x.key === "summary" ? `<div>${esc(r.summary)}</div>`
+    : x.key === "experience" ? r.employers.map((e) => `<div><div style="font-weight:700">${esc(e.employer)}</div>
+      ${e.about ? `<div class="muted" style="font-size:13px">${esc(e.about)}</div>` : ""}
+      ${e.roles.map((y) => `<div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap"><span style="font-style:italic">${esc(y.title)}</span><span class="muted">${esc(y.dates)}</span></div>
+        ${y.lines.length ? `<ul>${y.lines.map((l) => `<li>${esc(l)}</li>`).join("")}</ul>` : ""}`).join("")}</div>`).join("")
+    : x.key === "skills" ? `<div>${r.skills.map(esc).join(" · ")}</div>`
+    : `<div>${x.lines.map(esc).join("<br>")}</div>`;
   return `<div class="paper">
     <div style="text-align:center"><div style="font-size:20px;font-weight:700;letter-spacing:.02em">${esc((r.name || "Your name").toUpperCase())}</div>
       <div class="muted">${[r.headline, r.contact].filter(Boolean).map(esc).join(" · ")}</div></div>
-    ${r.summary ? `${head("SUMMARY")}<div>${esc(r.summary)}</div>` : ""}
-    ${head("EXPERIENCE")}
-    ${r.employers.map((e) => `<div><div style="font-weight:700">${esc(e.employer)}</div>
-      ${e.roles.map((x) => `<div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap"><span style="font-style:italic">${esc(x.title)}</span><span class="muted">${esc(x.dates)}</span></div>
-        ${x.lines.length ? `<ul>${x.lines.map((l) => `<li>${esc(l)}</li>`).join("")}</ul>` : ""}`).join("")}</div>`).join("")}
-    ${r.education.length ? `${head("EDUCATION AND LICENCES")}<div>${r.education.map(esc).join("<br>")}</div>` : ""}
-    ${r.skills.length ? `${head("SKILLS")}<div>${r.skills.map(esc).join(" · ")}</div>` : ""}
-    ${r.extras.map((x) => `${head(esc(x.heading.toUpperCase()))}<div>${x.lines.map(esc).join("<br>")}</div>`).join("")}
+    ${r.sections.map((x) => head(x.heading) + body(x)).join("")}
   </div>`;
 }
 
 function sampleText(r) {
   const out = [(r.name || "").toUpperCase(), [r.headline, r.contact].filter(Boolean).join(" · ")];
-  if (r.summary) out.push("", "SUMMARY", r.summary);
-  out.push("", "EXPERIENCE");
-  r.employers.forEach((e) => { out.push("", e.employer);
-    e.roles.forEach((x) => { out.push(x.title + (x.dates ? "  " + x.dates : "")); x.lines.forEach((l) => out.push("• " + l)); }); });
-  if (r.education.length) out.push("", "EDUCATION AND LICENCES", ...r.education);
-  if (r.skills.length) out.push("", "SKILLS", r.skills.join(" · "));
-  r.extras.forEach((x) => out.push("", x.heading.toUpperCase(), ...x.lines));
+  r.sections.forEach((x) => {
+    out.push("", x.heading.toUpperCase());
+    if (x.key === "summary") out.push(r.summary);
+    else if (x.key === "experience") r.employers.forEach((e) => { out.push("", e.employer); if (e.about) out.push(e.about);
+      e.roles.forEach((y) => { out.push(y.title + (y.dates ? "  " + y.dates : "")); y.lines.forEach((l) => out.push("• " + l)); }); });
+    else if (x.key === "skills") out.push(r.skills.join(" · "));
+    else out.push(...x.lines);
+  });
   return out.join("\n").trim() + "\n";
+}
+
+// Choices that apply to every resume. Changing one redraws the resumes
+// already made; nothing is chosen again and nothing is spent.
+function samplePrefs(r) {
+  const p = S.samples.prefs;
+  const box = (k, text) => `<label class="tick" style="border-top:0;padding:4px 0"><input type="checkbox" data-pref="${k}" ${p[k] ? "checked" : ""}><span>${text}</span></label>`;
+  return `<div class="card noprint" style="gap:4px"><div class="label">On every resume</div>
+    ${box("phone", "Show my phone number")}
+    ${box("old_years", "Show graduation years from more than 15 years ago")}
+    <div class="small muted">Jobs that ended more than 15 years ago show as a title and employer under Earlier experience. Recruiters look hardest at the last 10 to 15 years, and old dates invite guesses about age.</div></div>`;
 }
 
 // The draft is made fresh each time; a missing sample sends the person home.
@@ -1546,6 +1580,13 @@ async function loadSample(which) {
 
 function wireSample() {
   if ($("printSample")) $("printSample").onclick = () => window.print();
+  document.querySelectorAll("[data-pref]").forEach((el) => el.onchange = () => act(async () => {
+    const r = await send("PUT", "/api/j/sample/prefs", { [el.dataset.pref]: el.checked });
+    // The draft is made fresh; a kept sample comes back redrawn with the state.
+    if (at === "draft") ui.sample = (await send("POST", "/api/j/sample/draft", {})).sample;
+    else ui.sample = null;
+    return r;
+  }));
   if ($("copySample")) $("copySample").onclick = async () => {
     try { await navigator.clipboard.writeText(sampleText(ui.sample)); ui.copied = true; render(); }
     catch (e) { say("Your browser didn't allow copying. Select the resume and copy it instead."); }
@@ -1650,8 +1691,11 @@ function wireFix() {
 
 function wireTargets() {
   const t = () => S.targets;
+  // The stage shown is the one saved, or our guess; saving keeps whichever is shown.
   const save = (patch) => act(() => send("PUT", "/api/j/targets",
-    { titles: t().titles, where: val("targetWhere"), modes: t().modes, ...patch }));
+    { titles: t().titles, where: val("targetWhere"), modes: t().modes,
+      stage: t().stage || t().stage_guess, field: val("targetField"), ...patch }));
+  on("[data-stage]", (el) => save({ stage: el.dataset.stage }));
   const add = (title) => { if (title) save({ titles: [...t().titles, title] }); };
   on("[data-addtarget]", (el) => add(el.dataset.addtarget));
   $("addTarget").onclick = () => add(val("targetTitle"));
@@ -1986,18 +2030,22 @@ async function finishSection(name) {
 
 function wireEdu() {
   const find = (id) => { const [s, i] = id.split(":"); return (S.edu || []).find((e) => e.section === s && e.index === +i); };
-  on("[data-openedu]", (el) => { ui.eduOpen = el.dataset.openedu; ui.cur = undefined; ui.gone = null; render();
+  on("[data-openedu]", (el) => { ui.eduOpen = el.dataset.openedu; ui.cur = undefined; ui.eduDraft = null; ui.gone = null; render();
     $("ef_degree")?.focus() || $("ef_name")?.focus(); });
-  on("[data-closeedu]", () => { ui.eduOpen = null; render(); });
-  on("[data-cur]", (el) => { ui.cur = ui.cur === el.dataset.cur ? "" : el.dataset.cur; render(); });
+  on("[data-closeedu]", () => { ui.eduOpen = null; ui.eduDraft = null; render(); });
+  // Picking "Still current?" redraws the form; what's typed so far stays.
+  on("[data-cur]", (el) => { const section = (ui.eduOpen || "").replace(/^new:/, "").split(":")[0];
+    ui.eduDraft = { ...Object.fromEntries((EDU_FORMS[section] || []).map(([k]) => [k, $(`ef_${k}`)?.value || ""])),
+                    multistate: !!$("ef_multistate")?.checked };
+    ui.cur = ui.cur === el.dataset.cur ? "" : el.dataset.cur; render(); });
   on("[data-saveedu]", (el) => act(async () => {
     const id = el.dataset.saveedu, isNew = id.startsWith("new:");
     const section = isNew ? id.slice(4) : id.split(":")[0], e = isNew ? null : find(id);
     const fields = Object.fromEntries(EDU_FORMS[section].map(([k]) => [k, val(`ef_${k}`)]));
     if (section === "education") { fields.studying = !!$("ef_studying")?.checked; fields.extra = val("ef_extra"); }
-    else fields.current = ui.cur || "";
+    else { fields.current = ui.cur || ""; fields.multistate = !!$("ef_multistate")?.checked; }
     const r = await sec("/api/j/edu", { section, index: e ? e.index : -1, expect: e ? e.line : null, fields });
-    ui.eduOpen = null; return r;
+    ui.eduOpen = null; ui.eduDraft = null; return r;
   }));
   on("[data-deledu]", (el) => act(async () => {
     const e = find(el.dataset.deledu);

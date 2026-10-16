@@ -46,10 +46,63 @@ def parse_point(text: str, end: bool = False):
     return None
 
 
+RANGE_SPLIT = re.compile(r"\s+(?:-|–|—|to)\s+|\s*[–—]\s*|(?<=\d)\s*-\s*(?=[A-Za-z0-9])")
+MONTH_NAMES = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+# One end of a range written wholly as a month and year, or a year alone.
+# Anything else ("Summer 2019", "since 2019") is left as the person wrote it.
+_MONTH_YEAR = re.compile(r"(?:(\d{1,2})\s*/\s*(\d{4})|(\d{4})\s*-\s*(\d{1,2})|([a-z]{3})[a-z]*\.?\s+(\d{4}))", re.I)
+_YEAR_ONLY = re.compile(r"\d{4}")
+
+
+def _tidy_point(text: str, end: bool):
+    """("Mar 2019", True) for a month and year, ("2019", False) for a year
+    alone, "Present" for an open end; None for anything else."""
+    t = text.strip().rstrip(".").strip()
+    if end and PRESENT.fullmatch(t):
+        return "Present", True
+    m = _MONTH_YEAR.fullmatch(t)
+    if m:
+        if m.group(1):
+            year, month = int(m.group(2)), int(m.group(1))
+        elif m.group(3):
+            year, month = int(m.group(3)), int(m.group(4))
+        else:
+            year, month = int(m.group(6)), MONTHS.get(m.group(5).lower(), 0)
+        if 1 <= month <= 12:
+            return f"{MONTH_NAMES[month - 1]} {year}", True
+        return None
+    if _YEAR_ONLY.fullmatch(t):
+        return t, False
+    return None
+
+
+def _tidy_parts(text: str):
+    text = re.sub(r"<!--.*?-->", "", text or "").strip()
+    parts = RANGE_SPLIT.split(text, maxsplit=1)
+    if len(parts) != 2:
+        return None
+    a, b = _tidy_point(parts[0], False), _tidy_point(parts[1], True)
+    return (a, b) if a and b else None
+
+
+def tidy_range(text: str) -> str:
+    """A job's dates written one way everywhere: "Mar 2019 to Present",
+    "2017 to 2018". Dates it can't read with certainty come back unchanged."""
+    got = _tidy_parts(text)
+    return f"{got[0][0]} to {got[1][0]}" if got else (text or "").strip()
+
+
+def needs_month(text: str) -> bool:
+    """Dates that read clearly but give only years at one end or both, so
+    asking for the months is worth it."""
+    got = _tidy_parts(text)
+    return bool(got) and not (got[0][1] and got[1][1])
+
+
 def parse_range(text: str, today=(2026, 10)):
     """'Jan 2019 - Present' -> ((2019, 1), today). None if either end fails."""
     text = re.sub(r"<!--.*?-->", "", text or "")
-    parts = re.split(r"\s+(?:-|–|—|to)\s+|\s*[–—]\s*|(?<=\d)\s*-\s*(?=[A-Za-z0-9])", text, maxsplit=1)
+    parts = RANGE_SPLIT.split(text, maxsplit=1)
     if len(parts) != 2:
         return None
     start = parse_point(parts[0])
