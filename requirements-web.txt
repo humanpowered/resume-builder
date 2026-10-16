@@ -2,3 +2,5 @@
 fastapi>=0.110
 uvicorn>=0.29
 python-multipart>=0.0.9
+google-auth>=2.20  # checks Firebase sign-in tokens
+requests>=2.31     # google-auth's transport for fetching Google's signing keys

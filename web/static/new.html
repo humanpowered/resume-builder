@@ -158,7 +158,7 @@
 </head>
 <body>
 <div class="wrap">
-  <div class="top"><div class="brand">Career record</div><div class="small muted" id="saved">Saved as you go</div></div>
+  <div class="top"><div class="brand">Career record</div><div class="row" style="gap:16px;align-items:center"><div class="small muted" id="saved">Saved as you go</div><button class="link tight small" id="signout" hidden>Sign out</button></div></div>
   <div id="alert" class="alert" role="alert" hidden></div>
   <main id="main" class="stack" aria-live="polite"></main>
 </div>
@@ -1931,9 +1931,122 @@ function wireRecord() {
 }
 
 // ---------------------------------------------------------------- sign-in
+//
+// For a tester round the server runs Firebase sign-in: the person types their
+// email, Firebase emails a one-time link, and opening it signs them in here.
+// The token Firebase hands back is traded for the server's own session cookie
+// straight away, so Firebase keeps nothing signed in on this device.
 
-function signIn() {
+const FIREBASE_SDK = "https://www.gstatic.com/firebasejs/10.12.2/";
+const LINK_EMAIL = "rb_signin_email";
+let authCfg = null, fb = null;
+
+async function authConfig() {
+  if (!authCfg) {
+    try { authCfg = await (await fetch("/auth/config")).json(); }
+    catch { authCfg = { mode: "off" }; }
+  }
+  return authCfg;
+}
+
+async function firebase() {
+  if (!fb) {
+    const [app, auth] = await Promise.all([import(FIREBASE_SDK + "firebase-app.js"),
+                                           import(FIREBASE_SDK + "firebase-auth.js")]);
+    fb = { ...auth, auth: auth.getAuth(app.initializeApp((await authConfig()).firebase)) };
+  }
+  return fb;
+}
+
+const remember = (email) => { try { localStorage.setItem(LINK_EMAIL, email); } catch {} };
+const remembered = () => { try { return localStorage.getItem(LINK_EMAIL) || ""; } catch { return ""; } };
+const forget = () => { try { localStorage.removeItem(LINK_EMAIL); } catch {} };
+
+function linkError(e) {
+  const code = e && e.code || "";
+  if (/invalid-action-code|expired-action-code/.test(code))
+    return "That sign-in link has expired or was already used. Ask for a new one below.";
+  if (/invalid-email/.test(code)) return "That doesn't look like an email address.";
+  if (/too-many-requests|quota/.test(code)) return "Too many sign-in emails just now. Wait a few minutes and try again.";
+  if (/network/.test(code)) return "Couldn't reach the sign-in service. Check your connection and try again.";
+  return e && e.message && !code ? e.message : "Sign-in didn't work. Try again.";
+}
+
+async function signIn() {
   screen = "signin";
+  $("signout").hidden = true;
+  const cfg = await authConfig();
+  if (cfg.mode !== "firebase") return devSignIn();
+  $("main").innerHTML = `<div class="stack" style="padding-top:12px">
+    <h1>Sign in</h1>
+    <p class="muted">Enter the email address your invitation was sent to. We'll email you a link that signs you in; there's no password.</p>
+    <div class="stack-s"><label for="email">Email</label><input type="email" id="email" autocomplete="email" value="${esc(remembered())}"></div>
+    <div><button class="btn" id="login">Email me a sign-in link</button></div></div>`;
+  $("login").onclick = async () => {
+    say("");
+    const email = val("email").trim();
+    if (!email) { say("Enter your email address."); return; }
+    $("login").disabled = true;
+    try {
+      await send("POST", "/auth/invited", { email });
+      const f = await firebase();
+      await f.sendSignInLinkToEmail(f.auth, email, { url: location.origin + "/new", handleCodeInApp: true });
+      remember(email);
+      $("main").innerHTML = `<div class="stack" style="padding-top:12px">
+        <h1>Check your email</h1>
+        <p>We sent a sign-in link to <strong>${esc(email)}</strong>. Open it on this device to carry on.</p>
+        <p class="muted small">It can take a minute to arrive. If it doesn't, check your spam folder, or <button class="link tight" id="again">send another</button>.</p></div>`;
+      $("again").onclick = () => signIn();
+    } catch (e) {
+      say(linkError(e));
+      if ($("login")) $("login").disabled = false;
+    }
+  };
+}
+
+// Opened from the emailed link: finish signing in, then carry on as usual.
+// Returns false when this page load isn't a sign-in link.
+async function finishLink() {
+  if (!/[?&]oobCode=/.test(location.search)) return false;
+  if ((await authConfig()).mode !== "firebase") return false;
+  const f = await firebase();
+  if (!f.isSignInWithEmailLink(f.auth, location.href)) return false;
+  const complete = async (email) => {
+    say("");
+    try {
+      const cred = await f.signInWithEmailLink(f.auth, email, location.href);
+      await send("POST", "/auth/session", { id_token: await cred.user.getIdToken() });
+      await f.signOut(f.auth);
+      forget();
+      history.replaceState(null, "", "/new");
+      boot();
+    } catch (e) {
+      history.replaceState(null, "", "/new");
+      await signIn();
+      say(linkError(e));
+    }
+  };
+  const email = remembered();
+  if (email) { complete(email); return true; }
+  // The link was opened on a different device or browser: ask which email
+  // it was sent to, as Firebase requires.
+  screen = "signin";
+  $("main").innerHTML = `<div class="stack" style="padding-top:12px">
+    <h1>Finish signing in</h1>
+    <p class="muted">Confirm the email address this link was sent to.</p>
+    <div class="stack-s"><label for="email">Email</label><input type="email" id="email" autocomplete="email"></div>
+    <div><button class="btn" id="finish">Sign in</button></div></div>`;
+  $("finish").onclick = () => complete(val("email").trim());
+  return true;
+}
+
+$("signout").onclick = async () => {
+  try { await send("POST", "/auth/signout"); } catch {}
+  S = null;
+  signIn();
+};
+
+function devSignIn() {
   $("main").innerHTML = `<div class="stack" style="padding-top:12px">
     <h1>Sign in</h1>
     <div class="stack-s"><label for="email">Email</label><input type="email" id="email" autocomplete="email"></div>
@@ -1964,9 +2077,10 @@ async function boot() {
     screen = S.finish.first_build_done ? "record" : "back"; at = "";
   }
   history.replaceState({ screen, at, promo: ui.promo, depth: h.depth || 0 }, "", "#" + screen);
+  $("signout").hidden = (await authConfig()).mode !== "firebase";
   render();
 }
-boot();
+finishLink().then((link) => { if (!link) boot(); }, () => boot());
 
 // ---------------------------------------------------------------- education, skills, beyond: actions
 
