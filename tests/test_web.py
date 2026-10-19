@@ -321,9 +321,9 @@ class FirebaseSignIn(unittest.TestCase):
         _, r = self.signed_in("eve@example.com")
         self.assertEqual(r.status_code, 403)
         _, r = self.signed_in("ann@example.com", verified=False)
-        self.assertEqual(r.status_code, 401)
+        self.assertEqual(r.status_code, 400)
         c = TestClient(self.appmod.app, base_url="https://testserver")
-        self.assertEqual(c.post("/auth/session", json={"id_token": "forged"}).status_code, 401)
+        self.assertEqual(c.post("/auth/session", json={"id_token": "forged"}).status_code, 400)
         self.assertEqual(c.get("/api/record").status_code, 401)
 
     def test_a_tampered_cookie_or_the_dev_login_does_not_get_in(self):

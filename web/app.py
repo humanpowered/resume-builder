@@ -151,8 +151,11 @@ def verify_token(token: str) -> dict:
     this project. Tests replace this function."""
     from google.auth.transport import requests as g_requests
     from google.oauth2 import id_token
+    # A fresh token is stamped with Google's clock; a PC a second behind
+    # would otherwise reject it as "used too early".
     return id_token.verify_firebase_token(token, g_requests.Request(),
-                                          audience=FIREBASE["projectId"])
+                                          audience=FIREBASE["projectId"],
+                                          clock_skew_in_seconds=30)
 
 
 NOT_INVITED = ("That email isn't on the tester list. Use the address your invitation "
@@ -188,14 +191,17 @@ class Session(BaseModel):
 def auth_session(body: Session, response: Response):
     if not AUTH_ON:
         raise HTTPException(404)
+    # 400, not 401: the page treats 401 as "show sign-in" and would hide
+    # the reason, leaving the tester back at the sign-in screen.
     try:
         claims = verify_token(body.id_token)
-    except Exception:
-        raise HTTPException(401, "That sign-in link has expired or was already used. "
+    except Exception as e:
+        print(f"Sign-in token rejected: {e}", file=sys.stderr)
+        raise HTTPException(400, "That sign-in link has expired or was already used. "
                                  "Ask for a new one.")
     email = (claims.get("email") or "").strip().lower()
     if not email or not claims.get("email_verified"):
-        raise HTTPException(401, "That sign-in didn't include a confirmed email address.")
+        raise HTTPException(400, "That sign-in didn't include a confirmed email address.")
     if email not in INVITED:
         raise HTTPException(403, NOT_INVITED)
     _set_session(response, email)
