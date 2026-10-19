@@ -55,6 +55,20 @@ class Web(unittest.TestCase):
         self.assertNotIn("Riverside", b.get("/api/record").json()["markdown"])
         self.assertFalse(b.get("/api/record").json()["exists"])
 
+    def test_the_resume_on_screen_downloads_as_word_or_pdf(self):
+        c = self.client("a@example.com")
+        res = {"name": "Ann Lee", "employers": [{"employer": "Riverside", "roles": [
+            {"title": "RN", "dates": "2019 - Present", "lines": ["Cut wait times 20%"]}]}]}
+        r = c.post("/api/j/sample/file", json={"sample": res, "format": "docx"})
+        self.assertEqual(r.status_code, 200)
+        self.assertIn('filename="Ann Lee resume.docx"', r.headers["content-disposition"])
+        self.assertEqual(r.content[:2], b"PK")
+        r = c.post("/api/j/sample/file", json={"sample": res, "format": "pdf"})
+        self.assertEqual(r.content[:5], b"%PDF-")
+        self.assertEqual(c.post("/api/j/sample/file", json={"sample": res, "format": "exe"}).status_code, 422)
+        self.assertEqual(TestClient(self.appmod.app).post(
+            "/api/j/sample/file", json={"sample": res}).status_code, 401)
+
     def test_the_page_gets_the_opening_card_and_phone_tip(self):
         r = self.client("a@example.com").get("/api/record").json()
         self.assertIn("15 to 20 minutes a job", r["intro"])

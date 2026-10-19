@@ -152,6 +152,8 @@
     .top, #alert, .noprint, [aria-label=Progress] { display: none !important; }
     .wrap { max-width: none; padding: 0; }
     .paper { border: 0; box-shadow: none; padding: 0; }
+    .paper .rh, .paper .eh, .paper .th { break-after: avoid; }
+    .paper li { break-inside: avoid; }
   }
   [hidden] { display: none !important; }
 </style>
@@ -1500,11 +1502,34 @@ function sampleScreen() {
     ${res.posting && res.posting.url ? `<div class="small muted noprint" style="overflow-wrap:anywhere">From the posting at <a href="${esc(res.posting.url)}" target="_blank" rel="noopener noreferrer">${esc(linkHost(res.posting.url) || res.posting.url)}</a></div>` : ""}
     ${paper(res)}
     <div class="row noprint">
-      <button class="btn2" id="printSample">Print or save as PDF</button>
+      <button class="btn2" id="dlSample" aria-expanded="${!!ui.dl}">Download</button>
       <button class="btn2" id="copySample">${ui.copied ? "Copied" : "Copy as text"}</button>
       <button class="link" data-back>Back</button>
     </div>
+    ${ui.dl ? `<div class="card stack-s noprint" style="gap:8px">
+      <div style="font-weight:600">Download as</div>
+      <div class="row"><button class="btn" data-dl="docx" ${ui.dling ? "disabled" : ""}>Word (.docx)</button>
+        <button class="btn2" data-dl="pdf" ${ui.dling ? "disabled" : ""}>PDF</button></div>
+      <div class="small muted">${ui.dling ? "Making your file…" : "Word is best if you want to edit it. The file matches the preview above and saves to your computer."}</div>
+    </div>` : ""}
   </div>`;
+}
+
+// The resume on screen, as a Word or PDF file saved to the person's computer.
+async function downloadSample(format) {
+  ui.dling = true; render();
+  try {
+    const r = await fetch("/api/j/sample/file", { method: "POST", credentials: "same-origin",
+      headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sample: ui.sample, format }) });
+    if (r.status === 401) { signIn(); return; }
+    if (!r.ok) throw new Error("We couldn't make the file just now. Try again in a moment.");
+    const name = (/filename="([^"]+)"/.exec(r.headers.get("content-disposition") || "") || [])[1] || `resume.${format}`;
+    const url = URL.createObjectURL(await r.blob());
+    const a = Object.assign(document.createElement("a"), { href: url, download: name });
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+  } catch (e) { say(e.message); }
+  finally { ui.dling = false; render(); }
 }
 
 function paper(r) {
@@ -1514,8 +1539,8 @@ function paper(r) {
       <div class="muted">${[r.headline, r.contact].filter(Boolean).map(esc).join(" · ")}</div></div>
     ${r.summary ? `${head("SUMMARY")}<div>${esc(r.summary)}</div>` : ""}
     ${head("EXPERIENCE")}
-    ${r.employers.map((e) => `<div><div style="font-weight:700">${esc(e.employer)}</div>
-      ${e.roles.map((x) => `<div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap"><span style="font-style:italic">${esc(x.title)}</span><span class="muted">${esc(x.dates)}</span></div>
+    ${r.employers.map((e) => `<div><div class="eh" style="font-weight:700">${esc(e.employer)}</div>
+      ${e.roles.map((x) => `<div class="th" style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap"><span style="font-style:italic">${esc(x.title)}</span><span class="muted">${esc(x.dates)}</span></div>
         ${x.lines.length ? `<ul>${x.lines.map((l) => `<li>${esc(l)}</li>`).join("")}</ul>` : ""}`).join("")}</div>`).join("")}
     ${r.education.length ? `${head("EDUCATION AND LICENCES")}<div>${r.education.map(esc).join("<br>")}</div>` : ""}
     ${r.skills.length ? `${head("SKILLS")}<div>${r.skills.map(esc).join(" · ")}</div>` : ""}
@@ -1545,7 +1570,8 @@ async function loadSample(which) {
 }
 
 function wireSample() {
-  if ($("printSample")) $("printSample").onclick = () => window.print();
+  if ($("dlSample")) $("dlSample").onclick = () => { ui.dl = !ui.dl; render(); };
+  document.querySelectorAll("[data-dl]").forEach((b) => b.onclick = () => downloadSample(b.dataset.dl));
   if ($("copySample")) $("copySample").onclick = async () => {
     try { await navigator.clipboard.writeText(sampleText(ui.sample)); ui.copied = true; render(); }
     catch (e) { say("Your browser didn't allow copying. Select the resume and copy it instead."); }

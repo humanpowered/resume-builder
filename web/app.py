@@ -33,7 +33,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from resume_builder import export as X  # noqa: E402
-from resume_builder import finish, health, sample, importer, interview, journey, matching, sections, skills  # noqa: E402
+from resume_builder import finish, health, sample, importer, interview, journey, matching, resume_file, sections, skills  # noqa: E402
 from resume_builder import summary as summary_mod  # noqa: E402
 from resume_builder import record as mr  # noqa: E402
 from resume_builder.store import SqlStore  # noqa: E402
@@ -1070,6 +1070,51 @@ def j_sample_general(store: SqlStore = Depends(store_for)):
 @app.post("/api/j/sample/tailor")
 def j_sample_tailor(body: JPosting, store: SqlStore = Depends(store_for)):
     return _paid_sample(store, lambda rec: sample.tailored(store, rec, body.text))
+
+
+class JRole(BaseModel):
+    title: str = Field("", max_length=300)
+    dates: str = Field("", max_length=100)
+    lines: list[str] = Field(default_factory=list, max_length=60)
+
+
+class JEmployer(BaseModel):
+    employer: str = Field("", max_length=300)
+    roles: list[JRole] = Field(default_factory=list, max_length=20)
+
+
+class JExtra(BaseModel):
+    heading: str = Field("", max_length=100)
+    lines: list[str] = Field(default_factory=list, max_length=60)
+
+
+class JResume(BaseModel):
+    name: str = Field("", max_length=200)
+    headline: str = Field("", max_length=300)
+    contact: str = Field("", max_length=500)
+    summary: str = Field("", max_length=5000)
+    employers: list[JEmployer] = Field(default_factory=list, max_length=40)
+    education: list[str] = Field(default_factory=list, max_length=40)
+    skills: list[str] = Field(default_factory=list, max_length=100)
+    extras: list[JExtra] = Field(default_factory=list, max_length=20)
+
+
+class JResumeFile(BaseModel):
+    sample: JResume
+    format: str = Field("docx", pattern="^(docx|pdf)$")
+
+
+@app.post("/api/j/sample/file")
+def j_sample_file(body: JResumeFile, store: SqlStore = Depends(store_for)):
+    """The resume the page is showing, as a Word or PDF file to save. Made
+    from what the page sent, so the file matches the preview exactly."""
+    res = body.sample.model_dump()
+    data, kind = ((resume_file.to_docx(res), "application/vnd.openxmlformats-officedocument."
+                   "wordprocessingml.document") if body.format == "docx"
+                  else (resume_file.to_pdf(res), "application/pdf"))
+    stem = "".join(c for c in (res["name"] or "My") if c.isalnum() or c in " -").strip() or "My"
+    return Response(data, media_type=kind, headers={
+        "Content-Disposition": f'attachment; filename="{stem} resume.{body.format}"'})
 
 
 @app.post("/api/j/dismiss")
