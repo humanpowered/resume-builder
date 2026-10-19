@@ -812,7 +812,21 @@ def j_state(store: SqlStore = Depends(store_for)):
     load opens on "welcome back"."""
     away = finish.stamp(store)
     return {**_jstate(store), "away_hours": round(away, 1),
-            "absence_hours": finish.ABSENCE_HOURS, "long_absence_days": finish.LONG_ABSENCE_DAYS}
+            "absence_hours": finish.ABSENCE_HOURS, "long_absence_days": finish.LONG_ABSENCE_DAYS,
+            "review_notice": LIMITS and not store.load_state(REVIEW_NOTICE)}
+
+
+# On the test site each person is told once, before they start, that what
+# they make may be reviewed. When they read it is kept with their data.
+REVIEW_NOTICE = "review_notice"
+
+
+@app.post("/api/j/notice/seen")
+def j_notice_seen(store: SqlStore = Depends(store_for)):
+    from datetime import datetime, timezone
+    if not store.load_state(REVIEW_NOTICE):
+        store.save_state(REVIEW_NOTICE, {"seen_at": datetime.now(timezone.utc).isoformat()})
+    return {"ok": True}
 
 
 class JStep(BaseModel):

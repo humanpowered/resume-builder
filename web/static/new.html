@@ -156,6 +156,9 @@
     .paper li { break-inside: avoid; }
   }
   [hidden] { display: none !important; }
+  dialog.notice { max-width: 440px; width: calc(100% - 32px); padding: 24px; border: 1px solid var(--line);
+                  border-radius: 14px; background: var(--panel); color: var(--ink); }
+  dialog.notice::backdrop { background: rgba(0, 0, 0, .45); }
 </style>
 </head>
 <body>
@@ -164,6 +167,13 @@
   <div id="alert" class="alert" role="alert" hidden></div>
   <main id="main" class="stack" aria-live="polite"></main>
 </div>
+<dialog id="reviewNotice" class="notice" aria-labelledby="reviewNoticeTitle">
+  <div class="stack">
+    <h2 id="reviewNoticeTitle">Before you start</h2>
+    <p>This is a test version of Plumbline. To test and improve the tool, Craig Nebeker may review what you create here, including your career record and any sample resumes.</p>
+    <div><button class="btn" id="reviewNoticeOk">Got it</button></div>
+  </div>
+</dialog>
 
 <script>
 "use strict";
@@ -2120,6 +2130,17 @@ async function boot() {
   history.replaceState({ screen, at, promo: ui.promo, depth: h.depth || 0 }, "", "#" + screen);
   $("signout").hidden = (await authConfig()).mode !== "firebase";
   render();
+  if (S.review_notice) showReviewNotice();
+}
+
+// Shown once on the test site. Closing it any way counts as read, because
+// the page behind stays usable either way and asking twice adds nothing.
+function showReviewNotice() {
+  const d = $("reviewNotice");
+  $("reviewNoticeOk").onclick = () => d.close();
+  d.onclose = () => { S.review_notice = false; send("POST", "/api/j/notice/seen").catch(() => {}); };
+  d.showModal();
+  $("reviewNoticeOk").focus();
 }
 finishLink().then((link) => { if (!link) boot(); }, () => boot());
 

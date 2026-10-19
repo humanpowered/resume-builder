@@ -138,6 +138,35 @@ class Limits(unittest.TestCase):
         self.assertEqual(self.sample(c).status_code, 200)
         self.assertEqual(self.events(), [])
 
+    def test_the_review_notice_shows_once_on_the_test_site(self):
+        self.app()
+        c = self.sign_in("pat@example.com")
+        self.assertTrue(c.get("/api/j/state").json()["review_notice"])
+        self.assertEqual(c.post("/api/j/notice/seen").status_code, 200)
+        self.assertFalse(c.get("/api/j/state").json()["review_notice"])
+        page = c.get("/new").text
+        self.assertIn("Craig Nebeker may review what you create", page)
+
+    def test_a_local_copy_shows_no_review_notice(self):
+        os.environ.pop("RB_LIMITS")
+        self.app()
+        c = self.sign_in("pat@example.com")
+        self.assertFalse(c.get("/api/j/state").json()["review_notice"])
+
+    def test_the_export_writes_a_testers_record_and_samples_as_word(self):
+        from web import export_tester
+        self.app()
+        c = self.sign_in("pat@example.com")
+        self.assertEqual(self.sample(c).status_code, 200)
+        out = os.path.join(self.tmp.name, "exports")
+        with contextlib.redirect_stdout(io.StringIO()):
+            export_tester.main(["--all", "--out", out])
+        names = sorted(os.listdir(os.path.join(out, "pat@example.com")))
+        self.assertEqual(names, ["career record.docx", "resume - general.docx"])
+        from docx import Document
+        doc = Document(os.path.join(out, "pat@example.com", "career record.docx"))
+        self.assertIn("Riverside Hospital", "\n".join(p.text for p in doc.paragraphs))
+
 
 def usage_conn():
     from resume_builder import store
