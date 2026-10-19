@@ -6,3 +6,4 @@ google-auth>=2.20  # checks Firebase sign-in tokens
 requests>=2.31     # google-auth's transport for fetching Google's signing keys
 python-docx>=1.1    # Word downloads
 fpdf2>=2.7          # PDF downloads
+psycopg[binary]>=3.1  # Postgres (Cloud SQL) when RB_DATABASE_URL is set

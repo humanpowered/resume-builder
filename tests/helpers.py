@@ -23,3 +23,22 @@ class _NoNetwork:
 
 
 llm.use_backend(_NoNetwork())
+
+
+# RB_TEST_DATABASE_URL=postgresql://... runs every test against that Postgres
+# database instead of a temporary SQLite file, emptied before each test.
+if os.environ.get("RB_TEST_DATABASE_URL"):
+    import unittest
+    from resume_builder import store as _store
+
+    os.environ["RB_DATABASE_URL"] = os.environ["RB_TEST_DATABASE_URL"]
+    _run = unittest.TestCase.run
+
+    def _run_on_empty_database(self, result=None):
+        conn = _store.connect(os.environ["RB_DATABASE_URL"])
+        _store.SqlStore.init(conn)
+        _store.SqlStore.wipe_all(conn)
+        conn.close()
+        return _run(self, result)
+
+    unittest.TestCase.run = _run_on_empty_database

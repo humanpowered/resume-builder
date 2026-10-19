@@ -7,6 +7,8 @@ A hosted product swaps in a database-backed store with the same four methods,
 one per user, and nothing else in the engine changes.
 """
 import json
+import os
+import sqlite3
 from pathlib import Path
 
 from . import record as mr
@@ -103,7 +105,7 @@ class SqlStore:
     Every query is scoped by user_id, and a store object is built per request
     for the signed-in user only, so one person's record can never be read
     through another's store. SQLite for development; the SQL is plain enough
-    to run on Postgres unchanged.
+    to run on Postgres unchanged (see connect()).
     """
 
     SCHEMA = """
@@ -126,6 +128,14 @@ class SqlStore:
     @classmethod
     def init(cls, conn) -> None:
         conn.executescript(cls.SCHEMA)
+        conn.commit()
+
+    @classmethod
+    def wipe_all(cls, conn) -> None:
+        """Every user's data, gone: for resetting a test site between rounds,
+        never for a live one."""
+        for table in ("records", "record_history", "states"):
+            conn.execute(f"DELETE FROM {table}")
         conn.commit()
 
     def exists(self) -> bool:
@@ -191,3 +201,46 @@ class SqlStore:
         for table in ("records", "record_history", "states"):
             self.conn.execute(f"DELETE FROM {table} WHERE user_id = ?", (self.user,))
         self.conn.commit()
+
+
+def database() -> str:
+    """Where the web app keeps its data: RB_DATABASE_URL (a postgresql://
+    address, such as Cloud SQL) when set, otherwise the SQLite file in RB_DB."""
+    return (os.environ.get("RB_DATABASE_URL")
+            or os.environ.get("RB_DB")
+            or str(Path(__file__).resolve().parent.parent / "web" / "dev.sqlite3"))
+
+
+def is_postgres(target: str) -> bool:
+    return target.startswith(("postgres://", "postgresql://"))
+
+
+def connect(target: str):
+    """A connection SqlStore can use. A postgresql:// address opens Postgres;
+    anything else is a SQLite file path."""
+    if is_postgres(target):
+        return _Postgres(target)
+    return sqlite3.connect(target, check_same_thread=False)
+
+
+class _Postgres:
+    """A Postgres connection that takes SQLite's "?" placeholders, so the
+    store's SQL is written once for both."""
+
+    def __init__(self, url: str):
+        import psycopg  # only needed where Postgres is used
+        self.conn = psycopg.connect(url)
+
+    def execute(self, sql: str, params=()):
+        return self.conn.execute(sql.replace("?", "%s"), params)
+
+    def executescript(self, script: str) -> None:
+        for statement in script.split(";"):
+            if statement.strip():
+                self.conn.execute(statement)
+
+    def commit(self) -> None:
+        self.conn.commit()
+
+    def close(self) -> None:
+        self.conn.close()

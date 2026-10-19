@@ -199,8 +199,8 @@ class Finish(unittest.TestCase):
 
 
 def _conn():
-    import sqlite3
-    return sqlite3.connect(os.environ["RB_DB"])
+    from resume_builder import store
+    return store.connect(store.database())
 
 
 class Engine(unittest.TestCase):

@@ -19,7 +19,6 @@ import hmac
 import io
 import json
 import os
-import sqlite3
 import sys
 import tempfile
 import time
@@ -36,9 +35,11 @@ from resume_builder import export as X  # noqa: E402
 from resume_builder import finish, health, sample, importer, interview, journey, matching, resume_file, sections, skills  # noqa: E402
 from resume_builder import summary as summary_mod  # noqa: E402
 from resume_builder import record as mr  # noqa: E402
+from resume_builder import store as store_mod  # noqa: E402
 from resume_builder.store import SqlStore  # noqa: E402
 
-DB_PATH = os.environ.get("RB_DB", str(ROOT / "web" / "dev.sqlite3"))
+# RB_DATABASE_URL (Postgres, e.g. Cloud SQL) when set, else the SQLite file RB_DB.
+DATABASE = store_mod.database()
 DEV = os.environ.get("RB_DEV") == "1"
 # Invite codes for a test round on a public address: with RB_INVITE_CODES set
 # (comma-separated), the dev sign-in also needs one of them, so only invited
@@ -83,9 +84,15 @@ async def unexpected(request: Request, exc: Exception):
     raise exc
 
 
+_schema_ready = False
+
+
 def db():
-    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
-    SqlStore.init(conn)
+    global _schema_ready
+    conn = store_mod.connect(DATABASE)
+    if not _schema_ready:
+        SqlStore.init(conn)
+        _schema_ready = True
     try:
         yield conn
     finally:
