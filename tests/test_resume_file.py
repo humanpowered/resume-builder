@@ -94,5 +94,34 @@ class Files(unittest.TestCase):
             self.assertIn("word/document.xml", z.namelist())
 
 
+@unittest.skipUnless(HAVE_LIBS, "python-docx not installed")
+class MasterDocument(unittest.TestCase):
+
+    def doc(self):
+        from docx import Document
+        from resume_builder import record as mr
+        here = __import__("pathlib").Path(__file__).parent.parent
+        rec = mr.parse((here / "examples" / "record.example.md").read_text())
+        return rec, Document(io.BytesIO(rf.master_docx(rec)))
+
+    def test_every_line_and_its_story_is_in_the_record_document(self):
+        rec, doc = self.doc()
+        text = "\n".join(p.text for p in doc.paragraphs)
+        for role in rec.roles:
+            self.assertIn(role.title, text)
+            for a in role.accomplishments:
+                if not a.is_empty():
+                    self.assertIn(a.results.strip(), text)
+            for b in role.recorded_bullets:
+                self.assertIn(b, text)
+
+    def test_a_line_stays_with_its_story(self):
+        _, doc = self.doc()
+        ps = doc.paragraphs
+        for n, p in enumerate(ps[:-1]):
+            if ps[n + 1].text.startswith(("Situation:", "What you did:", "Result:")):
+                self.assertTrue(p.paragraph_format.keep_with_next, p.text)
+
+
 if __name__ == "__main__":
     unittest.main()

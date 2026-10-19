@@ -69,6 +69,15 @@ class Web(unittest.TestCase):
         self.assertEqual(TestClient(self.appmod.app).post(
             "/api/j/sample/file", json={"sample": res}).status_code, 401)
 
+    def test_the_whole_record_downloads_as_word(self):
+        c = self.client("a@example.com")
+        self.seed(c)
+        r = c.get("/api/me/record.docx")
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.content[:2], b"PK")
+        self.assertIn("career record.docx", r.headers["content-disposition"])
+        self.assertEqual(TestClient(self.appmod.app).get("/api/me/record.docx").status_code, 401)
+
     def test_the_page_gets_the_opening_card_and_phone_tip(self):
         r = self.client("a@example.com").get("/api/record").json()
         self.assertIn("15 to 20 minutes a job", r["intro"])

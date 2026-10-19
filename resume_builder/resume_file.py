@@ -70,6 +70,10 @@ def paragraphs(res: dict) -> list:
 # ---------------------------------------------------------------- Word
 
 def to_docx(res: dict) -> bytes:
+    return _docx(paragraphs(res))
+
+
+def _docx(items: list) -> bytes:
     from docx import Document
     from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_TAB_ALIGNMENT
     from docx.oxml import OxmlElement
@@ -94,7 +98,7 @@ def to_docx(res: dict) -> bytes:
         border.append(top)
         p._p.get_or_add_pPr().append(border)
 
-    for kind, content, keep in paragraphs(res):
+    for kind, content, keep in items:
         p = doc.add_paragraph()
         f = p.paragraph_format
         f.keep_with_next, f.keep_together = keep, True
@@ -102,9 +106,11 @@ def to_docx(res: dict) -> bytes:
         if kind == "name":
             p.alignment = WD_ALIGN_PARAGRAPH.CENTER
             r = p.add_run(content); r.bold = True; r.font.size = Pt(16)
-        elif kind == "contact":
+        elif kind in ("contact", "note"):
             p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-            p.add_run(content).font.color.rgb = muted
+            r = p.add_run(content); r.font.color.rgb = muted
+            if kind == "note":
+                r.italic, r.font.size = True, Pt(9)
             f.space_after = Pt(4)
         elif kind == "heading":
             rule_above(p)
@@ -119,9 +125,21 @@ def to_docx(res: dict) -> bytes:
             p.add_run(title).italic = True
             if dates:
                 d = p.add_run("\t" + dates); d.font.color.rgb = muted
+        elif kind == "field":
+            label, value = content
+            p.add_run(f"{label}: ").bold = True
+            p.add_run(value)
+        elif kind == "subhead":
+            f.space_before = Pt(4)
+            r = p.add_run(content); r.italic = True; r.font.color.rgb = muted
         elif kind == "bullet":
             p.style = doc.styles["List Bullet"]
             p.add_run(content)
+        elif kind == "detail":
+            label, value = content
+            f.left_indent = Inches(0.5)
+            r = p.add_run(f"{label}: "); r.bold = True; r.font.size = Pt(9.5); r.font.color.rgb = muted
+            r = p.add_run(value); r.font.size = Pt(9.5); r.font.color.rgb = muted
         else:
             p.add_run(content)
     buf = io.BytesIO()
@@ -210,3 +228,99 @@ def to_pdf(res: dict) -> bytes:
             pdf.add_page()
         draw(kind, content, False)
     return bytes(pdf.output())
+
+
+# ---------------------------------------------------------------- the master document
+
+def master_paragraphs(rec) -> list:
+    """The whole record, every job and every line with the story behind it,
+    as [(kind, content, keep_with_next)]. No page limit: this is the copy the
+    person keeps, not a resume."""
+    from . import journey, skills as sk
+    from . import record as mr
+
+    out = []
+    add = lambda kind, content, keep=False: out.append((kind, content, keep))
+    c = {k: journey.clean(rec.contact.get(k, "")) for k in journey.CONTACT_FIELDS}
+    add("name", (c["Name"] or "Your career record").upper())
+    line = " · ".join(x for x in (c["Location"], c["Email"], c["Telephone"],
+                                  c["Linkedin"], c["Website"]) if x)
+    if line:
+        add("contact", line)
+    add("note", "Career record: everything you've recorded, kept in full. "
+                "A resume draws a selection from this.")
+
+    def section(heading, items):
+        if items:
+            add("heading", heading, True)
+            for kind, content in items:
+                add(kind, content)
+
+    if rec.summary:
+        section("SUMMARY", [("text", rec.summary)])
+    if rec.sets_apart:
+        # Stored as the lines of one paragraph; blank lines separate paragraphs.
+        paras = " ".join(x.strip() or "\n" for x in rec.sets_apart).split("\n")
+        section("YOUR CAREER IN YOUR OWN WORDS", [("text", x.strip()) for x in paras if x.strip()])
+
+    def jobs(outside):
+        items = []
+        for _, idx in journey._groups(rec):
+            shown = [i for i in idx if rec.roles[i].outside() == outside]
+            if not shown:
+                continue
+            items.append(("employer", rec.roles[shown[0]].employer or "[employer]"))
+            for i in shown:
+                role = rec.roles[i]
+                items.append(("role", (role.title or "[title]",
+                                       journey.clean(role.fields.get("Dates", "")))))
+                for label, value in role.fields.items():
+                    value = journey.clean(value)
+                    if label != "Dates" and value:
+                        items.append(("field", (label, value)))
+                items.extend(("text", n) for n in role.notes if n.strip())
+                for a in role.accomplishments:
+                    if a.is_empty():
+                        continue
+                    items.append(("bullet", journey.line_text(a)))
+                    for label, value in (("Situation", a.problem), ("What you did", a.actions),
+                                         ("Your part", a.contribution), ("Result", a.results),
+                                         ("Skills used", a.skills_used)):
+                        if value and value.strip():
+                            items.append(("detail", (label, value.strip())))
+                if role.recorded_bullets:
+                    items.append(("subhead", "From your resume"))
+                    items.extend(("bullet", b) for b in role.recorded_bullets)
+        return items
+
+    for heading, items in (("EXPERIENCE", jobs(False)), ("WORK OUTSIDE PAID JOBS", jobs(True))):
+        if not items:
+            continue
+        add("heading", heading, True)
+        for n, (kind, content) in enumerate(items):
+            nxt = items[n + 1][0] if n + 1 < len(items) else ""
+            # Headings and labels hold on to what follows; a line holds on
+            # to its own details so the story never leaves its line behind.
+            keep = (kind in ("employer", "subhead")
+                    or (kind in ("role", "field") and nxt in ("field", "text", "bullet", "subhead"))
+                    or (kind == "bullet" and nxt == "detail")
+                    or (kind == "detail" and nxt == "detail"))
+            add(kind, content, keep)
+
+    mine = [s for s in rec.skills if s.have == sk.YES]
+    if mine:
+        groups = {}
+        for s in mine:
+            groups.setdefault(s.category or "Other", []).append(
+                s.name + (f" ({s.level})" if s.level else ""))
+        section("SKILLS", [("field", (cat, ", ".join(names))) for cat, names in groups.items()])
+    section("EDUCATION", [("text", x) for x in rec.education])
+    section("LICENCES AND CERTIFICATIONS", [("text", x) for x in rec.certifications])
+    for key, heading, _ in mr.EXTRA_SECTIONS:
+        section(heading.upper(), [("text", x) for x in rec.extras.get(key, [])])
+    return out
+
+
+def master_docx(rec) -> bytes:
+    """The career record as a Word document."""
+    return _docx(master_paragraphs(rec))

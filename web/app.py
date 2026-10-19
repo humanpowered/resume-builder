@@ -697,6 +697,17 @@ def download_everything(store: SqlStore = Depends(store_for)):
                     headers={"Content-Disposition": 'attachment; filename="my-record.md"'})
 
 
+@app.get("/api/me/record.docx")
+def download_record_word(store: SqlStore = Depends(store_for)):
+    """The whole career record as a Word document the person keeps."""
+    rec = store.load_record()
+    stem = "".join(c for c in journey.clean(rec.contact.get("Name", "")) if c.isalnum() or c in " -").strip()
+    return Response(resume_file.master_docx(rec),
+                    media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    headers={"Content-Disposition":
+                             f'attachment; filename="{stem + " " if stem else ""}career record.docx"'})
+
+
 @app.delete("/api/me")
 def delete_me(response: Response, store: SqlStore = Depends(store_for)):
     store.delete_everything()

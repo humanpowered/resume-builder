@@ -1162,6 +1162,10 @@ function homeScreen() {
     ${addJobBlock(!jobs.length)}
     ${S.skills ? sectionCards() : ""}
     ${undoBar()}
+    ${jobs.length ? `<div class="card stack-s" style="gap:6px">
+      <div style="font-weight:600">Keep a copy of your record</div>
+      <div class="small muted">Every job, every line and the story behind it, as a Word document. It has no page limit; your resumes draw from it.</div>
+      <div><button class="btn2" id="dlRecord">Download your record (Word)</button></div></div>` : ""}
     <div class="row" style="padding-top:4px">
       <button class="btn2" data-go="upload">Upload a newer resume</button>
       <button class="link" data-go="welcome">How this works</button>
@@ -1429,6 +1433,11 @@ function wireBack() {
 }
 
 function wireHome() {
+  if ($("dlRecord")) $("dlRecord").onclick = async () => {
+    $("dlRecord").disabled = true;
+    try { await saveFile("/api/me/record.docx"); } catch (e) { say(e.message); }
+    if ($("dlRecord")) $("dlRecord").disabled = false;
+  };
   on("[data-sug]", (el) => { const x = S.suggestions[+el.dataset.sug]; go(x.screen, { to: x.at || "" }); });
   on("[data-notnow]", (el) => act(() => send("POST", "/api/j/dismiss", { name: el.dataset.notnow })));
   on("[data-openjob]", (el) => go("end", { to: el.dataset.openjob }));
@@ -1515,19 +1524,25 @@ function sampleScreen() {
   </div>`;
 }
 
-// The resume on screen, as a Word or PDF file saved to the person's computer.
+// A file from the server saved to the person's computer, named as the
+// server names it.
+async function saveFile(path, opts = {}) {
+  const r = await fetch(path, { credentials: "same-origin", ...opts });
+  if (r.status === 401) { signIn(); return; }
+  if (!r.ok) throw new Error("We couldn't make the file just now. Try again in a moment.");
+  const name = (/filename="([^"]+)"/.exec(r.headers.get("content-disposition") || "") || [])[1] || "download";
+  const url = URL.createObjectURL(await r.blob());
+  const a = Object.assign(document.createElement("a"), { href: url, download: name });
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
+}
+
+// The resume on screen, as a Word or PDF file.
 async function downloadSample(format) {
   ui.dling = true; render();
   try {
-    const r = await fetch("/api/j/sample/file", { method: "POST", credentials: "same-origin",
-      headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sample: ui.sample, format }) });
-    if (r.status === 401) { signIn(); return; }
-    if (!r.ok) throw new Error("We couldn't make the file just now. Try again in a moment.");
-    const name = (/filename="([^"]+)"/.exec(r.headers.get("content-disposition") || "") || [])[1] || `resume.${format}`;
-    const url = URL.createObjectURL(await r.blob());
-    const a = Object.assign(document.createElement("a"), { href: url, download: name });
-    document.body.appendChild(a); a.click(); a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 10000);
+    await saveFile("/api/j/sample/file", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sample: ui.sample, format }) });
   } catch (e) { say(e.message); }
   finally { ui.dling = false; render(); }
 }
