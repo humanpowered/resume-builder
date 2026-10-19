@@ -145,7 +145,7 @@ class Limits(unittest.TestCase):
         self.assertEqual(c.post("/api/j/notice/seen").status_code, 200)
         self.assertFalse(c.get("/api/j/state").json()["review_notice"])
         page = c.get("/new").text
-        self.assertIn("Craig Nebeker may review what you create", page)
+        self.assertIn("developer may review what you create", page)
 
     def test_a_local_copy_shows_no_review_notice(self):
         os.environ.pop("RB_LIMITS")
