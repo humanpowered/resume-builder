@@ -18,7 +18,7 @@ if ($missing) {
     Read-Host 'Press Enter to close'; exit 1
 }
 
-$env:RB_FIREBASE_PROJECT = 'plumbline-test'
+$env:RB_FIREBASE_PROJECT = 'plumbline-test-4d71a'  # the project ID, not its display name
 $env:RB_DB = Join-Path (Get-Location) 'web\signin-test.sqlite3'
 Remove-Item Env:RB_DEV -ErrorAction SilentlyContinue
 Remove-Item Env:RB_INVITE_CODES -ErrorAction SilentlyContinue
