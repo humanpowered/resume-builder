@@ -116,7 +116,13 @@ class SqlStore:
     CREATE TABLE IF NOT EXISTS states (
         user_id TEXT NOT NULL, name TEXT NOT NULL, body TEXT NOT NULL,
         PRIMARY KEY (user_id, name));
+    CREATE TABLE IF NOT EXISTS spend (
+        user_id TEXT NOT NULL, at TEXT NOT NULL, what TEXT NOT NULL, cost REAL NOT NULL);
+    CREATE INDEX IF NOT EXISTS spend_by_user ON spend (user_id, at);
+    CREATE TABLE IF NOT EXISTS testers (
+        user_id TEXT PRIMARY KEY, tester_id TEXT NOT NULL);
     """
+    TABLES = ("records", "record_history", "states", "spend", "testers")
     HISTORY = 50          # versions kept per user; a record is someone's career
 
     def __init__(self, conn, user_id: str):
@@ -134,7 +140,7 @@ class SqlStore:
     def wipe_all(cls, conn) -> None:
         """Every user's data, gone: for resetting a test site between rounds,
         never for a live one."""
-        for table in ("records", "record_history", "states"):
+        for table in cls.TABLES:
             conn.execute(f"DELETE FROM {table}")
         conn.commit()
 
@@ -197,8 +203,9 @@ class SqlStore:
 
     def delete_everything(self) -> None:
         """A user's right to have their data erased. Removes the record, every
-        saved version and every half-finished interview."""
-        for table in ("records", "record_history", "states"):
+        saved version, every half-finished interview, and the spend and
+        tester ID that tie usage back to them."""
+        for table in self.TABLES:
             self.conn.execute(f"DELETE FROM {table} WHERE user_id = ?", (self.user,))
         self.conn.commit()
 

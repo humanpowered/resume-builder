@@ -34,6 +34,7 @@ sys.path.insert(0, str(ROOT))
 from resume_builder import export as X  # noqa: E402
 from resume_builder import finish, health, sample, importer, interview, journey, matching, resume_file, sections, skills  # noqa: E402
 from resume_builder import summary as summary_mod  # noqa: E402
+from resume_builder import llm, usage  # noqa: E402
 from resume_builder import record as mr  # noqa: E402
 from resume_builder import store as store_mod  # noqa: E402
 from resume_builder.store import SqlStore  # noqa: E402
@@ -57,6 +58,9 @@ FIREBASE["authDomain"] = os.environ.get("RB_FIREBASE_AUTH_DOMAIN", "") or (
     f"{FIREBASE['projectId']}.firebaseapp.com" if FIREBASE["projectId"] else "")
 SESSION_SECRET = os.environ.get("RB_SESSION_SECRET", "")
 AUTH_ON = bool(FIREBASE["projectId"] and FIREBASE["apiKey"] and SESSION_SECRET)
+# Spending limits and usage events are on wherever real sign-in is (the test
+# site), and off for a local copy run by its owner, unless RB_LIMITS=1.
+LIMITS = AUTH_ON or os.environ.get("RB_LIMITS") == "1"
 INVITED = {e.strip().lower() for e in os.environ.get("RB_INVITE_EMAILS", "").split(",")
            if e.strip()}
 SESSION_COOKIE = "rb_session"
@@ -73,6 +77,29 @@ def _model_unreachable(exc: BaseException) -> bool:
     return ("authentication" in name or "permissiondenied" in name
             or "could not resolve authentication method" in msg
             or "invalid x-api-key" in msg)
+
+
+class _MeterSlot:
+    """Gives each request an empty slot for its meter. The slot is filled once
+    the person is known, and every model call in the request finds it there."""
+
+    def __init__(self, inner):
+        self.inner = inner
+
+    async def __call__(self, scope, receive, send):
+        token = llm.METER.set({})
+        try:
+            await self.inner(scope, receive, send)
+        finally:
+            llm.METER.reset(token)
+
+
+app.add_middleware(_MeterSlot)
+
+
+@app.exception_handler(llm.LimitReached)
+async def limit_reached(request: Request, exc: llm.LimitReached):
+    return JSONResponse(status_code=429, content={"detail": str(exc)})
 
 
 @app.exception_handler(Exception)
@@ -121,7 +148,16 @@ def current_user(request: Request, response: Response) -> str:
 
 
 def store_for(user: str = Depends(current_user), conn=Depends(db)) -> SqlStore:
+    if LIMITS:
+        slot = llm.METER.get()
+        if isinstance(slot, dict):
+            slot["meter"] = usage.Meter(conn, user)
     return SqlStore(conn, user)
+
+
+def _event(store: SqlStore, name: str, **fields) -> None:
+    if LIMITS:
+        usage.event(store.conn, store.user, name, **fields)
 
 
 # --------------------------------------------------------------------------
@@ -195,7 +231,7 @@ class Session(BaseModel):
 
 
 @app.post("/auth/session")
-def auth_session(body: Session, response: Response):
+def auth_session(body: Session, response: Response, conn=Depends(db)):
     if not AUTH_ON:
         raise HTTPException(404)
     # 400, not 401: the page treats 401 as "show sign-in" and would hide
@@ -212,6 +248,8 @@ def auth_session(body: Session, response: Response):
     if email not in INVITED:
         raise HTTPException(403, NOT_INVITED)
     _set_session(response, email)
+    if LIMITS:
+        usage.event(conn, email, "signed_in")
     return {"user": email}
 
 
@@ -326,6 +364,7 @@ async def import_resume(file: UploadFile = File(...), store: SqlStore = Depends(
     else:
         rec, changes = incoming, ["new record"]
     store.save_record(rec)
+    _event(store, "resume_uploaded")
     return {"changes": len(changes), "set_aside": rep["rejected"],
             "unplaced": rep["unplaced"], "summary": summary(rec)}
 
@@ -709,6 +748,7 @@ def download_record_word(store: SqlStore = Depends(store_for)):
     """The whole career record as a Word document the person keeps."""
     rec = store.load_record()
     stem = "".join(c for c in journey.clean(rec.contact.get("Name", "")) if c.isalnum() or c in " -").strip()
+    _event(store, "download", what="record", format="docx")
     return Response(resume_file.master_docx(rec),
                     media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                     headers={"Content-Disposition":
@@ -717,6 +757,7 @@ def download_record_word(store: SqlStore = Depends(store_for)):
 
 @app.delete("/api/me")
 def delete_me(response: Response, store: SqlStore = Depends(store_for)):
+    _event(store, "data_deleted")
     store.delete_everything()
     response.delete_cookie("rb_user")
     response.delete_cookie(SESSION_COOKIE)
@@ -847,6 +888,8 @@ def j_line_status(body: JLineRef, store: SqlStore = Depends(store_for)):
 def j_job_mark(body: JLineRef, store: SqlStore = Depends(store_for)):
     rec = store.load_record()
     _j(journey.mark_job, store, rec, body.job, body.what)
+    if body.what == "done":
+        _event(store, "job_finished")
     return _jstate(store, rec)
 
 
@@ -875,6 +918,8 @@ def j_line_stronger(body: JLineRef, store: SqlStore = Depends(store_for)):
     try:
         return _j(journey.write_stronger, store, rec, body.job, body.line)
     except HTTPException:
+        raise
+    except llm.LimitReached:
         raise
     except Exception:
         raise HTTPException(502, "The line writer didn't answer. Your answers are saved; "
@@ -963,6 +1008,8 @@ def j_skills_build(store: SqlStore = Depends(store_for)):
     rec = store.load_record()
     try:
         out = sections.build_skills(store, rec)
+    except llm.LimitReached:
+        raise
     except Exception:
         raise HTTPException(502, "We couldn't load the suggested skills just now. "
                                  "Your own skills are all here; try again in a moment.")
@@ -996,6 +1043,7 @@ async def j_import(file: UploadFile = File(...), store: SqlStore = Depends(store
     from datetime import date
     incoming, rep = importer.to_record(importer.extract(text), text,
                                        file.filename or "upload", date.today().isoformat())
+    _event(store, "resume_uploaded")
     if store.exists() and journey.load_step(store).get("seen_check"):
         rec = store.load_record()
         finish.start_review(store, rec, incoming, file.filename or "your file")
@@ -1045,6 +1093,8 @@ def j_summary_draft(store: SqlStore = Depends(store_for)):
     rec = store.load_record()
     try:
         out = finish.draft_summary(store, rec)
+    except llm.LimitReached:
+        raise
     except Exception:
         raise HTTPException(502, "We couldn't write a summary just now. Nothing was changed; "
                                  "try again in a moment.")
@@ -1074,9 +1124,12 @@ def _paid_sample(store, make):
         res = make(rec)
     except ValueError as exc:
         raise HTTPException(400, str(exc))
+    except llm.LimitReached:
+        raise
     except Exception:
         raise HTTPException(502, "We couldn't make the sample just now. Nothing was changed; "
                                  "try again in a moment.")
+    _event(store, "sample_made")
     return {"sample": res, **_jstate(store, rec)}
 
 
@@ -1131,6 +1184,7 @@ def j_sample_file(body: JResumeFile, store: SqlStore = Depends(store_for)):
                    "wordprocessingml.document") if body.format == "docx"
                   else (resume_file.to_pdf(res), "application/pdf"))
     stem = "".join(c for c in (res["name"] or "My") if c.isalnum() or c in " -").strip() or "My"
+    _event(store, "download", what="resume", format=body.format)
     return Response(data, media_type=kind, headers={
         "Content-Disposition": f'attachment; filename="{stem} resume.{body.format}"'})
 
