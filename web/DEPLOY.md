@@ -1,9 +1,10 @@
 # Running the test site on Google Cloud
 
 The tester site runs on Cloud Run at test.plumblineresume.com, with records in
-Cloud SQL (Postgres). Everything below is for GCP project
-`plumbline-test-4d71a`, region `us-east1`. Keys go into Secret Manager and
-nowhere else: not into the repository, the image, or a chat.
+Cloud SQL (Postgres). Cloud Run, Cloud SQL, secrets and logs live in GCP
+project `plumbline-test`, region `us-east1`. Firebase sign-in is a separate
+project, `plumbline-test-4d71a`. Keys go into Secret Manager and nowhere else:
+not into the repository, the image, or a chat.
 
 ## Settings
 
@@ -11,14 +12,14 @@ nowhere else: not into the repository, the image, or a chat.
 | --- | --- | --- |
 | `ANTHROPIC_API_KEY` | Secret `anthropic-api-key` | The test site's own key, in a workspace with a $150 monthly limit |
 | `RB_SESSION_SECRET` | Secret `session-secret` | A long random string; changing it signs everyone out |
-| `RB_DATABASE_URL` | Secret `database-url` | `postgresql://USER:PASSWORD@/DATABASE?host=/cloudsql/plumbline-test-4d71a:us-east1:INSTANCE` |
+| `RB_DATABASE_URL` | Secret `database-url` | `postgresql://plumbline:PASSWORD@/plumbline?host=/cloudsql/plumbline-test:us-east1:plumbline-db` |
 | `RB_FIREBASE_PROJECT` | Plain variable | `plumbline-test-4d71a` |
 | `RB_FIREBASE_API_KEY` | Plain variable | The Firebase web API key (public by design) |
 | `RB_INVITE_EMAILS` | Plain variable | Comma-separated tester emails |
 | `RB_CAP_TESTER_USD`, `RB_CAP_MONTH_USD`, `RB_CAP_CALLS_HOUR`, `RB_CAP_OVERRIDES` | Plain variables, optional | Defaults: 5, 150, 60, none |
 
-Use a database password of letters and digits only, so it can sit in the
-address without escaping.
+Use a database password of letters, digits and only the symbols `- _ . ~`,
+so it can sit in the address without escaping.
 
 ## Cloud Run service
 
