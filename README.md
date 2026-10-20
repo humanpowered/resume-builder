@@ -191,6 +191,9 @@ method, Email/Password, Email link) and add the site's address under
 Authorized domains; `localhost` is there already. With none of this set and
 no `RB_DEV`, the service refuses every request.
 
+To run the tester site on Google Cloud (Cloud Run and Cloud SQL), see
+[web/DEPLOY.md](web/DEPLOY.md).
+
 ## The job-application pipeline
 
 `pipeline/` is the pipeline that finds postings, scores them against a
