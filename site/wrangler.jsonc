@@ -1,0 +1,9 @@
+// Cloudflare Worker that serves the plumblineresume.com landing page as static files.
+// Workers Builds: root directory "site", deploy command "npx wrangler deploy".
+{
+  "name": "plumbline-site",
+  "compatibility_date": "2026-10-22",
+  "assets": {
+    "directory": "./public"
+  }
+}
