@@ -1,0 +1,232 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Plumbline</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<meta name="description" content="Plumbline builds a complete, true record of your career, then draws a tailored two-page resume from it for each job worth applying to.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Gloock&family=Public+Sans:wght@400;500;600&display=swap">
+<script>
+  // GA4 measurement ID from Admin > Data streams. While it is the placeholder, nothing loads.
+  var GA_ID = 'G-41Y67KBB9M';
+
+  // Opt-out analytics (US launch only): on by default, off for visitors who opt out
+  // or whose browser sends Global Privacy Control. Ad signals are always denied.
+  window.dataLayer = window.dataLayer || [];
+  function gtag() { dataLayer.push(arguments); }
+  gtag('consent', 'default', {
+    ad_user_data: 'denied',
+    ad_personalization: 'denied',
+    ad_storage: 'denied',
+    analytics_storage: 'denied'
+  });
+
+  function loadAnalytics() {
+    if (!/^G-[A-Z0-9]+$/.test(GA_ID) || GA_ID === 'G-XXXXXXXXXX') return;
+    gtag('consent', 'update', { analytics_storage: 'granted' });
+    if (window.gaLoaded) return;
+    window.gaLoaded = true;
+    gtag('js', new Date());
+    gtag('config', GA_ID);
+    var s = document.createElement('script');
+    s.async = true;
+    s.src = 'https://www.googletagmanager.com/gtag/js?id=' + GA_ID;
+    document.head.appendChild(s);
+  }
+
+  function readChoice() {
+    try { return localStorage.getItem('plumbline-analytics'); } catch (e) { return null; }
+  }
+  function saveChoice(v) {
+    try { localStorage.setItem('plumbline-analytics', v); } catch (e) {}
+  }
+  function optedOut() {
+    return readChoice() === 'off' || navigator.globalPrivacyControl === true;
+  }
+  if (!optedOut()) loadAnalytics();
+</script>
+<style>
+  /* Layout: one narrow column hung from a brass plumb line down the left edge. */
+  :root {
+    --paper: #f3f5f7;
+    --ink: #17202b;
+    --muted: #556170;
+    --rule: #cfd6de;
+    --brass: #a8792b;
+    --panel: #ffffff;
+    --display: "Gloock", "Georgia", serif;
+    --body: "Public Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper: #11171e; --ink: #e6ebf0; --muted: #9aa6b3; --rule: #2a3440;
+      --brass: #d3a253; --panel: #19212b; color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --paper: #11171e; --ink: #e6ebf0; --muted: #9aa6b3; --rule: #2a3440;
+    --brass: #d3a253; --panel: #19212b; color-scheme: dark;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font: 17px/1.6 var(--body);
+  }
+  .page {
+    max-width: 46rem;
+    margin: 0 auto;
+    padding-block: 3.5rem 2.5rem;
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+  }
+  .hang {
+    position: relative;
+    padding-left: 2.75rem;
+    display: grid;
+    gap: 2.75rem;
+  }
+  /* The plumb line itself: a hairline string ending in a bob beside the first step. */
+  .hang::before {
+    content: "";
+    position: absolute;
+    left: 0.6rem; top: 0.4rem; bottom: 2rem;
+    width: 1px;
+    background: var(--brass);
+  }
+  .hang::after {
+    content: "";
+    position: absolute;
+    left: calc(0.6rem - 7px); bottom: 0.6rem;
+    width: 15px; height: 22px;
+    background: var(--brass);
+    clip-path: polygon(20% 0, 80% 0, 100% 45%, 50% 100%, 0 45%);
+  }
+
+  .mark {
+    font: 600 0.8rem/1 var(--body);
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--brass);
+  }
+  h1 {
+    font: 400 clamp(2.3rem, 6vw, 3.4rem)/1.08 var(--display);
+    margin: 0.9rem 0 1.1rem;
+    text-wrap: balance;
+  }
+  .lede { font-size: 1.15rem; color: var(--ink); max-width: 36rem; margin: 0; }
+  .status {
+    display: inline-flex; gap: 0.5rem; align-items: center;
+    margin-top: 1.4rem;
+    font-size: 0.92rem; color: var(--muted);
+  }
+  .status::before {
+    content: ""; width: 8px; height: 8px; border-radius: 50%;
+    background: var(--brass);
+  }
+
+  h2 {
+    font: 400 1.5rem/1.2 var(--display);
+    margin: 0 0 1.1rem;
+  }
+  ol.steps {
+    list-style: none; margin: 0; padding: 0;
+    display: grid; gap: 1.3rem;
+    counter-reset: step;
+  }
+  ol.steps li {
+    counter-increment: step;
+    display: grid; grid-template-columns: 2rem 1fr; gap: 0.9rem;
+    padding-top: 1.1rem;
+    border-top: 1px solid var(--rule);
+  }
+  ol.steps li::before {
+    content: counter(step);
+    font: 400 1.4rem/1.2 var(--display);
+    color: var(--brass);
+  }
+  ol.steps h3 { margin: 0 0 0.25rem; font: 600 1rem/1.4 var(--body); }
+  ol.steps p { margin: 0; color: var(--muted); min-width: 0; }
+
+  footer .note { margin: 0; flex: 1 1 100%; max-width: 40rem; font-size: 0.82rem; }
+
+  footer {
+    margin-top: 3.5rem;
+    padding-top: 1.2rem;
+    border-top: 1px solid var(--rule);
+    display: flex; flex-wrap: wrap; gap: 0.6rem 1.4rem;
+    font-size: 0.88rem; color: var(--muted);
+  }
+  .linkish {
+    background: none; border: 0; padding: 0;
+    font: inherit; color: inherit;
+    text-decoration: underline; text-underline-offset: 3px;
+    cursor: pointer;
+  }
+
+  .linkish:focus-visible { outline: 2px solid var(--brass); outline-offset: 3px; }
+</style>
+</head>
+<body>
+<main class="page">
+  <div class="hang">
+    <header>
+      <div class="mark">Plumbline</div>
+      <h1>Every result you have earned, written down once and kept true.</h1>
+      <p class="lede">Plumbline interviews you about your working life, job by job, and builds a complete record of what you did and what it changed. Then it searches for jobs that fit, and for each one worth applying to, draws the right lines from that record into a two-page resume and cover letter, in your own words.</p>
+      <div class="status">Testing privately with invited users. Opening early 2027.</div>
+    </header>
+
+    <section aria-labelledby="how">
+      <h2 id="how">How it works</h2>
+      <ol class="steps">
+        <li><div><h3>Start from what you have</h3><p>Upload an old resume or start blank. Plumbline asks short questions about each job: the challenge you walked into, what you changed, and how you know it worked.</p></div></li>
+        <li><div><h3>Keep one master record</h3><p>Everything lands in a single document that can run far past two pages. You add to it as your career moves, so nothing gets forgotten between job searches.</p></div></li>
+        <li><div><h3>Find the jobs worth your time</h3><p>Each night Plumbline searches job boards and company career pages for postings that match your targets, then scores each one against your record. You see the ones worth applying to, ranked, and skip the rest.</p></div></li>
+        <li><div><h3>Apply with a tailored resume and cover letter</h3><p>For each match, Plumbline draws the experience and skills that fit into a two-page, ATS-readable resume and a cover letter. It keeps every figure you gave it and invents none.</p></div></li>
+      </ol>
+    </section>
+
+  </div>
+
+  <footer>
+    <span>&copy; 2026 Plumbline</span>
+    <p class="note">This page uses Google Analytics to count visits and see which links bring people here. It never sees anything you write in Plumbline, and it stays off if your browser sends Global Privacy Control. <button type="button" class="linkish" id="analytics-toggle">Turn off analytics</button> <span id="analytics-status" role="status"></span></p>
+  </footer>
+</main>
+
+
+<script>
+  (function () {
+    var toggle = document.getElementById('analytics-toggle');
+    var status = document.getElementById('analytics-status');
+    function render() {
+      if (navigator.globalPrivacyControl === true) {
+        toggle.hidden = true;
+        status.textContent = 'Analytics is off: your browser sends Global Privacy Control.';
+      } else {
+        toggle.textContent = optedOut() ? 'Turn on analytics' : 'Turn off analytics';
+      }
+    }
+    toggle.addEventListener('click', function () {
+      if (optedOut()) {
+        saveChoice('on');
+        loadAnalytics();
+        status.textContent = 'Analytics is on.';
+      } else {
+        saveChoice('off');
+        if (window.gaLoaded) gtag('consent', 'update', { analytics_storage: 'denied' });
+        status.textContent = 'Analytics is off for this browser.';
+      }
+      render();
+    });
+    render();
+  })();
+</script>
+</body>
+</html>
