@@ -27,7 +27,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from resume_builder import export as X  # noqa: E402
-from resume_builder import health, importer, interview, matching, skills  # noqa: E402
+from resume_builder import finish, health, sample, importer, interview, journey, matching, sections, skills  # noqa: E402
 from resume_builder import summary as summary_mod  # noqa: E402
 from resume_builder import record as mr  # noqa: E402
 from resume_builder.store import SqlStore  # noqa: E402
@@ -157,8 +157,8 @@ def put_record(body: RecordText, store: SqlStore = Depends(store_for)):
     return {"summary": summary(rec)}
 
 
-@app.post("/api/import")
-async def import_resume(file: UploadFile = File(...), store: SqlStore = Depends(store_for)):
+async def _read_upload(file: UploadFile) -> str:
+    """The text of an uploaded resume, or the reason it can't be read."""
     data = await file.read()
     if len(data) > MAX_UPLOAD:
         raise HTTPException(413, "That file is over 5 MB")
@@ -174,6 +174,12 @@ async def import_resume(file: UploadFile = File(...), store: SqlStore = Depends(
     if len(text.strip()) < 50:
         raise HTTPException(422, "No text could be read. If it is a scanned PDF, "
                                  "upload it as Word or text instead.")
+    return text
+
+
+@app.post("/api/import")
+async def import_resume(file: UploadFile = File(...), store: SqlStore = Depends(store_for)):
+    text = await _read_upload(file)
     from datetime import date
     incoming, rep = importer.to_record(importer.extract(text), text,
                                        file.filename or "upload", date.today().isoformat())
@@ -566,6 +572,469 @@ def delete_me(response: Response, store: SqlStore = Depends(store_for)):
     store.delete_everything()
     response.delete_cookie("rb_user")
     return {"deleted": True}
+
+
+# --------------------------------------------------------------------------
+# The guided build (the new page, served at /new while the old page stays up)
+#
+# Jobs are addressed by position with the label the page last showed, and
+# lines by kind and position with the text the page last showed, so an edit
+# made against an out-of-date page is refused rather than landing on the
+# wrong thing.
+
+def _j(fn, *args, **kw):
+    try:
+        return fn(*args, **kw)
+    except journey.Stale:
+        raise HTTPException(409, STALE)
+    except LookupError as exc:
+        raise HTTPException(404, str(exc).strip("'\""))
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+
+
+def _jstate(store: SqlStore, rec: mr.Record | None = None) -> dict:
+    rec = rec if rec is not None else store.load_record()
+    view = journey.view(rec)
+    for job, bg in zip(view["jobs"], journey.background_view(rec)):
+        job["background"] = bg
+    work = journey.work_view(store, rec)
+    skill_view = sections.skills_view(store, rec)
+    summary = finish.summary_view(store, rec)
+    return {"exists": store.exists(), "screen": journey.start_screen(store),
+            "step": journey.load_step(store), "targets": journey.targets_view(store, rec),
+            "steps": journey.steps(store, rec), "work": work,
+            "work_modes": list(journey.WORK_MODES),
+            "max_targets": journey.MAX_TARGETS,
+            "sections": sections.done(store), "edu": sections.education_view(store, rec),
+            "skills": skill_view, "beyond": sections.beyond_view(rec),
+            "story": finish.story_view(store), "summary": summary,
+            "finish": finish.progress(store, rec, work),
+            "suggestions": finish.suggestions(store, rec, work, skill_view, summary),
+            "updated": store.updated(), "review": finish.review_view(store, rec),
+            "samples": sample.view(store),
+            **view}
+
+
+@app.get("/api/j/state")
+def j_state(store: SqlStore = Depends(store_for)):
+    """Also says how long the person was away, which decides whether a page
+    load opens on "welcome back"."""
+    away = finish.stamp(store)
+    return {**_jstate(store), "away_hours": round(away, 1),
+            "absence_hours": finish.ABSENCE_HOURS, "long_absence_days": finish.LONG_ABSENCE_DAYS}
+
+
+class JStep(BaseModel):
+    screen: str = Field(..., max_length=40)
+    at: str = Field("", max_length=400)
+
+
+@app.put("/api/j/step")
+def j_step(body: JStep, store: SqlStore = Depends(store_for)):
+    return _j(journey.save_step, store, body.screen, body.at)
+
+
+class JTargets(BaseModel):
+    titles: list[str] = Field(default_factory=list, max_length=10)
+    where: str = Field("", max_length=200)
+    modes: list[str] = Field(default_factory=list, max_length=3)
+    not_sure: bool = False
+
+
+@app.put("/api/j/targets")
+def j_targets(body: JTargets, store: SqlStore = Depends(store_for)):
+    rec = store.load_record()
+    _j(journey.save_targets, store, rec, [t[:120] for t in body.titles], body.where,
+       body.modes, body.not_sure)
+    store.save_record(rec)
+    return _jstate(store, rec)
+
+
+class JAnswer(BaseModel):
+    id: str = Field(..., max_length=400)
+    status: str = Field(..., max_length=20)
+    text: str = Field("", max_length=4000)
+
+
+@app.post("/api/j/answer")
+def j_answer(body: JAnswer, store: SqlStore = Depends(store_for)):
+    rec = store.load_record()
+    out = _j(journey.answer, store, rec, body.id, body.status, body.text)
+    store.save_record(rec)
+    return {**out, **_jstate(store, rec)}
+
+
+@app.get("/api/j/questions")
+def j_questions():
+    return {"questions": {f: journey.question(f) for f in journey.QUESTION_FIELDS},
+            "company": {"help": journey.COMPANY_HELP[0], "examples": journey.COMPANY_HELP[1]},
+            "line_steps": [{"field": f, "label": l, "q": q, "help": h, "example": e}
+                           for f, l, q, h, e in journey.LINE_STEPS],
+            "chips": list(journey.MORE_CHIPS)}
+
+
+# Working on a job's lines. A job is named by its key and a line by the key
+# of its wording, both as the page last showed them.
+
+class JLineRef(BaseModel):
+    job: str = Field(..., max_length=400)
+    line: str = Field("", max_length=400)
+    status: str = Field("", max_length=20)
+    what: str = Field("", max_length=20)
+    text: str = Field("", max_length=2000)
+    answers: dict[str, str] = Field(default_factory=dict)
+    items: list[str] = Field(default_factory=list, max_length=20)
+
+
+@app.post("/api/j/line/status")
+def j_line_status(body: JLineRef, store: SqlStore = Depends(store_for)):
+    rec = store.load_record()
+    _j(journey.set_line_status, store, rec, body.job, body.line, body.status)
+    return _jstate(store, rec)
+
+
+@app.post("/api/j/job/mark")
+def j_job_mark(body: JLineRef, store: SqlStore = Depends(store_for)):
+    rec = store.load_record()
+    _j(journey.mark_job, store, rec, body.job, body.what)
+    return _jstate(store, rec)
+
+
+@app.post("/api/j/job/more")
+def j_job_more(body: JLineRef, store: SqlStore = Depends(store_for)):
+    rec = store.load_record()
+    added = _j(journey.add_more, store, rec, body.job, [i[:500] for i in body.items])
+    store.save_record(rec)
+    return {"added": added, **_jstate(store, rec)}
+
+
+@app.post("/api/j/line/answers/get")
+def j_line_answers_get(body: JLineRef, store: SqlStore = Depends(store_for)):
+    return journey.line_answers(store, body.job, body.line)
+
+
+@app.post("/api/j/line/answers")
+def j_line_answers(body: JLineRef, store: SqlStore = Depends(store_for)):
+    return _j(journey.save_line_answers, store, body.job, body.line,
+              {k: v[:2000] for k, v in body.answers.items()})
+
+
+@app.post("/api/j/line/stronger")
+def j_line_stronger(body: JLineRef, store: SqlStore = Depends(store_for)):
+    rec = store.load_record()
+    try:
+        return _j(journey.write_stronger, store, rec, body.job, body.line)
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(502, "The line writer didn't answer. Your answers are saved; "
+                                 "try again in a moment.")
+
+
+# ---------------------------------------------------------------- education, skills, beyond
+
+class JSec(BaseModel):
+    name: str = Field("", max_length=200)
+    section: str = Field("", max_length=40)
+    index: int = -1
+    expect: str | None = Field(None, max_length=2000)
+    text: str = Field("", max_length=2000)
+    fields: dict[str, str | bool] = Field(default_factory=dict)
+    have: str | None = Field(None, max_length=10)
+    level: str | None = Field(None, max_length=20)
+    years: str | None = Field(None, max_length=20)
+    last_used: str | None = Field(None, max_length=20)
+    done: bool = True
+
+
+def _sec(store, change) -> dict:
+    """Make one change to the record and return it with the page's state."""
+    rec = store.load_record()
+    out = _j(change, rec)
+    store.save_record(rec)
+    return {"result": out, **_jstate(store, rec)}
+
+
+@app.post("/api/j/section")
+def j_section(body: JSec, store: SqlStore = Depends(store_for)):
+    _j(sections.mark, store, body.name, body.done)
+    return _jstate(store)
+
+
+@app.post("/api/j/edu")
+def j_edu(body: JSec, store: SqlStore = Depends(store_for)):
+    return _sec(store, lambda rec: sections.save_education(
+        store, rec, body.section, body.index, body.expect, body.fields))
+
+
+@app.post("/api/j/item/delete")
+def j_item_delete(body: JSec, store: SqlStore = Depends(store_for)):
+    return _sec(store, lambda rec: sections.delete_item(store, rec, body.section, body.index,
+                                                        body.expect))
+
+
+@app.post("/api/j/item/restore")
+def j_item_restore(body: JSec, store: SqlStore = Depends(store_for)):
+    return _sec(store, lambda rec: sections.restore_item(store, rec, body.section, body.index,
+                                                         body.text))
+
+
+@app.post("/api/j/item/edit")
+def j_item_edit(body: JSec, store: SqlStore = Depends(store_for)):
+    return _sec(store, lambda rec: sections.edit_item(rec, body.section, body.index,
+                                                      body.expect, body.text))
+
+
+@app.post("/api/j/tile")
+def j_tile(body: JSec, store: SqlStore = Depends(store_for)):
+    return _sec(store, lambda rec: sections.add_tile(rec, body.name, body.fields))
+
+
+@app.post("/api/j/joblike")
+def j_joblike(body: JSec, store: SqlStore = Depends(store_for)):
+    f = {k: str(v) for k, v in body.fields.items()}
+    return _sec(store, lambda rec: sections.add_job_like(
+        rec, body.name, f.get("title", ""), f.get("org", ""), f.get("dates", "")))
+
+
+@app.post("/api/j/skill")
+def j_skill(body: JSec, store: SqlStore = Depends(store_for)):
+    return _sec(store, lambda rec: sections.set_skill(
+        rec, body.name, body.have, body.level, body.years, body.last_used) and None)
+
+
+@app.post("/api/j/skill/add")
+def j_skill_add(body: JSec, store: SqlStore = Depends(store_for)):
+    return _sec(store, lambda rec: skills.add_skill(rec, body.name) and None)
+
+
+@app.post("/api/j/skills/build")
+def j_skills_build(store: SqlStore = Depends(store_for)):
+    rec = store.load_record()
+    try:
+        out = sections.build_skills(store, rec)
+    except Exception:
+        raise HTTPException(502, "We couldn't load the suggested skills just now. "
+                                 "Your own skills are all here; try again in a moment.")
+    store.save_record(rec)
+    return {"added": len(out.get("added", [])), "yours": len(out.get("yours", [])),
+            **_jstate(store, rec)}
+
+
+@app.post("/api/j/line/approve")
+def j_line_approve(body: JLineRef, store: SqlStore = Depends(store_for)):
+    rec = store.load_record()
+    key = _j(journey.approve_line, store, rec, body.job, body.line, body.text)
+    store.save_record(rec)
+    return {"line": key, **_jstate(store, rec)}
+
+
+@app.post("/api/j/line/remove")
+def j_line_remove(body: JLineRef, store: SqlStore = Depends(store_for)):
+    rec = store.load_record()
+    gone = _j(journey.remove_line, store, rec, body.job, body.line)
+    store.save_record(rec)
+    return {"deleted": gone, **_jstate(store, rec)}
+
+
+@app.post("/api/j/import")
+async def j_import(file: UploadFile = File(...), store: SqlStore = Depends(store_for)):
+    """Read one file into the record. Several files are sent one at a time,
+    so the page can say how each one went. Once the person has checked their
+    record, a file is a review instead: nothing is saved until they choose."""
+    text = await _read_upload(file)
+    from datetime import date
+    incoming, rep = importer.to_record(importer.extract(text), text,
+                                       file.filename or "upload", date.today().isoformat())
+    if store.exists() and journey.load_step(store).get("seen_check"):
+        rec = store.load_record()
+        finish.start_review(store, rec, incoming, file.filename or "your file")
+        return {"file": file.filename, "reviewing": True, "set_aside": len(rep["rejected"]),
+                **_jstate(store, rec)}
+    left_out = journey.leave_out_deleted(store, incoming)
+    left_out += sections.leave_out_deleted(store, incoming)
+    if store.exists():
+        rec = store.load_record()
+        before_jobs = len(rec.roles)
+        before_lines = sum(len(r.recorded_bullets) for r in rec.roles)
+        importer.merge(rec, incoming)
+    else:
+        rec, before_jobs, before_lines = incoming, 0, 0
+    store.save_record(rec)
+    return {"file": file.filename, "new_jobs": len(rec.roles) - before_jobs,
+            "new_lines": sum(len(r.recorded_bullets) for r in rec.roles) - before_lines,
+            "set_aside": len(rep["rejected"]), "left_out_deleted": left_out,
+            **_jstate(store, rec)}
+
+
+class JReview(BaseModel):
+    ids: list[str] = Field(default_factory=list, max_length=2000)
+
+
+@app.post("/api/j/review/apply")
+def j_review_apply(body: JReview, store: SqlStore = Depends(store_for)):
+    rec = store.load_record()
+    added = _j(finish.apply_review, store, rec, body.ids)
+    store.save_record(rec)
+    return {"added": added, **_jstate(store, rec)}
+
+
+@app.post("/api/j/review/drop")
+def j_review_drop(store: SqlStore = Depends(store_for)):
+    finish.drop_review(store)
+    return _jstate(store)
+
+
+@app.put("/api/j/story")
+def j_story(body: JSec, store: SqlStore = Depends(store_for)):
+    return _sec(store, lambda rec: finish.save_story(store, rec, body.fields))
+
+
+@app.post("/api/j/summary/draft")
+def j_summary_draft(store: SqlStore = Depends(store_for)):
+    rec = store.load_record()
+    try:
+        out = finish.draft_summary(store, rec)
+    except Exception:
+        raise HTTPException(502, "We couldn't write a summary just now. Nothing was changed; "
+                                 "try again in a moment.")
+    return {"result": out, **_jstate(store, rec)}
+
+
+@app.post("/api/j/summary/approve")
+def j_summary_approve(body: JSec, store: SqlStore = Depends(store_for)):
+    return _sec(store, lambda rec: finish.approve_summary(store, rec, body.text))
+
+
+class JPosting(BaseModel):
+    text: str = Field("", max_length=30000)
+
+
+# Samples are made and kept inside this tool. Nothing here writes a file or
+# reaches the job-application pipeline.
+
+@app.post("/api/j/sample/draft")
+def j_sample_draft(store: SqlStore = Depends(store_for)):
+    return {"sample": sample.draft(store, store.load_record())}
+
+
+def _paid_sample(store, make):
+    rec = store.load_record()
+    try:
+        res = make(rec)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    except Exception:
+        raise HTTPException(502, "We couldn't make the sample just now. Nothing was changed; "
+                                 "try again in a moment.")
+    return {"sample": res, **_jstate(store, rec)}
+
+
+@app.post("/api/j/sample/general")
+def j_sample_general(store: SqlStore = Depends(store_for)):
+    return _paid_sample(store, lambda rec: sample.general(store, rec))
+
+
+@app.post("/api/j/sample/tailor")
+def j_sample_tailor(body: JPosting, store: SqlStore = Depends(store_for)):
+    return _paid_sample(store, lambda rec: sample.tailored(store, rec, body.text))
+
+
+@app.post("/api/j/dismiss")
+def j_dismiss(body: JSec, store: SqlStore = Depends(store_for)):
+    finish.dismiss(store, body.name)
+    return _jstate(store)
+
+
+class JContact(BaseModel):
+    fields: dict[str, str] = Field(default_factory=dict)
+
+
+@app.patch("/api/j/contact")
+def j_contact(body: JContact, store: SqlStore = Depends(store_for)):
+    rec = store.load_record()
+    _j(journey.edit_contact, rec, body.fields)
+    store.save_record(rec)
+    return _jstate(store, rec)
+
+
+class JJob(BaseModel):
+    expect: str = Field("", max_length=600)
+    employer: str | None = Field(None, max_length=300)
+    title: str | None = Field(None, max_length=300)
+    dates: str | None = Field(None, max_length=100)
+
+
+@app.post("/api/j/jobs")
+def j_add_job(body: JJob, store: SqlStore = Depends(store_for)):
+    rec = store.load_record()
+    at = _j(journey.add_job, rec, body.employer or "", body.title or "", body.dates or "")
+    store.save_record(rec)
+    return {"added": at, **_jstate(store, rec)}
+
+
+@app.patch("/api/j/jobs/{ri}")
+def j_edit_job(ri: int, body: JJob, store: SqlStore = Depends(store_for)):
+    rec = store.load_record()
+    role = _j(journey.edit_job_keep, store, rec, ri, body.expect, body.employer, body.title, body.dates)
+    store.save_record(rec)
+    return _jstate(store, rec)
+
+
+@app.delete("/api/j/jobs/{ri}")
+def j_delete_job(ri: int, expect: str, store: SqlStore = Depends(store_for)):
+    rec = store.load_record()
+    gone = _j(journey.delete_job, store, rec, ri, expect)
+    store.save_record(rec)
+    return {"deleted": gone, **_jstate(store, rec)}
+
+
+class JLine(BaseModel):
+    expect: str = Field("", max_length=600)
+    kind: str = Field(journey.RESUME, max_length=10)
+    expect_text: str = Field("", max_length=4000)
+    text: str = Field("", max_length=4000)
+    story: dict | None = None
+
+
+@app.post("/api/j/jobs/{ri}/lines")
+def j_add_line(ri: int, body: JLine, store: SqlStore = Depends(store_for)):
+    rec = store.load_record()
+    _j(journey.add_line, rec, ri, body.expect, body.text)
+    store.save_record(rec)
+    return _jstate(store, rec)
+
+
+@app.patch("/api/j/jobs/{ri}/lines/{li}")
+def j_edit_line(ri: int, li: int, body: JLine, store: SqlStore = Depends(store_for)):
+    rec = store.load_record()
+    _j(journey.edit_line, store, rec, ri, body.expect, body.kind, li, body.expect_text, body.text)
+    store.save_record(rec)
+    return _jstate(store, rec)
+
+
+@app.post("/api/j/jobs/{ri}/lines/{li}/delete")
+def j_delete_line(ri: int, li: int, body: JLine, store: SqlStore = Depends(store_for)):
+    rec = store.load_record()
+    gone = _j(journey.delete_line, store, rec, ri, body.expect, body.kind, li, body.expect_text)
+    store.save_record(rec)
+    return {"deleted": gone, **_jstate(store, rec)}
+
+
+@app.post("/api/j/jobs/{ri}/lines/{li}/restore")
+def j_restore_line(ri: int, li: int, body: JLine, store: SqlStore = Depends(store_for)):
+    rec = store.load_record()
+    _j(journey.restore_line, store, rec, ri, body.expect, body.kind, li, body.text, body.story)
+    store.save_record(rec)
+    return _jstate(store, rec)
+
+
+@app.get("/new")
+def new_page():
+    # Always check for a newer copy, so a refresh after an update shows it.
+    return FileResponse(Path(__file__).parent / "static" / "new.html",
+                        headers={"Cache-Control": "no-cache"})
 
 
 @app.get("/")

@@ -228,7 +228,8 @@ class Skill:
         return line
 
 
-SKILL_LINE = re.compile(r"^-\s+(?P<name>.+?)(?:\s+\((?P<level>Expert|Advanced|Working|Familiar)\))?"
+SKILL_LINE = re.compile(r"^-\s+(?P<name>.+?)(?:\s+\((?P<level>Expert|Advanced|Working|Familiar|"
+                        r"Conversational|Fluent|Native)\))?"
                         r"(?:\s+(?:—|--)\s+from:\s*(?P<src>.+?))?"
                         r"(?:\s+(?:—|--)\s+years:\s*(?P<years>.+?))?"
                         r"(?:\s+(?:—|--)\s+last used:\s*(?P<last>.+?))?"
@@ -236,6 +237,26 @@ SKILL_LINE = re.compile(r"^-\s+(?P<name>.+?)(?:\s+\((?P<level>Expert|Advanced|Wo
 # Only these count as a level, so "SQL (BigQuery, Snowflake)" stays one skill
 # name instead of becoming SQL at level "BigQuery, Snowflake".
 LEVELS = ("Expert", "Advanced", "Working", "Familiar")
+# A spoken language is rated on its own scale.
+LANG_LEVELS = ("Conversational", "Fluent", "Native")
+LANGUAGES = {
+    "arabic", "bengali", "cantonese", "chinese", "czech", "danish", "dutch", "english", "farsi",
+    "finnish", "french", "german", "greek", "gujarati", "haitian creole", "hebrew", "hindi",
+    "hmong", "hungarian", "indonesian", "italian", "japanese", "korean", "malay", "mandarin",
+    "norwegian", "persian", "polish", "portuguese", "punjabi", "romanian", "russian", "serbian",
+    "somali", "spanish", "swahili", "swedish", "tagalog", "tamil", "telugu", "thai", "turkish",
+    "ukrainian", "urdu", "vietnamese", "american sign language", "asl", "sign language"}
+
+
+def is_language(name: str, category: str = "") -> bool:
+    """A spoken or signed language, by its group or its name."""
+    if (category or "").strip().lower() in ("languages", "language"):
+        return True
+    return (name or "").strip().lower() in LANGUAGES
+
+
+def levels_for(name: str, category: str = "") -> tuple:
+    return LANG_LEVELS if is_language(name, category) else LEVELS
 # The three skills sections, by whether the person has the skill.
 SKILL_SECTIONS = {"yes": "Skills", "verify": "Skills to check", "no": "Skills I don't have yet"}
 # Optional sections: (key, heading, other headings a resume or person uses).
