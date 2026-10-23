@@ -867,11 +867,24 @@ class JAnswer(BaseModel):
     text: str = Field("", max_length=4000)
 
 
+# How a skipped question is named in usage events.
+SKIP_REASONS = {"skipped": "skipped", "na": "doesnt_apply"}
+
+
 @app.post("/api/j/answer")
 def j_answer(body: JAnswer, store: SqlStore = Depends(store_for)):
     rec = store.load_record()
+    step = next((s for s in journey.steps(store, rec) if s["id"] == body.id), None)
     out = _j(journey.answer, store, rec, body.id, body.status, body.text)
     store.save_record(rec)
+    if step and step["kind"] != "titles":
+        # A blank answer counts as a skip, as journey.answer saves it. Only
+        # the question's field name is logged, never the job it was for.
+        status = body.status if body.text.strip() or body.status != "answered" else (
+            "skipped" if step["kind"] == "company" else "na")
+        if status in SKIP_REASONS:
+            _event(store, "question_skipped", question_id=step["field"],
+                   reason=SKIP_REASONS[status])
     return {**out, **_jstate(store, rec)}
 
 
@@ -900,8 +913,24 @@ class JLineRef(BaseModel):
 @app.post("/api/j/line/status")
 def j_line_status(body: JLineRef, store: SqlStore = Depends(store_for)):
     rec = store.load_record()
+    result = _stronger(store, rec, body, None) if body.status == "kept" else ""
     _j(journey.set_line_status, store, rec, body.job, body.line, body.status)
+    _stronger_event(store, result)
     return _jstate(store, rec)
+
+
+def _stronger(store, rec, body: JLineRef, text: str | None) -> str:
+    """What became of a stronger version we wrote, read before the change
+    that decides it; "" when there was none or the line can't be found."""
+    try:
+        return journey.stronger_result(store, rec, body.job, body.line, text)
+    except (IndexError, LookupError, ValueError):
+        return ""
+
+
+def _stronger_event(store, result: str) -> None:
+    if result:
+        _event(store, "stronger_used", result=result)
 
 
 @app.post("/api/j/job/mark")
@@ -1041,16 +1070,20 @@ def j_skills_build(store: SqlStore = Depends(store_for)):
 @app.post("/api/j/line/approve")
 def j_line_approve(body: JLineRef, store: SqlStore = Depends(store_for)):
     rec = store.load_record()
+    result = _stronger(store, rec, body, body.text)
     key = _j(journey.approve_line, store, rec, body.job, body.line, body.text)
     store.save_record(rec)
+    _stronger_event(store, result)
     return {"line": key, **_jstate(store, rec)}
 
 
 @app.post("/api/j/line/remove")
 def j_line_remove(body: JLineRef, store: SqlStore = Depends(store_for)):
     rec = store.load_record()
+    result = _stronger(store, rec, body, None)
     gone = _j(journey.remove_line, store, rec, body.job, body.line)
     store.save_record(rec)
+    _stronger_event(store, result)
     return {"deleted": gone, **_jstate(store, rec)}
 
 
@@ -1092,14 +1125,28 @@ class JReview(BaseModel):
 @app.post("/api/j/review/apply")
 def j_review_apply(body: JReview, store: SqlStore = Depends(store_for)):
     rec = store.load_record()
+    found = _review_lines(store, rec)
     added = _j(finish.apply_review, store, rec, body.ids)
     store.save_record(rec)
+    _event(store, "import_reviewed", lines_found=found, lines_kept=added["lines"],
+           lines_removed=max(0, found - added["lines"]))
     return {"added": added, **_jstate(store, rec)}
+
+
+def _review_lines(store, rec) -> int:
+    """How many single lines the file waiting for review offered. A whole
+    new job is offered as one item, so its lines aren't counted here."""
+    view = finish.review_view(store, rec) or {"items": []}
+    return sum(1 for it in view["items"] if it["id"].startswith("line:"))
 
 
 @app.post("/api/j/review/drop")
 def j_review_drop(store: SqlStore = Depends(store_for)):
+    waiting = store.exists() and finish.review_view(store, store.load_record()) is not None
+    found = _review_lines(store, store.load_record()) if waiting else 0
     finish.drop_review(store)
+    if waiting:
+        _event(store, "import_reviewed", lines_found=found, lines_kept=0, lines_removed=found)
     return _jstate(store)
 
 
@@ -1149,7 +1196,8 @@ def _paid_sample(store, make):
     except Exception:
         raise HTTPException(502, "We couldn't make the sample just now. Nothing was changed; "
                                  "try again in a moment.")
-    _event(store, "sample_made")
+    _event(store, "sample_made", sample_id=res["id"], kind=res["kind"],
+           bullets=sample.bullet_count(res), prompt_version=sample.PROMPT_VERSION)
     return {"sample": res, **_jstate(store, rec)}
 
 
@@ -1247,6 +1295,7 @@ class JResume(BaseModel):
 class JResumeFile(BaseModel):
     sample: JResume
     format: str = Field("docx", pattern="^(docx|pdf)$")
+    sample_id: str = Field("", pattern="^(smp_[0-9a-f]{12})?$")
 
 
 @app.post("/api/j/sample/file")
@@ -1258,7 +1307,8 @@ def j_sample_file(body: JResumeFile, store: SqlStore = Depends(store_for)):
                    "wordprocessingml.document") if body.format == "docx"
                   else (resume_file.to_pdf(res), "application/pdf"))
     stem = "".join(c for c in (res["name"] or "My") if c.isalnum() or c in " -").strip() or "My"
-    _event(store, "download", what="resume", format=body.format)
+    _event(store, "download", what="resume", format=body.format,
+           **({"sample_id": body.sample_id} if body.sample_id else {}))
     return Response(data, media_type=kind, headers={
         "Content-Disposition": f'attachment; filename="{stem} resume.{body.format}"'})
 

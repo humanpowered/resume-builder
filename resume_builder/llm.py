@@ -94,7 +94,7 @@ def spend_summary() -> str:
 
 
 def request_json(messages: list, max_tokens: int, what: str,
-                 schema: dict | None = None, attempts: int = 2) -> dict:
+                 schema: dict | None = None, attempts: int = 2, version: str = "") -> dict:
     """
     Call the model and return its JSON. One corrective pass when the answer
     does not parse; none when it was truncated, because asking again with the
@@ -103,6 +103,9 @@ def request_json(messages: list, max_tokens: int, what: str,
     `schema` makes the shape a constraint the API enforces. Use it wherever the
     prompt also has a conversational job, or the model does the human half and
     drops the JSON.
+
+    `version` names the prompt that made the call, so its cost and results
+    can be compared with the next version's.
     """
     last = None
     for attempt in range(attempts):
@@ -120,7 +123,7 @@ def request_json(messages: list, max_tokens: int, what: str,
         _SPEND["in"] += tokens_in
         _SPEND["out"] += tokens_out
         if meter:
-            meter.record(what, cost(model(), tokens_in, tokens_out))
+            meter.record(what, cost(model(), tokens_in, tokens_out), version)
         text = extract_text(resp).strip()
         if resp.stop_reason == "max_tokens":
             raise ValueError(f"{what}: response truncated at {max_tokens} tokens; "

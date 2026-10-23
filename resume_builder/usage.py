@@ -104,11 +104,12 @@ class Meter:
             event(self.conn, self.user, "cap_reached", cap=reason)
             raise llm.LimitReached(message)
 
-    def record(self, what: str, dollars: float) -> None:
+    def record(self, what: str, dollars: float, version: str = "") -> None:
         self.conn.execute("INSERT INTO spend VALUES (?, ?, ?, ?)",
                           (self.user, _now().isoformat(), what, dollars))
         self.conn.commit()
-        event(self.conn, self.user, "model_call", what=what, cost_usd=round(dollars, 5))
+        event(self.conn, self.user, "model_call", what=what, cost_usd=round(dollars, 5),
+              **({"prompt_version": version} if version else {}))
 
 
 def report(conn) -> list:
