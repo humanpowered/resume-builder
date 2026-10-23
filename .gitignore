@@ -11,3 +11,4 @@ web/*.sqlite3
 .env
 .env.*
 *.key
+exports/

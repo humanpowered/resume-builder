@@ -171,9 +171,28 @@ RB_DEV=1 uvicorn web.app:app --reload       # then open http://localhost:8000
 ```
 
 `RB_DEV=1` turns on a development sign-in, which takes an email address and
-nothing else. Without it the service refuses every request, because real
-sign-in isn't wired up yet. That is the first thing to add before anyone
-else uses it.
+nothing else. It is for your own computer only.
+
+For testers, sign-in runs through Firebase Authentication: a tester types
+their email, Firebase emails them a one-time link, and opening it signs them
+in. Only addresses on the invite list are sent a link or let in, and the
+service then keeps them signed in with its own signed cookie for up to two
+weeks of inactivity. Set these four, and leave `RB_DEV` unset:
+
+| Variable | What it is |
+| --- | --- |
+| `RB_FIREBASE_PROJECT` | The Firebase project ID |
+| `RB_FIREBASE_API_KEY` | The Firebase web API key (it is public; it only identifies the project) |
+| `RB_SESSION_SECRET` | A long random string that signs the session cookie; keep it secret |
+| `RB_INVITE_EMAILS` | Comma-separated tester emails; taking one off signs that person out |
+
+In the Firebase console, turn on Email link sign-in (Authentication, Sign-in
+method, Email/Password, Email link) and add the site's address under
+Authorized domains; `localhost` is there already. With none of this set and
+no `RB_DEV`, the service refuses every request.
+
+To run the tester site on Google Cloud (Cloud Run and Cloud SQL), see
+[web/DEPLOY.md](web/DEPLOY.md).
 
 ## The job-application pipeline
 

@@ -4,41 +4,72 @@ behind a per-user API and one page.
 
   RB_DEV=1 uvicorn web.app:app --reload        # local development
 
-Sign-in is deliberately not built here. In development a dev login sets a
-cookie naming the user; in production `current_user` must be replaced by the
-chosen identity provider's check. Until it is, the service refuses every
-request rather than run without real authentication: a career record holds
-someone's address, phone and employment history.
+Sign-in: in development a dev login sets a cookie naming the user. For a
+tester round, set RB_FIREBASE_PROJECT, RB_FIREBASE_API_KEY, RB_SESSION_SECRET
+and RB_INVITE_EMAILS: Firebase emails each invited tester a one-time sign-in
+link, and the service keeps them signed in with its own signed cookie. With
+neither set up, the service refuses every request rather than run without
+real authentication: a career record holds someone's address, phone and
+employment history.
 """
+import base64
 import csv
+import hashlib
+import hmac
 import io
 import json
 import os
-import sqlite3
+import re
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, File, HTTPException, Request, Response, UploadFile
-from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, RedirectResponse
 from pydantic import BaseModel, Field
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from resume_builder import export as X  # noqa: E402
-from resume_builder import finish, health, sample, importer, interview, journey, matching, sections, skills  # noqa: E402
+from resume_builder import finish, health, sample, importer, interview, journey, linkedin, matching, resume_file, sections, skills  # noqa: E402
 from resume_builder import summary as summary_mod  # noqa: E402
+from resume_builder import llm, usage  # noqa: E402
 from resume_builder import record as mr  # noqa: E402
+from resume_builder import store as store_mod  # noqa: E402
 from resume_builder.store import SqlStore  # noqa: E402
 
-DB_PATH = os.environ.get("RB_DB", str(ROOT / "web" / "dev.sqlite3"))
+# RB_DATABASE_URL (Postgres, e.g. Cloud SQL) when set, else the SQLite file RB_DB.
+DATABASE = store_mod.database()
 DEV = os.environ.get("RB_DEV") == "1"
 # Invite codes for a test round on a public address: with RB_INVITE_CODES set
 # (comma-separated), the dev sign-in also needs one of them, so only invited
 # testers get in. Unset, local development works as before.
 INVITES = {c.strip() for c in os.environ.get("RB_INVITE_CODES", "").split(",") if c.strip()}
 MAX_UPLOAD = 5 * 1024 * 1024
+
+# Real sign-in for testers: Firebase Authentication emails a one-time link,
+# the page trades the token Firebase gives back for our own signed session
+# cookie, and only emails on the invite list get in. It is on when the
+# Firebase project and a session secret are both set.
+FIREBASE = {"apiKey": os.environ.get("RB_FIREBASE_API_KEY", ""),
+            "projectId": os.environ.get("RB_FIREBASE_PROJECT", "")}
+FIREBASE["authDomain"] = os.environ.get("RB_FIREBASE_AUTH_DOMAIN", "") or (
+    f"{FIREBASE['projectId']}.firebaseapp.com" if FIREBASE["projectId"] else "")
+SESSION_SECRET = os.environ.get("RB_SESSION_SECRET", "")
+AUTH_ON = bool(FIREBASE["projectId"] and FIREBASE["apiKey"] and SESSION_SECRET)
+# Spending limits and usage events are on wherever real sign-in is (the test
+# site), and off for a local copy run by its owner, unless RB_LIMITS=1.
+LIMITS = AUTH_ON or os.environ.get("RB_LIMITS") == "1"
+INVITED = {e.strip().lower() for e in os.environ.get("RB_INVITE_EMAILS", "").split(",")
+           if e.strip()}
+# Google Analytics measurement ID for the test site's screen counts. Only sent
+# to the page when real sign-in is on, so local copies never load it.
+GA_ID = os.environ.get("RB_GA_ID", "").strip()
+GA_ID = GA_ID if AUTH_ON and re.fullmatch(r"G-[A-Z0-9]{4,16}", GA_ID) else ""
+SESSION_COOKIE = "rb_session"
+SESSION_DAYS = 14
 
 app = FastAPI(title="Resume Builder")
 
@@ -53,6 +84,29 @@ def _model_unreachable(exc: BaseException) -> bool:
             or "invalid x-api-key" in msg)
 
 
+class _MeterSlot:
+    """Gives each request an empty slot for its meter. The slot is filled once
+    the person is known, and every model call in the request finds it there."""
+
+    def __init__(self, inner):
+        self.inner = inner
+
+    async def __call__(self, scope, receive, send):
+        token = llm.METER.set({})
+        try:
+            await self.inner(scope, receive, send)
+        finally:
+            llm.METER.reset(token)
+
+
+app.add_middleware(_MeterSlot)
+
+
+@app.exception_handler(llm.LimitReached)
+async def limit_reached(request: Request, exc: llm.LimitReached):
+    return JSONResponse(status_code=429, content={"detail": str(exc)})
+
+
 @app.exception_handler(Exception)
 async def unexpected(request: Request, exc: Exception):
     if _model_unreachable(exc):
@@ -62,16 +116,33 @@ async def unexpected(request: Request, exc: Exception):
     raise exc
 
 
+_schema_ready = False
+
+
 def db():
-    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
-    SqlStore.init(conn)
+    global _schema_ready
+    conn = store_mod.connect(DATABASE)
+    if not _schema_ready:
+        SqlStore.init(conn)
+        _schema_ready = True
     try:
         yield conn
     finally:
         conn.close()
 
 
-def current_user(request: Request) -> str:
+def current_user(request: Request, response: Response) -> str:
+    if AUTH_ON:
+        user, issued = _read_session(request.cookies.get(SESSION_COOKIE, ""))
+        if user:
+            # Sliding expiry: anyone active stays signed in; a session left
+            # alone for SESSION_DAYS ends. Re-issued at most once a day.
+            if time.time() - issued > 86400:
+                _set_session(response, user)
+            return user
+        # Real sign-in is on, so the development sign-in is off, whatever
+        # RB_DEV says: a test site must never take an email on trust.
+        raise HTTPException(401, "Not signed in")
     if not DEV:
         raise HTTPException(503, "Sign-in is not configured; this service will not run "
                                  "without it.")
@@ -82,7 +153,117 @@ def current_user(request: Request) -> str:
 
 
 def store_for(user: str = Depends(current_user), conn=Depends(db)) -> SqlStore:
+    if LIMITS:
+        slot = llm.METER.get()
+        if isinstance(slot, dict):
+            slot["meter"] = usage.Meter(conn, user)
     return SqlStore(conn, user)
+
+
+def _event(store: SqlStore, name: str, **fields) -> None:
+    if LIMITS:
+        usage.event(store.conn, store.user, name, **fields)
+
+
+# --------------------------------------------------------------------------
+# Sign-in
+
+
+def _sign(text: str) -> str:
+    return hmac.new(SESSION_SECRET.encode(), text.encode(), hashlib.sha256).hexdigest()
+
+
+def _set_session(response: Response, email: str) -> None:
+    body = f"{base64.urlsafe_b64encode(email.encode()).decode()}.{int(time.time())}"
+    response.set_cookie(SESSION_COOKIE, f"{body}.{_sign(body)}", max_age=SESSION_DAYS * 86400,
+                        httponly=True, secure=True, samesite="lax")
+
+
+def _read_session(cookie: str) -> tuple:
+    """(email, issued) for a cookie we signed that hasn't run out, else ("", 0)."""
+    try:
+        enc, issued, sig = cookie.split(".")
+        if not hmac.compare_digest(sig, _sign(f"{enc}.{issued}")):
+            return "", 0
+        if time.time() - int(issued) > SESSION_DAYS * 86400:
+            return "", 0
+        email = base64.urlsafe_b64decode(enc.encode()).decode()
+    except (ValueError, UnicodeDecodeError):
+        return "", 0
+    # Taken off the invite list = signed out at the next request.
+    return (email, int(issued)) if email in INVITED else ("", 0)
+
+
+def verify_token(token: str) -> dict:
+    """The claims in a Firebase ID token, checked against Google's keys and
+    this project. Tests replace this function."""
+    from google.auth.transport import requests as g_requests
+    from google.oauth2 import id_token
+    # A fresh token is stamped with Google's clock; a PC a second behind
+    # would otherwise reject it as "used too early".
+    return id_token.verify_firebase_token(token, g_requests.Request(),
+                                          audience=FIREBASE["projectId"],
+                                          clock_skew_in_seconds=30)
+
+
+NOT_INVITED = ("That email isn't on the tester list. Use the address your invitation "
+               "was sent to.")
+
+
+@app.get("/auth/config")
+def auth_config():
+    return {"mode": "firebase" if AUTH_ON else "dev" if DEV else "off",
+            "firebase": FIREBASE if AUTH_ON else None,
+            "ga": GA_ID or None}
+
+
+class Invited(BaseModel):
+    email: str
+
+
+@app.post("/auth/invited")
+def auth_invited(body: Invited):
+    """Checked before the page asks Firebase to send a link, so nobody off
+    the list is emailed."""
+    if not AUTH_ON:
+        raise HTTPException(404)
+    if body.email.strip().lower() not in INVITED:
+        raise HTTPException(403, NOT_INVITED)
+    return {"ok": True}
+
+
+class Session(BaseModel):
+    id_token: str
+
+
+@app.post("/auth/session")
+def auth_session(body: Session, response: Response, conn=Depends(db)):
+    if not AUTH_ON:
+        raise HTTPException(404)
+    # 400, not 401: the page treats 401 as "show sign-in" and would hide
+    # the reason, leaving the tester back at the sign-in screen.
+    try:
+        claims = verify_token(body.id_token)
+    except Exception as e:
+        print(f"Sign-in token rejected: {e}", file=sys.stderr)
+        raise HTTPException(400, "That sign-in link has expired or was already used. "
+                                 "Ask for a new one.")
+    email = (claims.get("email") or "").strip().lower()
+    if not email or not claims.get("email_verified"):
+        raise HTTPException(400, "That sign-in didn't include a confirmed email address.")
+    if email not in INVITED:
+        raise HTTPException(403, NOT_INVITED)
+    _set_session(response, email)
+    if LIMITS:
+        usage.event(conn, email, "signed_in")
+    return {"user": email}
+
+
+@app.post("/auth/signout")
+def auth_signout(response: Response):
+    response.delete_cookie(SESSION_COOKIE)
+    response.delete_cookie("rb_user")
+    return {"signed_out": True}
 
 
 # --------------------------------------------------------------------------
@@ -96,7 +277,7 @@ class DevLogin(BaseModel):
 
 @app.post("/dev/login")
 def dev_login(body: DevLogin, response: Response):
-    if not DEV:
+    if not DEV or AUTH_ON:
         raise HTTPException(404)
     email = body.email.strip().lower()
     if "@" not in email:
@@ -189,6 +370,7 @@ async def import_resume(file: UploadFile = File(...), store: SqlStore = Depends(
     else:
         rec, changes = incoming, ["new record"]
     store.save_record(rec)
+    _event(store, "resume_uploaded")
     return {"changes": len(changes), "set_aside": rep["rejected"],
             "unplaced": rep["unplaced"], "summary": summary(rec)}
 
@@ -567,10 +749,24 @@ def download_everything(store: SqlStore = Depends(store_for)):
                     headers={"Content-Disposition": 'attachment; filename="my-record.md"'})
 
 
+@app.get("/api/me/record.docx")
+def download_record_word(store: SqlStore = Depends(store_for)):
+    """The whole career record as a Word document the person keeps."""
+    rec = store.load_record()
+    stem = "".join(c for c in journey.clean(rec.contact.get("Name", "")) if c.isalnum() or c in " -").strip()
+    _event(store, "download", what="record", format="docx")
+    return Response(resume_file.master_docx(rec),
+                    media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    headers={"Content-Disposition":
+                             f'attachment; filename="{stem + " " if stem else ""}career record.docx"'})
+
+
 @app.delete("/api/me")
 def delete_me(response: Response, store: SqlStore = Depends(store_for)):
+    _event(store, "data_deleted")
     store.delete_everything()
     response.delete_cookie("rb_user")
+    response.delete_cookie(SESSION_COOKIE)
     return {"deleted": True}
 
 
@@ -612,7 +808,7 @@ def _jstate(store: SqlStore, rec: mr.Record | None = None) -> dict:
             "finish": finish.progress(store, rec, work),
             "suggestions": finish.suggestions(store, rec, work, skill_view, summary),
             "updated": store.updated(), "review": finish.review_view(store, rec),
-            "samples": sample.view(store),
+            "samples": sample.view(store), "linkedin": linkedin.view(store, rec),
             **view}
 
 
@@ -622,7 +818,21 @@ def j_state(store: SqlStore = Depends(store_for)):
     load opens on "welcome back"."""
     away = finish.stamp(store)
     return {**_jstate(store), "away_hours": round(away, 1),
-            "absence_hours": finish.ABSENCE_HOURS, "long_absence_days": finish.LONG_ABSENCE_DAYS}
+            "absence_hours": finish.ABSENCE_HOURS, "long_absence_days": finish.LONG_ABSENCE_DAYS,
+            "review_notice": LIMITS and not store.load_state(REVIEW_NOTICE)}
+
+
+# On the test site each person is told once, before they start, that what
+# they make may be reviewed. When they read it is kept with their data.
+REVIEW_NOTICE = "review_notice"
+
+
+@app.post("/api/j/notice/seen")
+def j_notice_seen(store: SqlStore = Depends(store_for)):
+    from datetime import datetime, timezone
+    if not store.load_state(REVIEW_NOTICE):
+        store.save_state(REVIEW_NOTICE, {"seen_at": datetime.now(timezone.utc).isoformat()})
+    return {"ok": True}
 
 
 class JStep(BaseModel):
@@ -657,11 +867,24 @@ class JAnswer(BaseModel):
     text: str = Field("", max_length=4000)
 
 
+# How a skipped question is named in usage events.
+SKIP_REASONS = {"skipped": "skipped", "na": "doesnt_apply"}
+
+
 @app.post("/api/j/answer")
 def j_answer(body: JAnswer, store: SqlStore = Depends(store_for)):
     rec = store.load_record()
+    step = next((s for s in journey.steps(store, rec) if s["id"] == body.id), None)
     out = _j(journey.answer, store, rec, body.id, body.status, body.text)
     store.save_record(rec)
+    if step and step["kind"] != "titles":
+        # A blank answer counts as a skip, as journey.answer saves it. Only
+        # the question's field name is logged, never the job it was for.
+        status = body.status if body.text.strip() or body.status != "answered" else (
+            "skipped" if step["kind"] == "company" else "na")
+        if status in SKIP_REASONS:
+            _event(store, "question_skipped", question_id=step["field"],
+                   reason=SKIP_REASONS[status])
     return {**out, **_jstate(store, rec)}
 
 
@@ -690,14 +913,32 @@ class JLineRef(BaseModel):
 @app.post("/api/j/line/status")
 def j_line_status(body: JLineRef, store: SqlStore = Depends(store_for)):
     rec = store.load_record()
+    result = _stronger(store, rec, body, None) if body.status == "kept" else ""
     _j(journey.set_line_status, store, rec, body.job, body.line, body.status)
+    _stronger_event(store, result)
     return _jstate(store, rec)
+
+
+def _stronger(store, rec, body: JLineRef, text: str | None) -> str:
+    """What became of a stronger version we wrote, read before the change
+    that decides it; "" when there was none or the line can't be found."""
+    try:
+        return journey.stronger_result(store, rec, body.job, body.line, text)
+    except (IndexError, LookupError, ValueError):
+        return ""
+
+
+def _stronger_event(store, result: str) -> None:
+    if result:
+        _event(store, "stronger_used", result=result)
 
 
 @app.post("/api/j/job/mark")
 def j_job_mark(body: JLineRef, store: SqlStore = Depends(store_for)):
     rec = store.load_record()
     _j(journey.mark_job, store, rec, body.job, body.what)
+    if body.what == "done":
+        _event(store, "job_finished")
     return _jstate(store, rec)
 
 
@@ -726,6 +967,8 @@ def j_line_stronger(body: JLineRef, store: SqlStore = Depends(store_for)):
     try:
         return _j(journey.write_stronger, store, rec, body.job, body.line)
     except HTTPException:
+        raise
+    except llm.LimitReached:
         raise
     except Exception:
         raise HTTPException(502, "The line writer didn't answer. Your answers are saved; "
@@ -814,6 +1057,8 @@ def j_skills_build(store: SqlStore = Depends(store_for)):
     rec = store.load_record()
     try:
         out = sections.build_skills(store, rec)
+    except llm.LimitReached:
+        raise
     except Exception:
         raise HTTPException(502, "We couldn't load the suggested skills just now. "
                                  "Your own skills are all here; try again in a moment.")
@@ -825,16 +1070,20 @@ def j_skills_build(store: SqlStore = Depends(store_for)):
 @app.post("/api/j/line/approve")
 def j_line_approve(body: JLineRef, store: SqlStore = Depends(store_for)):
     rec = store.load_record()
+    result = _stronger(store, rec, body, body.text)
     key = _j(journey.approve_line, store, rec, body.job, body.line, body.text)
     store.save_record(rec)
+    _stronger_event(store, result)
     return {"line": key, **_jstate(store, rec)}
 
 
 @app.post("/api/j/line/remove")
 def j_line_remove(body: JLineRef, store: SqlStore = Depends(store_for)):
     rec = store.load_record()
+    result = _stronger(store, rec, body, None)
     gone = _j(journey.remove_line, store, rec, body.job, body.line)
     store.save_record(rec)
+    _stronger_event(store, result)
     return {"deleted": gone, **_jstate(store, rec)}
 
 
@@ -847,6 +1096,7 @@ async def j_import(file: UploadFile = File(...), store: SqlStore = Depends(store
     from datetime import date
     incoming, rep = importer.to_record(importer.extract(text), text,
                                        file.filename or "upload", date.today().isoformat())
+    _event(store, "resume_uploaded")
     if store.exists() and journey.load_step(store).get("seen_check"):
         rec = store.load_record()
         finish.start_review(store, rec, incoming, file.filename or "your file")
@@ -875,14 +1125,28 @@ class JReview(BaseModel):
 @app.post("/api/j/review/apply")
 def j_review_apply(body: JReview, store: SqlStore = Depends(store_for)):
     rec = store.load_record()
+    found = _review_lines(store, rec)
     added = _j(finish.apply_review, store, rec, body.ids)
     store.save_record(rec)
+    _event(store, "import_reviewed", lines_found=found, lines_kept=added["lines"],
+           lines_removed=max(0, found - added["lines"]))
     return {"added": added, **_jstate(store, rec)}
+
+
+def _review_lines(store, rec) -> int:
+    """How many single lines the file waiting for review offered. A whole
+    new job is offered as one item, so its lines aren't counted here."""
+    view = finish.review_view(store, rec) or {"items": []}
+    return sum(1 for it in view["items"] if it["id"].startswith("line:"))
 
 
 @app.post("/api/j/review/drop")
 def j_review_drop(store: SqlStore = Depends(store_for)):
+    waiting = store.exists() and finish.review_view(store, store.load_record()) is not None
+    found = _review_lines(store, store.load_record()) if waiting else 0
     finish.drop_review(store)
+    if waiting:
+        _event(store, "import_reviewed", lines_found=found, lines_kept=0, lines_removed=found)
     return _jstate(store)
 
 
@@ -896,6 +1160,8 @@ def j_summary_draft(store: SqlStore = Depends(store_for)):
     rec = store.load_record()
     try:
         out = finish.draft_summary(store, rec)
+    except llm.LimitReached:
+        raise
     except Exception:
         raise HTTPException(502, "We couldn't write a summary just now. Nothing was changed; "
                                  "try again in a moment.")
@@ -925,9 +1191,13 @@ def _paid_sample(store, make):
         res = make(rec)
     except ValueError as exc:
         raise HTTPException(400, str(exc))
+    except llm.LimitReached:
+        raise
     except Exception:
         raise HTTPException(502, "We couldn't make the sample just now. Nothing was changed; "
                                  "try again in a moment.")
+    _event(store, "sample_made", sample_id=res["id"], kind=res["kind"],
+           bullets=sample.bullet_count(res), prompt_version=sample.PROMPT_VERSION)
     return {"sample": res, **_jstate(store, rec)}
 
 
@@ -939,6 +1209,108 @@ def j_sample_general(store: SqlStore = Depends(store_for)):
 @app.post("/api/j/sample/tailor")
 def j_sample_tailor(body: JPosting, store: SqlStore = Depends(store_for)):
     return _paid_sample(store, lambda rec: sample.tailored(store, rec, body.text))
+
+
+# The LinkedIn profile: text to copy into LinkedIn, kept inside this tool.
+# LinkedIn has no way for another site to change a profile.
+
+class JLinkedIn(BaseModel):
+    section: str = Field("", max_length=400)
+    headline: int | None = None
+    open: str | None = Field(None, max_length=10)
+    soften: bool | None = None
+    pasted: list[str] | None = Field(None, max_length=10)
+
+
+@app.get("/api/j/linkedin")
+def j_linkedin(store: SqlStore = Depends(store_for)):
+    return linkedin.view(store, store.load_record())
+
+
+def _paid_linkedin(store, make):
+    rec = store.load_record()
+    if not finish.progress(store, rec, journey.work_view(store, rec))["first_build_done"]:
+        raise HTTPException(400, "Finish your record first. Your LinkedIn profile is written from all of it")
+    try:
+        out = make(rec)
+    except json.JSONDecodeError:
+        raise HTTPException(502, "We couldn't write your profile just now. Nothing was changed; "
+                                 "try again in a moment.")
+    except LookupError as exc:
+        raise HTTPException(404, str(exc).strip("'\""))
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    except llm.LimitReached:
+        raise
+    except Exception:
+        raise HTTPException(502, "We couldn't write your profile just now. Nothing was changed; "
+                                 "try again in a moment.")
+    _event(store, "linkedin_written")
+    return out
+
+
+@app.post("/api/j/linkedin/write")
+def j_linkedin_write(store: SqlStore = Depends(store_for)):
+    return _paid_linkedin(store, lambda rec: linkedin.write(store, rec))
+
+
+@app.post("/api/j/linkedin/rewrite")
+def j_linkedin_rewrite(body: JLinkedIn, store: SqlStore = Depends(store_for)):
+    return _paid_linkedin(store, lambda rec: linkedin.rewrite(store, rec, body.section))
+
+
+@app.put("/api/j/linkedin")
+def j_linkedin_choose(body: JLinkedIn, store: SqlStore = Depends(store_for)):
+    return _j(linkedin.choose, store, store.load_record(), headline=body.headline,
+              open_to=body.open, soften=body.soften, pasted=body.pasted)
+
+
+class JRole(BaseModel):
+    title: str = Field("", max_length=300)
+    dates: str = Field("", max_length=100)
+    lines: list[str] = Field(default_factory=list, max_length=60)
+
+
+class JEmployer(BaseModel):
+    employer: str = Field("", max_length=300)
+    roles: list[JRole] = Field(default_factory=list, max_length=20)
+
+
+class JExtra(BaseModel):
+    heading: str = Field("", max_length=100)
+    lines: list[str] = Field(default_factory=list, max_length=60)
+
+
+class JResume(BaseModel):
+    name: str = Field("", max_length=200)
+    headline: str = Field("", max_length=300)
+    contact: str = Field("", max_length=500)
+    summary: str = Field("", max_length=5000)
+    employers: list[JEmployer] = Field(default_factory=list, max_length=40)
+    education: list[str] = Field(default_factory=list, max_length=40)
+    skills: list[str] = Field(default_factory=list, max_length=100)
+    extras: list[JExtra] = Field(default_factory=list, max_length=20)
+
+
+class JResumeFile(BaseModel):
+    sample: JResume
+    format: str = Field("docx", pattern="^(docx|pdf)$")
+    sample_id: str = Field("", pattern="^(smp_[0-9a-f]{12})?$")
+
+
+@app.post("/api/j/sample/file")
+def j_sample_file(body: JResumeFile, store: SqlStore = Depends(store_for)):
+    """The resume the page is showing, as a Word or PDF file to save. Made
+    from what the page sent, so the file matches the preview exactly."""
+    res = body.sample.model_dump()
+    data, kind = ((resume_file.to_docx(res), "application/vnd.openxmlformats-officedocument."
+                   "wordprocessingml.document") if body.format == "docx"
+                  else (resume_file.to_pdf(res), "application/pdf"))
+    stem = "".join(c for c in (res["name"] or "My") if c.isalnum() or c in " -").strip() or "My"
+    _event(store, "download", what="resume", format=body.format,
+           **({"sample_id": body.sample_id} if body.sample_id else {}))
+    return Response(data, media_type=kind, headers={
+        "Content-Disposition": f'attachment; filename="{stem} resume.{body.format}"'})
 
 
 @app.post("/api/j/dismiss")
@@ -1039,4 +1411,7 @@ def new_page():
 
 @app.get("/")
 def index():
+    # The old page only knows the development sign-in, so testers go to the new one.
+    if AUTH_ON:
+        return RedirectResponse("/new")
     return FileResponse(Path(__file__).parent / "static" / "index.html")

@@ -1,0 +1,13 @@
+.git
+.venv
+**/__pycache__
+*.pyc
+web/*.sqlite3
+exports
+evals
+tests
+record.md
+.record.*
+.env
+.env.*
+*.key

@@ -11,15 +11,27 @@ The model chooses; it never writes. It is given the record's lines and
 skills by id and returns ids, so every word on a sample is a word already on
 the record, and a sample can't claim anything the person didn't say.
 """
+import hashlib
+import os
+import secrets
 from datetime import datetime, timezone
 
 from . import journey, llm, posting as postings, skills
 from . import record as mr
 
 SAMPLES = "journey.samples"
-FREE_TAILORED = 3
 MAX_LINES, MAX_PER_JOB, MAX_SKILLS = 18, 6, 12
 MAX_POSTING = 15000
+
+
+def free_tailored() -> int:
+    """How many samples for a posting each person gets: RB_FREE_TAILORED,
+    20 unless set."""
+    try:
+        return max(0, int(os.environ.get("RB_FREE_TAILORED", 20)))
+    except ValueError:
+        return 20
+
 EXTRA_HEADINGS = (("awards", "Awards"), ("publications", "Talks and publications"),
                   ("memberships", "Boards and memberships"), ("training", "Training"))
 
@@ -66,7 +78,7 @@ def _layout(rec: mr.Record, chosen: dict, skill_names: list, kind: str, headline
                  for r in rec.roles if r.outside()]
     if volunteer:
         extras.append({"heading": "Volunteering and projects", "lines": volunteer})
-    return {"kind": kind, "name": journey.clean(rec.contact.get("Name", "")), "headline": headline,
+    return {"id": "smp_" + secrets.token_hex(6), "kind": kind, "name": journey.clean(rec.contact.get("Name", "")), "headline": headline,
             "contact": _contact(rec), "summary": rec.summary,
             "employers": employers, "education": list(rec.education) + list(rec.certifications),
             "skills": skill_names, "extras": extras,
@@ -134,6 +146,10 @@ LINES
 SKILLS
 {skills}"""
 
+# Changes whenever the prompt's wording does, so usage events can tell which
+# version of the prompt made a sample.
+PROMPT_VERSION = hashlib.sha1(PROMPT.encode()).hexdigest()[:8]
+
 
 def _choose(store, rec: mr.Record, purpose: str, match: str, what: str) -> tuple:
     lines, skill_ids = _pool(rec)
@@ -147,7 +163,7 @@ def _choose(store, rec: mr.Record, purpose: str, match: str, what: str) -> tuple
         purpose=purpose, match=match, what=what, max_lines=MAX_LINES, per_job=MAX_PER_JOB,
         max_skills=MAX_SKILLS, lines=listing,
         skills="\n".join(f"[{k}] {v}" for k, v in skill_ids.items()) or "(none)")}],
-        3000, "sample", schema=SCHEMA)
+        3000, "sample", schema=SCHEMA, version=PROMPT_VERSION)
     # Only ids that exist count, each once, within the limits, under its own job.
     chosen, used, total = {}, set(), 0
     for j in out.get("jobs") or []:
@@ -189,8 +205,9 @@ def tailored(store, rec: mr.Record, posting: str) -> dict:
     """One paid call: a resume for one posting. A few are free."""
     posting = (posting or "").strip()
     st = _state(store)
-    if len(st["tailored"]) >= FREE_TAILORED:
-        raise ValueError(f"You've used your {FREE_TAILORED} free samples written for a posting")
+    free = free_tailored()
+    if len(st["tailored"]) >= free:
+        raise ValueError(f"You've used your {free} free samples written for a posting")
     # A link is read before anything is spent; one that can't be read raises
     # with words for the person, and the free sample isn't used.
     link = ""
@@ -213,7 +230,11 @@ def tailored(store, rec: mr.Record, posting: str) -> dict:
 def view(store) -> dict:
     st = _state(store)
     return {"general": st["general"], "tailored": st["tailored"],
-            "free_left": max(0, FREE_TAILORED - len(st["tailored"])), "free": FREE_TAILORED}
+            "free_left": max(0, free_tailored() - len(st["tailored"])), "free": free_tailored()}
+
+
+def bullet_count(res: dict) -> int:
+    return sum(len(r["lines"]) for e in res["employers"] for r in e["roles"])
 
 
 def as_text(res: dict) -> str:

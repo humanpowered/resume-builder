@@ -12,6 +12,7 @@ A "line" on a job is either a line from their resume (role.recorded_bullets)
 or a story built in an earlier interview (role.accomplishments). The page
 shows both the same way; `kind` says which list it lives in.
 """
+import hashlib
 import re
 from dataclasses import asdict
 
@@ -24,7 +25,7 @@ ANSWERS = "journey.answers"
 
 SCREENS = ("welcome", "upload", "check", "targets", "bg", "lines", "line", "more", "end",
            "stopped", "bgdone", "record", "edu", "skills", "beyond", "later",
-           "story", "summary", "complete", "review")
+           "story", "summary", "complete", "review", "linkedin")
 CONTACT_FIELDS = ("Name", "Email", "Telephone", "Location", "Linkedin", "Website")
 RESUME, STORY = "resume", "story"
 
@@ -779,6 +780,8 @@ NUMBER: {number}
 
 Return JSON: {{"line": "..."}}"""
 
+STRONGER_VERSION = hashlib.sha1(STRONGER_PROMPT.encode()).hexdigest()[:8]
+
 
 def write_stronger(store, rec: mr.Record, jkey: str, lkey: str) -> dict:
     """Draft a stronger version of one line from the person's answers and the
@@ -801,7 +804,8 @@ def write_stronger(store, rec: mr.Record, jkey: str, lkey: str) -> dict:
     messages = [{"role": "user", "content": prompt}]
     text = ""
     for _ in range(2):
-        reply = llm.request_json(messages, 1024, "stronger line", schema=STRONGER_SCHEMA)
+        reply = llm.request_json(messages, 1024, "stronger line", schema=STRONGER_SCHEMA,
+                                 version=STRONGER_VERSION)
         text = (reply.get("line") or "").strip()
         invented = bullets.ungrounded(text, source)
         if text and not invented:
@@ -814,6 +818,22 @@ def write_stronger(store, rec: mr.Record, jkey: str, lkey: str) -> dict:
              f"These figures are not in the original line or the answers: "
              f"{', '.join(sorted(invented))}. Rewrite using only figures that appear there, or none."}]
     return {"line": "", "ungrounded": True}
+
+
+def stronger_result(store, rec: mr.Record, jkey: str, lkey: str, text: str | None) -> str:
+    """What the person did with a stronger version we wrote for a line:
+    "taken" as written, "edited" before approving, or "turned_down" (the
+    original kept, or the line removed). "" when no version was written.
+    `text` is what they approved; None when they kept or removed the line."""
+    draft = line_answers(store, jkey, lkey).get("draft")
+    if not draft:
+        return ""
+    if text is None:
+        return "turned_down"
+    _, role = _role_by_key(rec, jkey)
+    if importer._norm(text) == importer._norm(_find_line(role, lkey)["text"]):
+        return "turned_down"
+    return "taken" if importer._norm(text) == importer._norm(draft) else "edited"
 
 
 def approve_line(store, rec: mr.Record, jkey: str, lkey: str, text: str) -> str:

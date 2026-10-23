@@ -71,7 +71,12 @@ class Samples(unittest.TestCase):
         self.assertEqual(s["samples"]["general"]["kind"], "general")
         self.assertEqual(set(os.listdir(self.tmp.name)), files)     # nothing written
 
+    def test_twenty_samples_for_a_posting_are_free_unless_set(self):
+        self.assertEqual(self.c.get("/api/j/state").json()["samples"]["free"], 20)
+
+    @mock.patch.dict(os.environ, {"RB_FREE_TAILORED": "3"})
     def test_a_few_samples_for_a_posting_are_free(self):
+        self.assertEqual(self.c.get("/api/j/state").json()["samples"]["free_left"], 3)
         r = self.c.post("/api/j/sample/tailor", json={"text": "Nurse wanted"})
         self.assertEqual(r.status_code, 400)
         for n in range(3):
@@ -145,10 +150,10 @@ class SampleFromLink(unittest.TestCase):
             r = self.c.post("/api/j/sample/tailor", json={"text": "https://www.linkedin.com/jobs/view/1"})
         self.assertEqual(r.status_code, 400)
         self.assertIn("couldn't read", r.json()["detail"])
-        self.assertEqual(self.c.get("/api/j/state").json()["samples"]["free_left"], 3)
+        self.assertEqual(self.c.get("/api/j/state").json()["samples"]["free_left"], 20)
         got = {"title": "Nurse Manager", "company": "Lakeside Health", "text": POSTING, "url": "https://jobs.example.com/1"}
         llm.use_backend(FakeBackend(choice(posting_title="Nurse Manager", posting_company="Lakeside Health")))
         with mock.patch.object(posting, "read", return_value=got):
             s = self.post("/api/j/sample/tailor", text="https://jobs.example.com/1")
         self.assertEqual(s["sample"]["posting"]["url"], "https://jobs.example.com/1")
-        self.assertEqual(s["samples"]["free_left"], 2)
+        self.assertEqual(s["samples"]["free_left"], 19)

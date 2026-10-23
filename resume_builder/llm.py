@@ -7,6 +7,7 @@ this project swaps in a scripted stand-in through `use_backend`, so the suite
 runs with no key and no network, and nothing here can reach the API by
 accident during a test.
 """
+import contextvars
 import json
 import os
 import re
@@ -63,17 +64,37 @@ _RATES = {"claude-sonnet-5-5": (2.00, 10.00), "claude-sonnet-5": (2.00, 10.00),
           "claude-opus-5-5": (5.00, 25.00), "claude-haiku-4-5": (1.00, 5.00)}
 
 
+def cost(model_name: str, tokens_in: int, tokens_out: int) -> float:
+    """Dollars for one call at list price."""
+    in_rate, out_rate = _RATES.get(model_name, (2.00, 10.00))
+    return tokens_in / 1e6 * in_rate + tokens_out / 1e6 * out_rate
+
+
+class LimitReached(RuntimeError):
+    """A spending or rate limit stopped a model call before it was made. The
+    message is written for the person."""
+
+
+# The web app puts a meter here for each request, so every model call is
+# checked against the signed-in person's limits and its cost recorded. A
+# meter has check() and record(what, dollars); the command line has none.
+METER = contextvars.ContextVar("meter", default=None)
+
+
+def _meter():
+    slot = METER.get()
+    return slot.get("meter") if isinstance(slot, dict) else slot
+
+
 def spend_summary() -> str:
     if not _SPEND["calls"]:
         return ""
-    in_rate, out_rate = _RATES.get(model(), (2.00, 10.00))
-    cost = _SPEND["in"] / 1e6 * in_rate + _SPEND["out"] / 1e6 * out_rate
     return (f"{_SPEND['calls']} model call(s), {_SPEND['in']:,} in / "
-            f"{_SPEND['out']:,} out, about ${cost:.2f}")
+            f"{_SPEND['out']:,} out, about ${cost(model(), _SPEND['in'], _SPEND['out']):.2f}")
 
 
 def request_json(messages: list, max_tokens: int, what: str,
-                 schema: dict | None = None, attempts: int = 2) -> dict:
+                 schema: dict | None = None, attempts: int = 2, version: str = "") -> dict:
     """
     Call the model and return its JSON. One corrective pass when the answer
     does not parse; none when it was truncated, because asking again with the
@@ -82,17 +103,27 @@ def request_json(messages: list, max_tokens: int, what: str,
     `schema` makes the shape a constraint the API enforces. Use it wherever the
     prompt also has a conversational job, or the model does the human half and
     drops the JSON.
+
+    `version` names the prompt that made the call, so its cost and results
+    can be compared with the next version's.
     """
     last = None
     for attempt in range(attempts):
         extra = ({"output_config": {"format": {"type": "json_schema", "schema": schema}}}
                  if schema else {})
+        meter = _meter()
+        if meter:
+            meter.check()
         resp = _client().create(model=model(), max_tokens=max_tokens,
                                 messages=messages, **extra)
         usage = getattr(resp, "usage", None)
+        tokens_in = getattr(usage, "input_tokens", 0) or 0
+        tokens_out = getattr(usage, "output_tokens", 0) or 0
         _SPEND["calls"] += 1
-        _SPEND["in"] += getattr(usage, "input_tokens", 0) or 0
-        _SPEND["out"] += getattr(usage, "output_tokens", 0) or 0
+        _SPEND["in"] += tokens_in
+        _SPEND["out"] += tokens_out
+        if meter:
+            meter.record(what, cost(model(), tokens_in, tokens_out), version)
         text = extract_text(resp).strip()
         if resp.stop_reason == "max_tokens":
             raise ValueError(f"{what}: response truncated at {max_tokens} tokens; "

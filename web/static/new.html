@@ -152,16 +152,43 @@
     .top, #alert, .noprint, [aria-label=Progress] { display: none !important; }
     .wrap { max-width: none; padding: 0; }
     .paper { border: 0; box-shadow: none; padding: 0; }
+    .paper .rh, .paper .eh, .paper .th { break-after: avoid; }
+    .paper li { break-inside: avoid; }
   }
+  .fold { font-size: 15px; line-height: 1.6; padding: 12px 14px; border-radius: 10px; border: 1px dashed var(--field);
+          white-space: pre-wrap; overflow-wrap: anywhere; }
+  .fold mark { background: var(--warn-bg); color: inherit; border-radius: 3px; padding: 0 2px; }
+  .hopt { display: flex; gap: 12px; align-items: flex-start; padding: 12px 14px; border: 1px solid var(--field);
+          border-radius: 10px; font-weight: 400; font-size: 16px; cursor: pointer; }
+  .hopt:has(input:checked) { border-color: var(--accent); background: var(--tint); }
+  .hopt input { width: 18px; height: 18px; margin: 4px 0 0; flex: none; accent-color: var(--accent); }
+  .hopt > span { min-width: 0; overflow-wrap: anywhere; }
+  .lcount { font: 500 13px/1.4 'IBM Plex Mono', ui-monospace, monospace; color: var(--muted); white-space: nowrap; }
+  .lcount.over { color: var(--danger); }
+  .ltools { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+  ol.lskills { margin: 0; padding-left: 28px; display: flex; flex-direction: column; gap: 2px; }
+  ol.lskills li { padding: 4px 0; }
   [hidden] { display: none !important; }
+  .foot { margin-top: 24px; padding-top: 12px; border-top: 1px solid var(--soft-line); }
+  dialog.notice { max-width: 440px; width: calc(100% - 32px); padding: 24px; border: 1px solid var(--line);
+                  border-radius: 14px; background: var(--panel); color: var(--ink); }
+  dialog.notice::backdrop { background: rgba(0, 0, 0, .45); }
 </style>
 </head>
 <body>
 <div class="wrap">
-  <div class="top"><div class="brand">Career record</div><div class="small muted" id="saved">Saved as you go</div></div>
+  <div class="top"><div class="brand">Career record</div><div class="row" style="gap:16px;align-items:center"><div class="small muted" id="saved">Saved as you go</div><button class="link tight small" id="signout" hidden>Sign out</button></div></div>
   <div id="alert" class="alert" role="alert" hidden></div>
   <main id="main" class="stack" aria-live="polite"></main>
+  <p class="foot small muted noprint" id="gaNote" hidden>This test site uses Google Analytics to count which screens testers reach. It never sees what you type or upload, and it stays off if your browser sends Global Privacy Control. <button class="link tight small" id="gaToggle">Turn off analytics</button> <span id="gaStatus" role="status"></span></p>
 </div>
+<dialog id="reviewNotice" class="notice" aria-labelledby="reviewNoticeTitle">
+  <div class="stack">
+    <h2 id="reviewNoticeTitle">Before you start</h2>
+    <p>This is a test version of Plumbline. To test and improve the tool, Plumbline's developer may review what you create here, including your career record and any sample resumes.</p>
+    <div><button class="btn" id="reviewNoticeOk">Got it</button></div>
+  </div>
+</dialog>
 
 <script>
 "use strict";
@@ -172,11 +199,11 @@ const plural = (n, one, many) => `${n} ${n === 1 ? one : (many || one + "s")}`;
 
 const SCREENS = ["welcome", "upload", "check", "targets", "bg", "lines", "line", "more", "end",
                  "stopped", "bgdone", "record", "edu", "skills", "beyond", "later",
-                 "story", "summary", "complete", "review", "back", "sample"];
+                 "story", "summary", "complete", "review", "back", "sample", "linkedin"];
 // Where the on-screen Back goes from each screen when there is no browser
 // history to go back through (for example, straight after a refresh). The
 // background questions step back one question at a time instead.
-const BACK = { upload: "welcome", check: "upload", targets: "check", record: "check" };
+const BACK = { upload: "welcome", check: "upload", targets: "check", record: "check", linkedin: "record" };
 const STAGES = ["Your jobs", "Education", "Skills", "Beyond work", "Summary"];
 let Q = null;              // the background questions' wording, from the server
 let at = "";               // which background question is showing
@@ -337,12 +364,13 @@ function flush() {
 function render() {
   const m = $("main");
   if (screen === "signin") return;
+  track(screen);
   m.innerHTML = ({ welcome, upload, check: () => recordScreen(true), targets, bg, bgdone,
                    lines: linesScreen, line: lineScreen, more: moreScreen, end: endScreen, stopped,
                    record: homeScreen, edu: eduScreen, skills: skillsScreen,
                    beyond: beyondScreen, later: completeScreen, story: storyScreen,
                    summary: summaryScreen, complete: completeScreen, review: reviewScreen,
-                   back: welcomeBack, sample: sampleScreen }[screen] || welcome)();
+                   back: welcomeBack, sample: sampleScreen, linkedin: linkedinScreen }[screen] || welcome)();
   wire();
 }
 
@@ -1134,7 +1162,7 @@ function nextWords() {
 
 function homeScreen() {
   const jobs = S.jobs || [], f = S.finish, name = firstName();
-  const main = f.record_complete ? resumesCard()
+  const main = f.record_complete ? resumesCard() + linkedinCard()
     : jobs.length ? `<div class="done stack-s">
         ${nextWords() ? `<div>Next: ${esc(nextWords())}.</div>` : ""}
         <div><button class="btn" id="continueQs">Continue where you left off</button></div>
@@ -1160,6 +1188,10 @@ function homeScreen() {
     ${addJobBlock(!jobs.length)}
     ${S.skills ? sectionCards() : ""}
     ${undoBar()}
+    ${jobs.length ? `<div class="card stack-s" style="gap:6px">
+      <div style="font-weight:600">Keep a copy of your record</div>
+      <div class="small muted">Every job, every line and the story behind it, as a Word document. It has no page limit; your resumes draw from it.</div>
+      <div><button class="btn2" id="dlRecord">Download your record (Word)</button></div></div>` : ""}
     <div class="row" style="padding-top:4px">
       <button class="btn2" data-go="upload">Upload a newer resume</button>
       <button class="link" data-go="welcome">How this works</button>
@@ -1427,6 +1459,11 @@ function wireBack() {
 }
 
 function wireHome() {
+  if ($("dlRecord")) $("dlRecord").onclick = async () => {
+    $("dlRecord").disabled = true;
+    try { await saveFile("/api/me/record.docx"); } catch (e) { say(e.message); }
+    if ($("dlRecord")) $("dlRecord").disabled = false;
+  };
   on("[data-sug]", (el) => { const x = S.suggestions[+el.dataset.sug]; go(x.screen, { to: x.at || "" }); });
   on("[data-notnow]", (el) => act(() => send("POST", "/api/j/dismiss", { name: el.dataset.notnow })));
   on("[data-openjob]", (el) => go("end", { to: el.dataset.openjob }));
@@ -1500,11 +1537,40 @@ function sampleScreen() {
     ${res.posting && res.posting.url ? `<div class="small muted noprint" style="overflow-wrap:anywhere">From the posting at <a href="${esc(res.posting.url)}" target="_blank" rel="noopener noreferrer">${esc(linkHost(res.posting.url) || res.posting.url)}</a></div>` : ""}
     ${paper(res)}
     <div class="row noprint">
-      <button class="btn2" id="printSample">Print or save as PDF</button>
+      <button class="btn2" id="dlSample" aria-expanded="${!!ui.dl}">Download</button>
       <button class="btn2" id="copySample">${ui.copied ? "Copied" : "Copy as text"}</button>
       <button class="link" data-back>Back</button>
     </div>
+    ${ui.dl ? `<div class="card stack-s noprint" style="gap:8px">
+      <div style="font-weight:600">Download as</div>
+      <div class="row"><button class="btn" data-dl="docx" ${ui.dling ? "disabled" : ""}>Word (.docx)</button>
+        <button class="btn2" data-dl="pdf" ${ui.dling ? "disabled" : ""}>PDF</button></div>
+      <div class="small muted">${ui.dling ? "Making your file…" : "Word is best if you want to edit it. The file matches the preview above and saves to your computer."}</div>
+    </div>` : ""}
   </div>`;
+}
+
+// A file from the server saved to the person's computer, named as the
+// server names it.
+async function saveFile(path, opts = {}) {
+  const r = await fetch(path, { credentials: "same-origin", ...opts });
+  if (r.status === 401) { signIn(); return; }
+  if (!r.ok) throw new Error("We couldn't make the file just now. Try again in a moment.");
+  const name = (/filename="([^"]+)"/.exec(r.headers.get("content-disposition") || "") || [])[1] || "download";
+  const url = URL.createObjectURL(await r.blob());
+  const a = Object.assign(document.createElement("a"), { href: url, download: name });
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
+}
+
+// The resume on screen, as a Word or PDF file.
+async function downloadSample(format) {
+  ui.dling = true; render();
+  try {
+    await saveFile("/api/j/sample/file", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sample: ui.sample, format, sample_id: ui.sample.id || "" }) });
+  } catch (e) { say(e.message); }
+  finally { ui.dling = false; render(); }
 }
 
 function paper(r) {
@@ -1514,8 +1580,8 @@ function paper(r) {
       <div class="muted">${[r.headline, r.contact].filter(Boolean).map(esc).join(" · ")}</div></div>
     ${r.summary ? `${head("SUMMARY")}<div>${esc(r.summary)}</div>` : ""}
     ${head("EXPERIENCE")}
-    ${r.employers.map((e) => `<div><div style="font-weight:700">${esc(e.employer)}</div>
-      ${e.roles.map((x) => `<div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap"><span style="font-style:italic">${esc(x.title)}</span><span class="muted">${esc(x.dates)}</span></div>
+    ${r.employers.map((e) => `<div><div class="eh" style="font-weight:700">${esc(e.employer)}</div>
+      ${e.roles.map((x) => `<div class="th" style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap"><span style="font-style:italic">${esc(x.title)}</span><span class="muted">${esc(x.dates)}</span></div>
         ${x.lines.length ? `<ul>${x.lines.map((l) => `<li>${esc(l)}</li>`).join("")}</ul>` : ""}`).join("")}</div>`).join("")}
     ${r.education.length ? `${head("EDUCATION AND LICENCES")}<div>${r.education.map(esc).join("<br>")}</div>` : ""}
     ${r.skills.length ? `${head("SKILLS")}<div>${r.skills.map(esc).join(" · ")}</div>` : ""}
@@ -1545,7 +1611,8 @@ async function loadSample(which) {
 }
 
 function wireSample() {
-  if ($("printSample")) $("printSample").onclick = () => window.print();
+  if ($("dlSample")) $("dlSample").onclick = () => { ui.dl = !ui.dl; render(); };
+  document.querySelectorAll("[data-dl]").forEach((b) => b.onclick = () => downloadSample(b.dataset.dl));
   if ($("copySample")) $("copySample").onclick = async () => {
     try { await navigator.clipboard.writeText(sampleText(ui.sample)); ui.copied = true; render(); }
     catch (e) { say("Your browser didn't allow copying. Select the resume and copy it instead."); }
@@ -1569,6 +1636,166 @@ function wireMakers() {
       ui.making = null; render(); if (e.message !== "signed out") say(e.message);
     }
   });
+}
+
+// ---------------------------------------------------------------- the LinkedIn profile
+// Text to paste into LinkedIn, written from the record. LinkedIn has no way
+// for another site to change a profile. Titles and dates come straight from
+// the record; edits made here are for copying and aren't saved.
+
+const LI = () => S.linkedin;
+const OPEN_TO = [["active", "Everyone. I'm actively looking"], ["offers", "Recruiters, if they ask"],
+                 ["quiet", "Nobody. My employer can see this"]];
+const OPEN_HELP = {
+  active: "Your About section ends by saying you're looking for your next role. You can also turn on Open to Work in LinkedIn.",
+  offers: "Your About section ends with one line saying you'll talk about roles like your targets. It doesn't say you're leaving.",
+  quiet: "Nothing in your profile says you're looking. LinkedIn's Open to Work can still be set to show recruiters only."
+};
+
+function linkedinCard() {
+  const li = LI();
+  return `<div class="card stack-s" style="gap:8px">
+    <h2 style="font-size:20px">Your LinkedIn profile</h2>
+    <div class="muted" style="font-size:15px">${li.profile ? "Written from your record, ready to copy into LinkedIn one part at a time."
+      : "A headline, About section, a description for each job and your skills in order, written from your record for you to paste into LinkedIn."}</div>
+    <div><button class="btn2" data-go="linkedin">${li.profile ? "Open your LinkedIn profile" : "Write my LinkedIn profile"}</button></div></div>`;
+}
+
+const rewriteLabel = (what) => `${what} (${LI().rewrites_left} left)`;
+function liText(id, value) {
+  return ui.liEdits && id in ui.liEdits ? ui.liEdits[id] : value;
+}
+function liCount(id, n, max) {
+  return `<span class="lcount ${n > max ? "over" : ""}" id="${id}_n">${n.toLocaleString()} / ${max.toLocaleString()}</span>`;
+}
+function liBusy(section) {
+  return ui.liBusy === section ? `<div><span class="spin" aria-hidden="true"></span>Writing it from your record…</div>` : "";
+}
+function liFold(text) {
+  const n = LI().fold;
+  return `<mark>${esc(text.slice(0, n))}</mark>${text.length > n ? esc(text.slice(n, n + 120)) + "… see more" : ""}`;
+}
+
+function linkedinScreen() {
+  const li = LI(), p = li.profile, lim = li.limits;
+  const openTo = `<div class="card stack-s" style="gap:10px">
+      <div class="label">Before you start</div>
+      <div>Who should know you're open to a move?</div>
+      <div class="row" style="gap:8px">${OPEN_TO.map(([k, t]) => `<button class="chip" data-liopen="${k}" aria-pressed="${li.open === k}">${t}</button>`).join("")}</div>
+      <div class="small muted">${OPEN_HELP[li.open]}</div></div>`;
+  const head = `<div class="stack-s" style="gap:6px"><h1>Your LinkedIn profile</h1>
+      <p class="muted">Written from your career record. LinkedIn doesn't let other sites change your profile, so copy each part below and paste it into LinkedIn yourself. It takes about ten minutes.</p></div>`;
+  if (!p) {
+    return `<div class="stack">${head}${openTo}
+      <div class="done stack-s"><div>We'll write three headlines, your About section, a description for every job, and list your skills in the order to add them. Titles and dates come straight from your record.</div>
+        <div><button class="btn" id="liWrite" ${ui.liBusy ? "disabled" : ""}>Write my LinkedIn profile</button></div>${liBusy("all")}</div>
+      <div><button class="link" data-back>Back</button></div></div>`;
+  }
+  const busy = !!ui.liBusy, none = li.rewrites_left === 0;
+  const rw = (section, what) => `<button class="btn2" data-lirewrite="${esc(section)}" ${busy || none ? "disabled" : ""}>${rewriteLabel(what)}</button>`;
+  const about = liText("li_about", p.about);
+  const jobs = p.jobs.map((j, n) => {
+    const t = liText(`li_j${n}`, j.text);
+    return `<div class="stack-s" style="gap:8px;padding-top:14px;border-top:1px solid var(--soft-line)">
+      <div><span style="font-weight:600">${esc(j.title)}</span> · ${esc(j.employer)}</div>
+      <div class="row" style="gap:10px"><span class="lcount">${esc([j.dates, j.location].filter(Boolean).join(" · ") || "No dates on your record")}</span><span class="tag kept">From your record</span></div>
+      ${j.text || (ui.liEdits && `li_j${n}` in ui.liEdits) ? `<textarea id="li_j${n}" data-limax="${lim.job}" rows="8" aria-label="Description for ${esc(j.title)}">${esc(t)}</textarea>
+        <div class="ltools">${liCount(`li_j${n}`, t.length, lim.job)}<div class="row" style="gap:10px">${rw("job:" + j.key, "Write another version")}
+          <button class="btn" data-licopy="li_j${n}">Copy description</button></div></div>`
+      : `<div class="row">${rw("job:" + j.key, "Write this description")}</div>`}
+      ${liBusy("job:" + j.key)}</div>`;
+  }).join("");
+  const notes = [];
+  if (p.stale) notes.push(`<div class="note">Your record has changed since this profile was written. Write it again to bring in the changes, or rewrite just the parts that changed.
+      <div style="padding-top:8px"><button class="btn2" id="liWrite" ${busy || none ? "disabled" : ""}>${rewriteLabel("Write the whole profile again")}</button></div></div>`);
+  if (p.unsupported.length) notes.push(`<div class="note">We couldn't find ${p.unsupported.length === 1 ? "this figure" : "these figures"} in your record: ${esc(p.unsupported.join(", "))}. Check ${p.unsupported.length === 1 ? "it" : "them"} before you paste, or remove ${p.unsupported.length === 1 ? "it" : "them"}.</div>`);
+  return `<div class="stack">${head}
+    ${openTo}
+    <div class="note"><div style="font-weight:600">Your profile is public. Your resume isn't.</div>
+      <div>Anyone, including your current employer, can read LinkedIn. This profile uses the exact figures from your record. Before you paste, make sure none of them are confidential, such as budgets or revenue your employer hasn't made public.</div>
+      ${p.has_money ? `<label class="tick" style="border:0;padding:4px 0 0"><input type="checkbox" id="liSoften" ${li.soften ? "checked" : ""}> Write money figures as sizes instead (for example, "eight figures")</label>` : ""}</div>
+    ${notes.join("")}
+    <div class="card stack-s" style="gap:10px">
+      <div class="card-head"><h2 style="font-size:20px">Headline</h2><span class="small muted">Shown under your name everywhere</span></div>
+      <div class="small muted">Pick one. Recruiters search these words, so each leads with your title and your strongest skills.</div>
+      ${p.headlines.map((h, n) => `<label class="hopt"><input type="radio" name="lihead" value="${n}" ${n === p.headline ? "checked" : ""}><span>${esc(h)}
+        <span class="lcount ${h.length > lim.headline ? "over" : ""}" style="display:block;padding-top:4px">${h.length} / ${lim.headline}</span></span></label>`).join("")}
+      <div class="ltools">${rw("headline", "Write three more")}<button class="btn" id="liCopyHead">Copy headline</button></div>${liBusy("headline")}
+    </div>
+    <div class="card stack-s" style="gap:10px">
+      <div class="card-head"><h2 style="font-size:20px">About</h2><span class="small muted">In your own voice</span></div>
+      <div class="small muted">LinkedIn shows only the first few lines until someone taps "see more". The highlighted part is what most people read.</div>
+      <div class="fold" id="li_fold" aria-hidden="true">${liFold(about)}</div>
+      <label for="li_about">Edit before you copy</label>
+      <textarea id="li_about" data-limax="${lim.about}" rows="12">${esc(about)}</textarea>
+      <div class="ltools">${liCount("li_about", about.length, lim.about)}<div class="row" style="gap:10px">${rw("about", "Write another version")}
+        <button class="btn" data-licopy="li_about">Copy About</button></div></div>${liBusy("about")}
+    </div>
+    <div class="card stack-s" style="gap:10px">
+      <div class="card-head"><h2 style="font-size:20px">Experience</h2><span class="small muted">One description per job</span></div>
+      <div class="small muted">Recruiters compare this with your resume. Titles and dates come straight from your record so they always match. Only the description is new.</div>
+      ${jobs}
+    </div>
+    <div class="card stack-s" style="gap:10px">
+      <div class="card-head"><h2 style="font-size:20px">Skills</h2><span class="small muted">Add them in this order</span></div>
+      ${li.skills.length ? `<div class="small muted">Your skills, the ones your record shows most often first. LinkedIn shows the first few most prominently, so add those first.</div>
+      <ol class="lskills">${li.skills.map((k) => `<li>${esc(k.name)}${k.proof ? ` <span class="small muted">· ${plural(k.proof, "line")} show it</span>` : ""}</li>`).join("")}</ol>
+      <div><button class="btn" id="liCopySkills">Copy skills list</button></div>`
+      : `<div class="muted">Your record has no skills yet. Add them under Skills on your record, and they'll appear here.</div>`}
+    </div>
+    <div class="small muted">Edits you make on this page are for copying. They aren't saved to your record. ${none ? "You've used all your rewrites; you can still edit any part yourself." : ""}</div>
+    <div class="done stack-s" style="gap:4px">
+      <div style="font-weight:600">Pasted into LinkedIn</div>
+      ${[["headline", "Headline"], ["about", "About"], ["experience", "Experience"], ["skills", "Skills"]].map(([k, t]) =>
+        `<label class="tick"><input type="checkbox" data-lipasted="${k}" ${li.pasted.includes(k) ? "checked" : ""}> ${t}</label>`).join("")}
+    </div>
+    <div><button class="link" data-back>Back to your record</button></div>
+  </div>`;
+}
+
+async function liCopy(text, el) {
+  try { await navigator.clipboard.writeText(text); say(""); toastMsg("Copied. Paste it into LinkedIn."); }
+  catch (e) { if (el && el.select) { el.focus(); el.select(); } say("Your browser didn't allow copying. The text is selected; press Ctrl+C (or Cmd+C) to copy it."); }
+}
+function toastMsg(msg) {
+  ui.liToast = msg; const t = $("liToast");
+  if (t) { t.textContent = msg; t.hidden = false; clearTimeout(ui.liToastT); ui.liToastT = setTimeout(() => { if ($("liToast")) $("liToast").hidden = true; }, 2000); }
+}
+async function liSend(method, path, body, busy) {
+  if (ui.liBusy) return;
+  ui.liBusy = busy || ""; if (busy) render(); say("");
+  try {
+    const v = await send(method, path, body);
+    S = { ...S, linkedin: v };
+    if (busy) ui.liEdits = {};
+  } catch (e) { if (e.message !== "signed out") say(e.message); }
+  ui.liBusy = null; render();
+}
+
+function wireLinkedin() {
+  const li = LI();
+  $("main").insertAdjacentHTML("beforeend", `<div class="toast" id="liToast" role="status" hidden></div>`);
+  on("[data-liopen]", (el) => liSend("PUT", "/api/j/linkedin", { open: el.dataset.liopen }));
+  if ($("liWrite")) $("liWrite").onclick = () => liSend("POST", "/api/j/linkedin/write", {}, "all");
+  on("[data-lirewrite]", (el) => liSend("POST", "/api/j/linkedin/rewrite", { section: el.dataset.lirewrite }, el.dataset.lirewrite));
+  if ($("liSoften")) $("liSoften").onchange = () => { ui.liEdits = {}; liSend("PUT", "/api/j/linkedin", { soften: $("liSoften").checked }); };
+  document.querySelectorAll('input[name="lihead"]').forEach((r) => r.onchange = () =>
+    send("PUT", "/api/j/linkedin", { headline: +r.value }).then((v) => { S = { ...S, linkedin: v }; }).catch((e) => say(e.message)));
+  document.querySelectorAll("[data-lipasted]").forEach((c) => c.onchange = () =>
+    send("PUT", "/api/j/linkedin", { pasted: [...document.querySelectorAll("[data-lipasted]:checked")].map((x) => x.dataset.lipasted) })
+      .then((v) => { S = { ...S, linkedin: v }; }).catch((e) => say(e.message)));
+  document.querySelectorAll("textarea[data-limax]").forEach((t) => t.oninput = () => {
+    ui.liEdits = { ...(ui.liEdits || {}), [t.id]: t.value };
+    const max = +t.dataset.limax, c = $(t.id + "_n");
+    if (c) { c.textContent = `${t.value.length.toLocaleString()} / ${max.toLocaleString()}`; c.classList.toggle("over", t.value.length > max); }
+    if (t.id === "li_about" && $("li_fold")) $("li_fold").innerHTML = liFold(t.value);
+  });
+  on("[data-licopy]", (el) => { const t = $(el.dataset.licopy); liCopy(t.value, t); });
+  if ($("liCopyHead")) $("liCopyHead").onclick = () => {
+    const n = +(document.querySelector('input[name="lihead"]:checked')?.value || 0);
+    liCopy(li.profile.headlines[n]);
+  };
+  if ($("liCopySkills")) $("liCopySkills").onclick = () => liCopy(li.skills.map((k) => k.name).join("\n"));
 }
 
 // ---------------------------------------------------------------- actions
@@ -1600,6 +1827,7 @@ function wire() {
   if (screen === "review") wireReview();
   if (screen === "back") wireBack();
   if (screen === "sample") wireSample();
+  if (screen === "linkedin") wireLinkedin();
   wireMakers();
   if ($("continueQs")) $("continueQs").onclick = resume;
   on("[data-answers]", (el) => go("bg", { to: el.dataset.answers }));
@@ -1931,9 +2159,122 @@ function wireRecord() {
 }
 
 // ---------------------------------------------------------------- sign-in
+//
+// For a tester round the server runs Firebase sign-in: the person types their
+// email, Firebase emails a one-time link, and opening it signs them in here.
+// The token Firebase hands back is traded for the server's own session cookie
+// straight away, so Firebase keeps nothing signed in on this device.
 
-function signIn() {
+const FIREBASE_SDK = "https://www.gstatic.com/firebasejs/10.12.2/";
+const LINK_EMAIL = "rb_signin_email";
+let authCfg = null, fb = null;
+
+async function authConfig() {
+  if (!authCfg) {
+    try { authCfg = await (await fetch("/auth/config")).json(); }
+    catch { authCfg = { mode: "off" }; }
+  }
+  return authCfg;
+}
+
+async function firebase() {
+  if (!fb) {
+    const [app, auth] = await Promise.all([import(FIREBASE_SDK + "firebase-app.js"),
+                                           import(FIREBASE_SDK + "firebase-auth.js")]);
+    fb = { ...auth, auth: auth.getAuth(app.initializeApp((await authConfig()).firebase)) };
+  }
+  return fb;
+}
+
+const remember = (email) => { try { localStorage.setItem(LINK_EMAIL, email); } catch {} };
+const remembered = () => { try { return localStorage.getItem(LINK_EMAIL) || ""; } catch { return ""; } };
+const forget = () => { try { localStorage.removeItem(LINK_EMAIL); } catch {} };
+
+function linkError(e) {
+  const code = e && e.code || "";
+  if (/invalid-action-code|expired-action-code/.test(code))
+    return "That sign-in link has expired or was already used. Ask for a new one below.";
+  if (/invalid-email/.test(code)) return "That doesn't look like an email address.";
+  if (/too-many-requests|quota/.test(code)) return "Too many sign-in emails just now. Wait a few minutes and try again.";
+  if (/network/.test(code)) return "Couldn't reach the sign-in service. Check your connection and try again.";
+  return e && e.message && !code ? e.message : "Sign-in didn't work. Try again.";
+}
+
+async function signIn() {
   screen = "signin";
+  $("signout").hidden = true;
+  const cfg = await authConfig();
+  if (cfg.mode !== "firebase") return devSignIn();
+  $("main").innerHTML = `<div class="stack" style="padding-top:12px">
+    <h1>Sign in</h1>
+    <p class="muted">Enter the email address your invitation was sent to. We'll email you a link that signs you in; there's no password.</p>
+    <div class="stack-s"><label for="email">Email</label><input type="email" id="email" autocomplete="email" value="${esc(remembered())}"></div>
+    <div><button class="btn" id="login">Email me a sign-in link</button></div></div>`;
+  $("login").onclick = async () => {
+    say("");
+    const email = val("email").trim();
+    if (!email) { say("Enter your email address."); return; }
+    $("login").disabled = true;
+    try {
+      await send("POST", "/auth/invited", { email });
+      const f = await firebase();
+      await f.sendSignInLinkToEmail(f.auth, email, { url: location.origin + "/new", handleCodeInApp: true });
+      remember(email);
+      $("main").innerHTML = `<div class="stack" style="padding-top:12px">
+        <h1>Check your email</h1>
+        <p>We sent a sign-in link to <strong>${esc(email)}</strong>. Open it on this device to carry on.</p>
+        <p class="muted small">It can take a minute to arrive. If it doesn't, check your spam folder, or <button class="link tight" id="again">send another</button>.</p></div>`;
+      $("again").onclick = () => signIn();
+    } catch (e) {
+      say(linkError(e));
+      if ($("login")) $("login").disabled = false;
+    }
+  };
+}
+
+// Opened from the emailed link: finish signing in, then carry on as usual.
+// Returns false when this page load isn't a sign-in link.
+async function finishLink() {
+  if (!/[?&]oobCode=/.test(location.search)) return false;
+  if ((await authConfig()).mode !== "firebase") return false;
+  const f = await firebase();
+  if (!f.isSignInWithEmailLink(f.auth, location.href)) return false;
+  const complete = async (email) => {
+    say("");
+    try {
+      const cred = await f.signInWithEmailLink(f.auth, email, location.href);
+      await send("POST", "/auth/session", { id_token: await cred.user.getIdToken() });
+      await f.signOut(f.auth);
+      forget();
+      history.replaceState(null, "", "/new");
+      boot();
+    } catch (e) {
+      history.replaceState(null, "", "/new");
+      await signIn();
+      say(linkError(e));
+    }
+  };
+  const email = remembered();
+  if (email) { complete(email); return true; }
+  // The link was opened on a different device or browser: ask which email
+  // it was sent to, as Firebase requires.
+  screen = "signin";
+  $("main").innerHTML = `<div class="stack" style="padding-top:12px">
+    <h1>Finish signing in</h1>
+    <p class="muted">Confirm the email address this link was sent to.</p>
+    <div class="stack-s"><label for="email">Email</label><input type="email" id="email" autocomplete="email"></div>
+    <div><button class="btn" id="finish">Sign in</button></div></div>`;
+  $("finish").onclick = () => complete(val("email").trim());
+  return true;
+}
+
+$("signout").onclick = async () => {
+  try { await send("POST", "/auth/signout"); } catch {}
+  S = null;
+  signIn();
+};
+
+function devSignIn() {
   $("main").innerHTML = `<div class="stack" style="padding-top:12px">
     <h1>Sign in</h1>
     <div class="stack-s"><label for="email">Email</label><input type="email" id="email" autocomplete="email"></div>
@@ -1964,9 +2305,89 @@ async function boot() {
     screen = S.finish.first_build_done ? "record" : "back"; at = "";
   }
   history.replaceState({ screen, at, promo: ui.promo, depth: h.depth || 0 }, "", "#" + screen);
+  $("signout").hidden = (await authConfig()).mode !== "firebase";
+  startAnalytics((await authConfig()).ga);
   render();
+  if (S.review_notice) showReviewNotice();
 }
-boot();
+
+// ---------------------------------------------------------------- analytics
+
+// Google Analytics, on the test site only (the server sends an ID when
+// RB_GA_ID is set). It counts which screens testers reach and nothing else.
+// Every hit carries a made-up address built from the screen's name and no
+// referrer, so neither the real address (which holds the sign-in code while
+// a link is opened) nor anything typed is ever sent. It starts only after
+// sign-in, and stays off when the person turns it off at the foot of the
+// page or their browser sends Global Privacy Control.
+const GA_CHOICE = "plumbline-analytics";
+let gaId = null, gaLoaded = false, lastView = "";
+const gaChoice = () => { try { return localStorage.getItem(GA_CHOICE); } catch { return null; } };
+const gaRemember = (v) => { try { localStorage.setItem(GA_CHOICE, v); } catch {} };
+const gaOff = () => navigator.globalPrivacyControl === true || gaChoice() === "off";
+
+function startAnalytics(id) {
+  gaId = id || null;
+  analyticsNote();
+  if (!gaId || gaOff()) return;
+  window["ga-disable-" + gaId] = false;
+  if (gaLoaded) return;
+  gaLoaded = true;
+  window.dataLayer = window.dataLayer || [];
+  window.gtag = function () { dataLayer.push(arguments); };
+  gtag("consent", "default", { ad_storage: "denied", ad_user_data: "denied",
+                               ad_personalization: "denied", analytics_storage: "granted" });
+  gtag("js", new Date());
+  gtag("config", gaId, { send_page_view: false, allow_google_signals: false,
+                         allow_ad_personalization_signals: false, cookie_domain: location.hostname,
+                         page_location: location.origin + "/new", page_referrer: "" });
+  const s = document.createElement("script");
+  s.async = true;
+  s.src = "https://www.googletagmanager.com/gtag/js?id=" + encodeURIComponent(gaId);
+  document.head.appendChild(s);
+  lastView = "";
+  track(screen);
+}
+
+function track(view) {
+  if (!gaLoaded || !gaId || gaOff() || view === lastView || !SCREENS.includes(view)) return;
+  lastView = view;
+  gtag("event", "page_view", { page_location: location.origin + "/new/" + view,
+                               page_title: view, page_referrer: "" });
+}
+
+function analyticsNote() {
+  $("gaNote").hidden = !gaId;
+  if (!gaId) return;
+  const gpc = navigator.globalPrivacyControl === true;
+  $("gaToggle").hidden = gpc;
+  $("gaToggle").textContent = gaOff() ? "Turn on analytics" : "Turn off analytics";
+  if (gpc) $("gaStatus").textContent = "Analytics is off: your browser sends Global Privacy Control.";
+}
+
+$("gaToggle").onclick = () => {
+  if (gaOff()) {
+    gaRemember("on");
+    startAnalytics(gaId);
+    $("gaStatus").textContent = "Analytics is on.";
+  } else {
+    gaRemember("off");
+    window["ga-disable-" + gaId] = true;
+    analyticsNote();
+    $("gaStatus").textContent = "Analytics is off for this browser.";
+  }
+};
+
+// Shown once on the test site. Closing it any way counts as read, because
+// the page behind stays usable either way and asking twice adds nothing.
+function showReviewNotice() {
+  const d = $("reviewNotice");
+  $("reviewNoticeOk").onclick = () => d.close();
+  d.onclose = () => { S.review_notice = false; send("POST", "/api/j/notice/seen").catch(() => {}); };
+  d.showModal();
+  $("reviewNoticeOk").focus();
+}
+finishLink().then((link) => { if (!link) boot(); }, () => boot());
 
 // ---------------------------------------------------------------- education, skills, beyond: actions
 

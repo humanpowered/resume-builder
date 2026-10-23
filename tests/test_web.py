@@ -55,6 +55,29 @@ class Web(unittest.TestCase):
         self.assertNotIn("Riverside", b.get("/api/record").json()["markdown"])
         self.assertFalse(b.get("/api/record").json()["exists"])
 
+    def test_the_resume_on_screen_downloads_as_word_or_pdf(self):
+        c = self.client("a@example.com")
+        res = {"name": "Ann Lee", "employers": [{"employer": "Riverside", "roles": [
+            {"title": "RN", "dates": "2019 - Present", "lines": ["Cut wait times 20%"]}]}]}
+        r = c.post("/api/j/sample/file", json={"sample": res, "format": "docx"})
+        self.assertEqual(r.status_code, 200)
+        self.assertIn('filename="Ann Lee resume.docx"', r.headers["content-disposition"])
+        self.assertEqual(r.content[:2], b"PK")
+        r = c.post("/api/j/sample/file", json={"sample": res, "format": "pdf"})
+        self.assertEqual(r.content[:5], b"%PDF-")
+        self.assertEqual(c.post("/api/j/sample/file", json={"sample": res, "format": "exe"}).status_code, 422)
+        self.assertEqual(TestClient(self.appmod.app).post(
+            "/api/j/sample/file", json={"sample": res}).status_code, 401)
+
+    def test_the_whole_record_downloads_as_word(self):
+        c = self.client("a@example.com")
+        self.seed(c)
+        r = c.get("/api/me/record.docx")
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.content[:2], b"PK")
+        self.assertIn("career record.docx", r.headers["content-disposition"])
+        self.assertEqual(TestClient(self.appmod.app).get("/api/me/record.docx").status_code, 401)
+
     def test_the_page_gets_the_opening_card_and_phone_tip(self):
         r = self.client("a@example.com").get("/api/record").json()
         self.assertIn("15 to 20 minutes a job", r["intro"])
@@ -265,3 +288,121 @@ class Web(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+@unittest.skipIf(TestClient is None, "fastapi not installed")
+class FirebaseSignIn(unittest.TestCase):
+    """Tester sign-in: Firebase proves the email, the invite list decides who
+    gets in, and the service's own signed cookie keeps them signed in."""
+
+    ENV = {"RB_FIREBASE_PROJECT": "rb-test", "RB_FIREBASE_API_KEY": "web-key",
+           "RB_SESSION_SECRET": "s3cret", "RB_INVITE_EMAILS": "Ann@Example.com, bo@example.com"}
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        os.environ["RB_DB"] = os.path.join(self.tmp.name, "t.sqlite3")
+        os.environ.pop("RB_DEV", None)
+        os.environ.update(self.ENV)
+        import web.app as appmod
+        self.appmod = importlib.reload(appmod)
+        self.claims = {}
+        self.appmod.verify_token = lambda token: self.claims[token]
+
+    def tearDown(self):
+        self.tmp.cleanup()
+        for k in self.ENV:
+            os.environ.pop(k, None)
+
+    def signed_in(self, email, verified=True):
+        c = TestClient(self.appmod.app, base_url="https://testserver")
+        self.claims["tok-" + email] = {"email": email, "email_verified": verified}
+        return c, c.post("/auth/session", json={"id_token": "tok-" + email})
+
+    def test_the_page_learns_firebase_settings_but_never_the_secret(self):
+        cfg = TestClient(self.appmod.app).get("/auth/config").json()
+        self.assertEqual(cfg["mode"], "firebase")
+        self.assertEqual(cfg["firebase"]["authDomain"], "rb-test.firebaseapp.com")
+        self.assertNotIn("s3cret", str(cfg))
+
+    def test_the_page_gets_an_analytics_id_only_when_one_is_set(self):
+        self.assertIsNone(TestClient(self.appmod.app).get("/auth/config").json()["ga"])
+        for value, sent in (("G-ABC123XYZ9", "G-ABC123XYZ9"), ("<script>", None)):
+            os.environ["RB_GA_ID"] = value
+            try:
+                appmod = importlib.reload(self.appmod)
+                self.assertEqual(TestClient(appmod.app).get("/auth/config").json()["ga"], sent)
+            finally:
+                os.environ.pop("RB_GA_ID", None)
+
+    def test_only_invited_emails_are_sent_a_link(self):
+        c = TestClient(self.appmod.app)
+        self.assertEqual(c.post("/auth/invited", json={"email": " ANN@example.com "}).status_code, 200)
+        r = c.post("/auth/invited", json={"email": "eve@example.com"})
+        self.assertEqual(r.status_code, 403)
+        self.assertIn("tester list", r.json()["detail"])
+
+    def test_an_invited_tester_signs_in_and_reaches_only_their_record(self):
+        ann, r = self.signed_in("ann@example.com")
+        self.assertEqual(r.status_code, 200)
+        md = "# R\n\n## Roles\n\n### Riverside — RN\n\n- **Dates:** 2019 - Present\n"
+        self.assertEqual(ann.put("/api/record", json={"markdown": md}).status_code, 200)
+        bo, _ = self.signed_in("bo@example.com")
+        self.assertNotIn("Riverside", bo.get("/api/record").json()["markdown"])
+        self.assertIn("Riverside", ann.get("/api/record").json()["markdown"])
+
+    def test_uninvited_unverified_or_bad_tokens_get_no_session(self):
+        _, r = self.signed_in("eve@example.com")
+        self.assertEqual(r.status_code, 403)
+        _, r = self.signed_in("ann@example.com", verified=False)
+        self.assertEqual(r.status_code, 400)
+        c = TestClient(self.appmod.app, base_url="https://testserver")
+        self.assertEqual(c.post("/auth/session", json={"id_token": "forged"}).status_code, 400)
+        self.assertEqual(c.get("/api/record").status_code, 401)
+
+    def test_a_tampered_cookie_or_the_dev_login_does_not_get_in(self):
+        ann, _ = self.signed_in("ann@example.com")
+        cookie = ann.cookies.get("rb_session")
+        enc, issued, sig = cookie.split(".")
+        import base64
+        bo = base64.urlsafe_b64encode(b"bo@example.com").decode()
+        c = TestClient(self.appmod.app, base_url="https://testserver")
+        c.cookies.set("rb_session", f"{bo}.{issued}.{sig}")
+        self.assertEqual(c.get("/api/record").status_code, 401)
+        c.cookies.clear()
+        c.cookies.set("rb_user", "ann@example.com")
+        self.assertEqual(c.get("/api/record").status_code, 401)
+        self.assertEqual(c.post("/dev/login", json={"email": "ann@example.com"}).status_code, 404)
+
+    def test_rb_dev_left_on_does_not_reopen_the_development_sign_in(self):
+        os.environ["RB_DEV"] = "1"
+        try:
+            self.appmod = importlib.reload(self.appmod)
+            c = TestClient(self.appmod.app, base_url="https://testserver")
+            self.assertEqual(c.post("/dev/login", json={"email": "ann@example.com"}).status_code, 404)
+            c.cookies.set("rb_user", "ann@example.com")
+            self.assertEqual(c.get("/api/record").status_code, 401)
+        finally:
+            os.environ.pop("RB_DEV")
+
+    def test_sessions_end_after_two_weeks_away_or_when_taken_off_the_list(self):
+        ann, _ = self.signed_in("ann@example.com")
+        cookie = ann.cookies.get("rb_session")
+        self.assertEqual(self.appmod._read_session(cookie)[0], "ann@example.com")
+        real = self.appmod.time.time
+        try:
+            self.appmod.time.time = lambda: real() + 15 * 86400
+            self.assertEqual(self.appmod._read_session(cookie)[0], "")
+        finally:
+            self.appmod.time.time = real
+        self.appmod.INVITED.discard("ann@example.com")
+        self.assertEqual(ann.get("/api/record").status_code, 401)
+
+    def test_signing_out_ends_the_session(self):
+        ann, _ = self.signed_in("ann@example.com")
+        self.assertEqual(ann.get("/api/record").status_code, 200)
+        ann.post("/auth/signout")
+        self.assertEqual(ann.get("/api/record").status_code, 401)
+
+    def test_the_old_page_sends_testers_to_the_new_one(self):
+        r = TestClient(self.appmod.app).get("/", follow_redirects=False)
+        self.assertEqual(r.headers["location"], "/new")
