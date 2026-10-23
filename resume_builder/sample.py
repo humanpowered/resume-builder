@@ -11,15 +11,25 @@ The model chooses; it never writes. It is given the record's lines and
 skills by id and returns ids, so every word on a sample is a word already on
 the record, and a sample can't claim anything the person didn't say.
 """
+import os
 from datetime import datetime, timezone
 
 from . import journey, llm, posting as postings, skills
 from . import record as mr
 
 SAMPLES = "journey.samples"
-FREE_TAILORED = 3
 MAX_LINES, MAX_PER_JOB, MAX_SKILLS = 18, 6, 12
 MAX_POSTING = 15000
+
+
+def free_tailored() -> int:
+    """How many samples for a posting each person gets: RB_FREE_TAILORED,
+    20 unless set."""
+    try:
+        return max(0, int(os.environ.get("RB_FREE_TAILORED", 20)))
+    except ValueError:
+        return 20
+
 EXTRA_HEADINGS = (("awards", "Awards"), ("publications", "Talks and publications"),
                   ("memberships", "Boards and memberships"), ("training", "Training"))
 
@@ -189,8 +199,9 @@ def tailored(store, rec: mr.Record, posting: str) -> dict:
     """One paid call: a resume for one posting. A few are free."""
     posting = (posting or "").strip()
     st = _state(store)
-    if len(st["tailored"]) >= FREE_TAILORED:
-        raise ValueError(f"You've used your {FREE_TAILORED} free samples written for a posting")
+    free = free_tailored()
+    if len(st["tailored"]) >= free:
+        raise ValueError(f"You've used your {free} free samples written for a posting")
     # A link is read before anything is spent; one that can't be read raises
     # with words for the person, and the free sample isn't used.
     link = ""
@@ -213,7 +224,7 @@ def tailored(store, rec: mr.Record, posting: str) -> dict:
 def view(store) -> dict:
     st = _state(store)
     return {"general": st["general"], "tailored": st["tailored"],
-            "free_left": max(0, FREE_TAILORED - len(st["tailored"])), "free": FREE_TAILORED}
+            "free_left": max(0, free_tailored() - len(st["tailored"])), "free": free_tailored()}
 
 
 def as_text(res: dict) -> str:
