@@ -24,7 +24,7 @@ ANSWERS = "journey.answers"
 
 SCREENS = ("welcome", "upload", "check", "targets", "bg", "lines", "line", "more", "end",
            "stopped", "bgdone", "record", "edu", "skills", "beyond", "later",
-           "story", "summary", "complete", "review")
+           "story", "summary", "complete", "review", "linkedin")
 CONTACT_FIELDS = ("Name", "Email", "Telephone", "Location", "Linkedin", "Website")
 RESUME, STORY = "resume", "story"
 
