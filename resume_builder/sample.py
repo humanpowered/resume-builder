@@ -11,7 +11,9 @@ The model chooses; it never writes. It is given the record's lines and
 skills by id and returns ids, so every word on a sample is a word already on
 the record, and a sample can't claim anything the person didn't say.
 """
+import hashlib
 import os
+import secrets
 from datetime import datetime, timezone
 
 from . import journey, llm, posting as postings, skills
@@ -76,7 +78,7 @@ def _layout(rec: mr.Record, chosen: dict, skill_names: list, kind: str, headline
                  for r in rec.roles if r.outside()]
     if volunteer:
         extras.append({"heading": "Volunteering and projects", "lines": volunteer})
-    return {"kind": kind, "name": journey.clean(rec.contact.get("Name", "")), "headline": headline,
+    return {"id": "smp_" + secrets.token_hex(6), "kind": kind, "name": journey.clean(rec.contact.get("Name", "")), "headline": headline,
             "contact": _contact(rec), "summary": rec.summary,
             "employers": employers, "education": list(rec.education) + list(rec.certifications),
             "skills": skill_names, "extras": extras,
@@ -144,6 +146,10 @@ LINES
 SKILLS
 {skills}"""
 
+# Changes whenever the prompt's wording does, so usage events can tell which
+# version of the prompt made a sample.
+PROMPT_VERSION = hashlib.sha1(PROMPT.encode()).hexdigest()[:8]
+
 
 def _choose(store, rec: mr.Record, purpose: str, match: str, what: str) -> tuple:
     lines, skill_ids = _pool(rec)
@@ -157,7 +163,7 @@ def _choose(store, rec: mr.Record, purpose: str, match: str, what: str) -> tuple
         purpose=purpose, match=match, what=what, max_lines=MAX_LINES, per_job=MAX_PER_JOB,
         max_skills=MAX_SKILLS, lines=listing,
         skills="\n".join(f"[{k}] {v}" for k, v in skill_ids.items()) or "(none)")}],
-        3000, "sample", schema=SCHEMA)
+        3000, "sample", schema=SCHEMA, version=PROMPT_VERSION)
     # Only ids that exist count, each once, within the limits, under its own job.
     chosen, used, total = {}, set(), 0
     for j in out.get("jobs") or []:
@@ -225,6 +231,10 @@ def view(store) -> dict:
     st = _state(store)
     return {"general": st["general"], "tailored": st["tailored"],
             "free_left": max(0, free_tailored() - len(st["tailored"])), "free": free_tailored()}
+
+
+def bullet_count(res: dict) -> int:
+    return sum(len(r["lines"]) for e in res["employers"] for r in e["roles"])
 
 
 def as_text(res: dict) -> str:

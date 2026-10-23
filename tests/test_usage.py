@@ -15,7 +15,7 @@ from unittest import mock
 import helpers  # noqa: F401
 
 from fakes import FakeBackend
-from resume_builder import llm, usage
+from resume_builder import llm, sample, usage
 from test_journey import SOURCE, TestClient, extract_reply
 from test_sample import choice
 
@@ -24,7 +24,8 @@ ONE_CALL = llm.cost(llm.model(), 10, 5)
 
 
 @unittest.skipIf(TestClient is None, "fastapi not installed")
-class Limits(unittest.TestCase):
+class Site(unittest.TestCase):
+    """The test site with limits and events on, its output captured."""
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -58,6 +59,10 @@ class Limits(unittest.TestCase):
 
     def events(self):
         return [json.loads(l) for l in self.out.getvalue().splitlines() if l.startswith("{")]
+
+
+
+class Limits(Site):
 
     def test_a_tester_over_their_cap_is_told_and_keeps_their_record(self):
         self.app(RB_CAP_TESTER_USD=ONE_CALL / 2)
@@ -166,6 +171,115 @@ class Limits(unittest.TestCase):
         from docx import Document
         doc = Document(os.path.join(out, "pat@example.com", "career record.docx"))
         self.assertIn("Riverside Hospital", "\n".join(p.text for p in doc.paragraphs))
+
+
+class FeedbackEvents(Site):
+    """The events that measure how well drafts and questions work. Each
+    carries counts, fixed choices and random ids; never record text."""
+
+    def setUp(self):
+        super().setUp()
+        self.app()
+        self.c = self.sign_in("pat@example.com")
+
+    def post(self, path, **body):
+        with contextlib.redirect_stdout(self.out):
+            r = self.c.post(path, json=body)
+        self.assertEqual(r.status_code, 200, r.text)
+        return r.json()
+
+    def named(self, name):
+        return [e for e in self.events() if e["rb_event"] == name]
+
+    def test_a_sample_and_its_download_share_an_id_and_name_the_prompt(self):
+        made = self.sample(self.c).json()["sample"]
+        self.assertTrue(made["id"].startswith("smp_"))
+        ev = self.named("sample_made")[-1]
+        self.assertEqual((ev["sample_id"], ev["kind"], ev["prompt_version"]),
+                         (made["id"], "general", sample.PROMPT_VERSION))
+        self.assertEqual(ev["bullets"], sample.bullet_count(made))
+        calls = [e for e in self.named("model_call") if e["what"] == "sample"]
+        self.assertEqual(calls[-1]["prompt_version"], sample.PROMPT_VERSION)
+        with contextlib.redirect_stdout(self.out):
+            r = self.c.post("/api/j/sample/file", json={"sample": made, "format": "docx",
+                                                         "sample_id": made["id"]})
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(self.named("download")[-1]["sample_id"], made["id"])
+
+    def test_a_download_without_an_id_still_works(self):
+        with contextlib.redirect_stdout(self.out):
+            r = self.c.post("/api/j/sample/file", json={"sample": {"name": "Pat", "employers": []},
+                                                         "format": "pdf"})
+        self.assertEqual(r.status_code, 200)
+        self.assertNotIn("sample_id", self.named("download")[-1])
+
+    def test_a_skipped_question_names_the_question_never_the_job(self):
+        steps = self.c.get("/api/j/state").json()["steps"]
+        self.post("/api/j/answer", id=steps[0]["id"], status="skipped")
+        self.post("/api/j/answer", id=steps[2]["id"], status="answered", text="  ")
+        self.post("/api/j/answer", id=steps[3]["id"], status="na")
+        self.post("/api/j/answer", id=steps[4]["id"], status="answered", text="Hit every target")
+        got = [(e["question_id"], e["reason"]) for e in self.named("question_skipped")]
+        self.assertEqual(got, [("Company", "skipped"), ("Challenge", "doesnt_apply"),
+                               ("Authority", "doesnt_apply")])
+        self.assertNotIn("Riverside", self.out.getvalue())
+        self.assertNotIn("Hit every target", self.out.getvalue())
+
+    def stronger(self, line=1):
+        w = self.c.get("/api/j/state").json()["work"]["jobs"][0]
+        key = w["lines"][line]["key"]
+        self.post("/api/j/line/answers", job=w["key"], line=key, answers={
+            "result": "Errors dropped", "number": "from 9 a month to 2"})
+        llm.use_backend(FakeBackend({"line": "Cut handoff errors from 9 a month to 2"}))
+        self.post("/api/j/line/stronger", job=w["key"], line=key)
+        return w["key"], key
+
+    def test_a_stronger_line_taken_as_written(self):
+        job, key = self.stronger()
+        self.post("/api/j/line/approve", job=job, line=key, text="Cut handoff errors from 9 a month to 2")
+        self.assertEqual([e["result"] for e in self.named("stronger_used")], ["taken"])
+
+    def test_a_stronger_line_edited_before_approving(self):
+        job, key = self.stronger()
+        self.post("/api/j/line/approve", job=job, line=key, text="Cut handoff errors from 9 to 2 a month")
+        self.assertEqual([e["result"] for e in self.named("stronger_used")], ["edited"])
+        self.assertNotIn("9 to 2 a month", self.out.getvalue())
+
+    def test_a_stronger_line_turned_down_by_keeping_the_original(self):
+        job, key = self.stronger()
+        self.post("/api/j/line/status", job=job, line=key, status="kept")
+        self.assertEqual([e["result"] for e in self.named("stronger_used")], ["turned_down"])
+
+    def test_keeping_a_line_with_no_stronger_version_logs_nothing(self):
+        w = self.c.get("/api/j/state").json()["work"]["jobs"][0]
+        self.post("/api/j/line/status", job=w["key"], line=w["lines"][0]["key"], status="kept")
+        self.post("/api/j/line/status", job=w["key"], line=w["lines"][1]["key"], status="skipped")
+        self.assertEqual(self.named("stronger_used"), [])
+
+    def review(self):
+        from test_finish import NEWER, newer_reply
+        self.c.put("/api/j/step", json={"screen": "check"})
+        llm.use_backend(FakeBackend(newer_reply()))
+        with contextlib.redirect_stdout(self.out):
+            s = self.c.post("/api/j/import", files={"file": ("newer.txt", NEWER.encode())}).json()
+        self.assertTrue(s["reviewing"])
+        return s["review"]["items"]
+
+    def test_a_reviewed_upload_counts_the_lines_offered_and_kept(self):
+        items = self.review()
+        lines = [x["id"] for x in items if x["id"].startswith("line:")]
+        self.post("/api/j/review/apply", ids=lines[:1])
+        ev = self.named("import_reviewed")[-1]
+        self.assertEqual((ev["lines_found"], ev["lines_kept"], ev["lines_removed"]),
+                         (len(lines), 1, len(lines) - 1))
+
+    def test_a_dropped_review_keeps_none_and_nothing_waiting_logs_nothing(self):
+        items = self.review()
+        found = sum(1 for x in items if x["id"].startswith("line:"))
+        self.post("/api/j/review/drop")
+        self.post("/api/j/review/drop")
+        self.assertEqual([(e["lines_found"], e["lines_kept"]) for e in self.named("import_reviewed")],
+                         [(found, 0)])
 
 
 def usage_conn():

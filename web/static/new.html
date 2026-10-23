@@ -1555,7 +1555,7 @@ async function downloadSample(format) {
   ui.dling = true; render();
   try {
     await saveFile("/api/j/sample/file", { method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ sample: ui.sample, format }) });
+      body: JSON.stringify({ sample: ui.sample, format, sample_id: ui.sample.id || "" }) });
   } catch (e) { say(e.message); }
   finally { ui.dling = false; render(); }
 }
