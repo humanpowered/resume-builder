@@ -19,6 +19,7 @@ import hmac
 import io
 import json
 import os
+import re
 import sys
 import tempfile
 import time
@@ -63,6 +64,10 @@ AUTH_ON = bool(FIREBASE["projectId"] and FIREBASE["apiKey"] and SESSION_SECRET)
 LIMITS = AUTH_ON or os.environ.get("RB_LIMITS") == "1"
 INVITED = {e.strip().lower() for e in os.environ.get("RB_INVITE_EMAILS", "").split(",")
            if e.strip()}
+# Google Analytics measurement ID for the test site's screen counts. Only sent
+# to the page when real sign-in is on, so local copies never load it.
+GA_ID = os.environ.get("RB_GA_ID", "").strip()
+GA_ID = GA_ID if AUTH_ON and re.fullmatch(r"G-[A-Z0-9]{4,16}", GA_ID) else ""
 SESSION_COOKIE = "rb_session"
 SESSION_DAYS = 14
 
@@ -208,7 +213,8 @@ NOT_INVITED = ("That email isn't on the tester list. Use the address your invita
 @app.get("/auth/config")
 def auth_config():
     return {"mode": "firebase" if AUTH_ON else "dev" if DEV else "off",
-            "firebase": FIREBASE if AUTH_ON else None}
+            "firebase": FIREBASE if AUTH_ON else None,
+            "ga": GA_ID or None}
 
 
 class Invited(BaseModel):

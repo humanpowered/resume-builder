@@ -324,6 +324,16 @@ class FirebaseSignIn(unittest.TestCase):
         self.assertEqual(cfg["firebase"]["authDomain"], "rb-test.firebaseapp.com")
         self.assertNotIn("s3cret", str(cfg))
 
+    def test_the_page_gets_an_analytics_id_only_when_one_is_set(self):
+        self.assertIsNone(TestClient(self.appmod.app).get("/auth/config").json()["ga"])
+        for value, sent in (("G-ABC123XYZ9", "G-ABC123XYZ9"), ("<script>", None)):
+            os.environ["RB_GA_ID"] = value
+            try:
+                appmod = importlib.reload(self.appmod)
+                self.assertEqual(TestClient(appmod.app).get("/auth/config").json()["ga"], sent)
+            finally:
+                os.environ.pop("RB_GA_ID", None)
+
     def test_only_invited_emails_are_sent_a_link(self):
         c = TestClient(self.appmod.app)
         self.assertEqual(c.post("/auth/invited", json={"email": " ANN@example.com "}).status_code, 200)
