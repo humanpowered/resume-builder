@@ -19,6 +19,7 @@ not into the repository, the image, or a chat.
 | `RB_GA_ID` | Plain variable, optional | Google Analytics measurement ID for the test app's own data stream (`G-...`); leave unset to keep analytics off |
 | `RB_CAP_TESTER_USD`, `RB_CAP_MONTH_USD`, `RB_CAP_CALLS_HOUR`, `RB_CAP_OVERRIDES` | Plain variables, optional | Defaults: 5, 150, 60, none |
 | `RB_FREE_TAILORED` | Plain variable, optional | Samples written for a posting each tester gets; default 20 |
+| `RB_LINKEDIN_REWRITES` | Plain variable, optional | LinkedIn profile rewrites each tester gets after the first profile; default 10 |
 
 Use a database password of letters, digits and only the symbols `- _ . ~`,
 so it can sit in the address without escaping.

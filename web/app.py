@@ -33,7 +33,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from resume_builder import export as X  # noqa: E402
-from resume_builder import finish, health, sample, importer, interview, journey, matching, resume_file, sections, skills  # noqa: E402
+from resume_builder import finish, health, sample, importer, interview, journey, linkedin, matching, resume_file, sections, skills  # noqa: E402
 from resume_builder import summary as summary_mod  # noqa: E402
 from resume_builder import llm, usage  # noqa: E402
 from resume_builder import record as mr  # noqa: E402
@@ -808,7 +808,7 @@ def _jstate(store: SqlStore, rec: mr.Record | None = None) -> dict:
             "finish": finish.progress(store, rec, work),
             "suggestions": finish.suggestions(store, rec, work, skill_view, summary),
             "updated": store.updated(), "review": finish.review_view(store, rec),
-            "samples": sample.view(store),
+            "samples": sample.view(store), "linkedin": linkedin.view(store, rec),
             **view}
 
 
@@ -1161,6 +1161,60 @@ def j_sample_general(store: SqlStore = Depends(store_for)):
 @app.post("/api/j/sample/tailor")
 def j_sample_tailor(body: JPosting, store: SqlStore = Depends(store_for)):
     return _paid_sample(store, lambda rec: sample.tailored(store, rec, body.text))
+
+
+# The LinkedIn profile: text to copy into LinkedIn, kept inside this tool.
+# LinkedIn has no way for another site to change a profile.
+
+class JLinkedIn(BaseModel):
+    section: str = Field("", max_length=400)
+    headline: int | None = None
+    open: str | None = Field(None, max_length=10)
+    soften: bool | None = None
+    pasted: list[str] | None = Field(None, max_length=10)
+
+
+@app.get("/api/j/linkedin")
+def j_linkedin(store: SqlStore = Depends(store_for)):
+    return linkedin.view(store, store.load_record())
+
+
+def _paid_linkedin(store, make):
+    rec = store.load_record()
+    if not finish.progress(store, rec, journey.work_view(store, rec))["first_build_done"]:
+        raise HTTPException(400, "Finish your record first. Your LinkedIn profile is written from all of it")
+    try:
+        out = make(rec)
+    except json.JSONDecodeError:
+        raise HTTPException(502, "We couldn't write your profile just now. Nothing was changed; "
+                                 "try again in a moment.")
+    except LookupError as exc:
+        raise HTTPException(404, str(exc).strip("'\""))
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    except llm.LimitReached:
+        raise
+    except Exception:
+        raise HTTPException(502, "We couldn't write your profile just now. Nothing was changed; "
+                                 "try again in a moment.")
+    _event(store, "linkedin_written")
+    return out
+
+
+@app.post("/api/j/linkedin/write")
+def j_linkedin_write(store: SqlStore = Depends(store_for)):
+    return _paid_linkedin(store, lambda rec: linkedin.write(store, rec))
+
+
+@app.post("/api/j/linkedin/rewrite")
+def j_linkedin_rewrite(body: JLinkedIn, store: SqlStore = Depends(store_for)):
+    return _paid_linkedin(store, lambda rec: linkedin.rewrite(store, rec, body.section))
+
+
+@app.put("/api/j/linkedin")
+def j_linkedin_choose(body: JLinkedIn, store: SqlStore = Depends(store_for)):
+    return _j(linkedin.choose, store, store.load_record(), headline=body.headline,
+              open_to=body.open, soften=body.soften, pasted=body.pasted)
 
 
 class JRole(BaseModel):
